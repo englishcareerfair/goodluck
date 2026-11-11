@@ -59,7 +59,17 @@ const savedInitialTheme = (function() {
 const systemPrefersLight = (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
 const initialResolvedTheme = savedInitialTheme ? (savedInitialTheme === 'light' ? 'light' : 'dark') : (systemPrefersLight ? 'light' : 'dark');
 
+function getActiveAdminToken() {
+  if (typeof STATE !== 'undefined' && STATE.adminLockedInSession) return '';
+  try {
+    return (typeof STATE !== 'undefined' ? STATE.adminKey : '') || sessionStorage.getItem('cf_admin_session') || localStorage.getItem('cf_admin_session') || '';
+  } catch {
+    return (typeof STATE !== 'undefined' ? STATE.adminKey : '') || '';
+  }
+}
+
 const STATE = window.STATE = {
+  adminLockedInSession: false,
   theme: initialResolvedTheme,
   activeTab: 'hero',
   studentName: '',
@@ -335,7 +345,7 @@ async function fetchApi(endpoint, options = {}, maybeBody = null) {
   }
 
   const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
-  const adminKey = STATE.adminKey || sessionStorage.getItem('cf_admin_session') || localStorage.getItem('cf_admin_session') || '';
+  const adminKey = getActiveAdminToken();
   if (adminKey && !headers['Authorization']) {
     headers['Authorization'] = 'Bearer ' + adminKey;
   }
@@ -1757,7 +1767,7 @@ function updateHeaderBookletVisibility() {
   const btn = document.getElementById('btn-header-dossier');
   if (!btn) return;
   // Admin users get booklet access from the very start
-  const isAdmin = Boolean(STATE.adminKey || sessionStorage.getItem('cf_admin_session') || localStorage.getItem('cf_admin_session'));
+  const isAdmin = Boolean(getActiveAdminToken());
   // For non-admin visitors, booklet is only available during active session after completing tour/feedback,
   // and is removed once the site is reloaded
   const isUnlockedInSession = sessionStorage.getItem('cf_booklet_session_unlocked') === 'true';
@@ -12106,7 +12116,7 @@ async function loadLeaderboard(filterPack = 'All') {
   }
 
   const isMobileScreen = window.innerWidth <= 768;
-  const isAdmin = !isMobileScreen && Boolean(STATE.adminKey || localStorage.getItem('cf_admin_session') || sessionStorage.getItem('cf_admin_session'));
+  const isAdmin = !isMobileScreen && Boolean(getActiveAdminToken());
 
   scores.forEach((sc, i) => {
     const tr = document.createElement('tr');
@@ -12382,7 +12392,7 @@ async function loadFeedbackWall() {
         : '';
 
       const isMobileScreen = window.innerWidth <= 768;
-  const isAdmin = !isMobileScreen && Boolean(STATE.adminKey || localStorage.getItem('cf_admin_session') || sessionStorage.getItem('cf_admin_session'));
+  const isAdmin = !isMobileScreen && Boolean(getActiveAdminToken());
       const adminActionsHtml = isAdmin
         ? `<div class="admin-feedback-actions">
              <button type="button" class="btn btn-sm btn-admin-feedback" title="Change User Name (Admin)" style="background:rgba(0,240,255,0.12);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" data-id="${escapeHtml(String(f.id || ''))}" data-name="${encodeURIComponent(f.name || '')}" data-comment="${encodeURIComponent(f.comment || '')}" onclick="window.adminChangeFeedbackName(this.dataset.id, decodeURIComponent(this.dataset.name || ''), decodeURIComponent(this.dataset.comment || ''))">
@@ -12605,14 +12615,14 @@ function renderAdminView() {
   const workspaceScreen = $('#admin-workspace-screen');
   if (!gateScreen || !workspaceScreen) return;
 
-  // Restore opaque admin session token ONLY if previously signed in on this browser
-  if (!STATE.adminKey) {
+  // Restore opaque admin session token ONLY if previously signed in on this browser and not locked in-session
+  if (!STATE.adminLockedInSession && !STATE.adminKey) {
     try {
       STATE.adminKey = sessionStorage.getItem('cf_admin_session') || localStorage.getItem('cf_admin_session') || '';
     } catch {}
   }
 
-  if (STATE.adminKey) {
+  if (getActiveAdminToken()) {
     gateScreen.hidden = true;
     workspaceScreen.hidden = false;
     initAdminWorkspace();
@@ -14211,7 +14221,7 @@ function initAdminWorkspace() {
         submitBtn.disabled = true;
         submitBtn.textContent = 'Updating...';
       }
-      const sessToken = STATE.adminKey || sessionStorage.getItem('cf_admin_session') || localStorage.getItem('cf_admin_session') || '';
+      const sessToken = getActiveAdminToken();
       if (!sessToken) {
         if (statusEl) {
           statusEl.textContent = '❌ Active Admin Portal session required.';
@@ -14292,7 +14302,7 @@ function initAdminWorkspace() {
   }
 
   async function downloadProtectedCsv(endpoint, filename) {
-    const key = STATE.adminKey || localStorage.getItem('cf_admin_session') || sessionStorage.getItem('cf_admin_session') || '';
+    const key = getActiveAdminToken();
     if (!key) {
       showToast('Please log into the Admin Portal first.');
       return;
@@ -15023,6 +15033,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (sessionToken) {
       try { localStorage.removeItem('cf_bf_fails'); } catch {}
+      STATE.adminLockedInSession = false;
       STATE.adminKey = sessionToken;
       sessionStorage.setItem('cf_admin_session', sessionToken);
       localStorage.setItem('cf_admin_session', sessionToken);
@@ -15048,39 +15059,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Admin lock / switch session
-  $('#btn-admin-lock')?.addEventListener('click', () => {
-    const tok = STATE.adminKey || sessionStorage.getItem('cf_admin_session') || localStorage.getItem('cf_admin_session') || '';
-    if (tok) {
-      fetch(getApiUrl('api/admin/logout'), {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + tok }
-      }).catch(() => {});
-    }
+  function lockAdminForCurrentSession(toastMessage) {
+    STATE.adminLockedInSession = true;
     STATE.adminKey = '';
-    sessionStorage.removeItem('cf_admin_session');
-    localStorage.removeItem('cf_admin_session');
-    updateHeaderBookletVisibility();
-    renderAdminView();
-    showToast('Admin console locked.');
-  });
-
-  $('#btn-admin-logout')?.addEventListener('click', () => {
-    const tok = STATE.adminKey || sessionStorage.getItem('cf_admin_session') || localStorage.getItem('cf_admin_session') || '';
-    if (tok) {
-      fetch(getApiUrl('api/admin/logout'), {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + tok }
-      }).catch(() => {});
-    }
-    STATE.adminKey = '';
-    sessionStorage.removeItem('cf_admin_session');
-    localStorage.removeItem('cf_admin_session');
+    try { sessionStorage.removeItem('cf_admin_session'); } catch {}
     updateHeaderBookletVisibility();
     renderAdminView();
     loadFeedbackWall();
     loadLeaderboard();
-    showToast('Logged out of Admin.');
+    showToast(toastMessage);
+  }
+
+  // Admin lock / switch session (locks current page session; reloads restore authenticated access)
+  $('#btn-admin-lock')?.addEventListener('click', () => {
+    lockAdminForCurrentSession('Admin console locked for this session.');
+  });
+
+  $('#btn-admin-logout')?.addEventListener('click', () => {
+    lockAdminForCurrentSession('Logged out of Admin for this session.');
   });
 });
 
@@ -16131,7 +16127,7 @@ function initAdminImportControls() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${STATE.adminKey || localStorage.getItem('cf_admin_session') || sessionStorage.getItem('cf_admin_session') || ''}`
+          'Authorization': `Bearer ${getActiveAdminToken()}`
         },
         body: JSON.stringify({ scores, feedback, titles, user_titles: titles })
       });
