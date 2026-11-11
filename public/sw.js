@@ -1,18 +1,18 @@
 // Career Fair 2026 - Service Worker
-const CACHE_NAME = 'cf-cache-v26.4-scroll-fix';
+const CACHE_NAME = 'cf-cache-v26.5-fast';
 
-// Critical shell assets to pre-cache
+// Lean app-shell pre-cache (audio MP3s stream/cache on demand so install is fast)
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/styles.css',
-  '/loader.js',
-  '/app.js',
-  '/voicelab.js',
-  '/dopamine-engine.js',
-  '/game-completion-detector.js',
-  '/dossier-pdf.js',
-  '/guide-avatar.js',
+  '/styles.css?v=26.5',
+  '/loader.js?v=26.5',
+  '/app.js?v=26.5',
+  '/voicelab.js?v=26.5',
+  '/dopamine-engine.js?v=26.5',
+  '/game-completion-detector.js?v=26.5',
+  '/dossier-pdf.js?v=26.5',
+  '/guide-avatar.js?v=26.5',
   '/qrcode.min.js',
   '/logo.png',
   '/icon-192.png',
@@ -20,34 +20,6 @@ const STATIC_ASSETS = [
   '/icon-512-maskable.png',
   '/favicon.svg',
   '/manifest.json',
-  '/audio/greeting/greeting_default.mp3',
-  '/audio/greeting/greeting_SAz9YHcvj6GT2YYXdXww.mp3',
-  '/audio/greeting/greeting_JBFqnCBsd6RMkjVDRZzb.mp3',
-  '/audio/greeting/greeting_EXAVITQu4vr4xnSDxMaL.mp3',
-  '/audio/greeting/greeting_Xb7hH8MSUJpSbSDYk0k2.mp3',
-  '/audio/greeting/greeting_IKne3meq5aSn9XLyUdCD.mp3',
-  '/audio/tutorial/tutorial_default.mp3',
-  '/audio/tutorial/tutorial_SAz9YHcvj6GT2YYXdXww.mp3',
-  '/audio/tutorial/tutorial_JBFqnCBsd6RMkjVDRZzb.mp3',
-  '/audio/tutorial/tutorial_EXAVITQu4vr4xnSDxMaL.mp3',
-  '/audio/tutorial/tutorial_Xb7hH8MSUJpSbSDYk0k2.mp3',
-  '/audio/tutorial/tutorial_IKne3meq5aSn9XLyUdCD.mp3',
-  '/audio/tutorial/tutorial_short_step0.mp3',
-  '/audio/tutorial/tutorial_short_step1.mp3',
-  '/audio/tutorial/tutorial_short_step2.mp3',
-  '/audio/tutorial/tutorial_short_step3.mp3',
-  '/audio/tutorial/tutorial_short_step4.mp3',
-  '/audio/tutorial/tutorial_exp_step0.mp3',
-  '/audio/tutorial/tutorial_exp_step1.mp3',
-  '/audio/tutorial/tutorial_exp_step2.mp3',
-  '/audio/tutorial/tutorial_exp_step3.mp3',
-  '/audio/tutorial/tutorial_exp_step4.mp3',
-  '/audio/tutorial/tutorial_exp_step5.mp3',
-  '/audio/tutorial/tutorial_exp_step6.mp3',
-  '/audio/tutorial/tutorial_exp_step7.mp3',
-  '/audio/tutorial/tutorial_exp_step8.mp3',
-  '/audio/tutorial/tutorial_exp_step9.mp3',
-  '/audio/tutorial/tutorial_exp_step10.mp3',
 ];
 
 self.addEventListener('install', (event) => {
@@ -76,12 +48,17 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
+  const isSameOrigin = (url.origin === location.origin);
+
+  // Let browser handle cross-origin CDN scripts, fonts, dictionaries, and embeds directly (preserves SRI/CORS)
+  if (!isSameOrigin) {
+    return;
+  }
+
   // NEVER cache API requests, admin endpoints, or external AI/TTS streaming
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/admin')) {
     return;
   }
-
-  const isSameOrigin = (url.origin === location.origin);
   const isNavigation = (event.request.mode === 'navigate');
   const isHtmlAccept = (event.request.headers.get('accept') || '').includes('text/html');
   const isDocumentDest = (event.request.destination === 'document');

@@ -28,6 +28,12 @@ window.VoiceLab = (function () {
 
   // Helper selector
   const $ = (s) => document.querySelector(s);
+  const escapeHtml = (str) => String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const isLocalVoiceHost = () => {
+    try {
+      return window.location.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    } catch { return false; }
+  };
   const $$ = (s) => document.querySelectorAll(s);
 
   // Initialize VoiceLab
@@ -48,6 +54,7 @@ window.VoiceLab = (function () {
 
   // Check Local Engine Health
   async function checkEngineHealth() {
+    if (!isLocalVoiceHost()) { updateStatusUI(false, null); return false; }
     const statusDot = $('#vl-status-dot');
     const indicator = $('#vl-backend-indicator');
     const backendUrl = $('#vl-backend-url');
@@ -55,7 +62,7 @@ window.VoiceLab = (function () {
     try {
       const res = await fetch(`${LOCAL_INFERENCE_URL}/health`, { method: 'GET' });
       if (res.ok) {
-        const data = await res.json();
+        const data = ((res.headers?.get?.('content-type') || '').toLowerCase().includes('application/json') ? await res.json().catch(() => null) : null);
         if (statusDot) statusDot.style.background = 'var(--accent-green, #10b981)';
         if (indicator) indicator.textContent = 'OFFLINE AI READY (Python Engine)';
         if (backendUrl) backendUrl.textContent = `${LOCAL_INFERENCE_URL} (${data.active_model})`;
@@ -92,10 +99,11 @@ window.VoiceLab = (function () {
 
   // Load Existing Voices
   async function loadExistingVoices() {
+    if (!isLocalVoiceHost()) return;
     try {
       const res = await fetch(`${LOCAL_INFERENCE_URL}/voices`);
       if (res.ok) {
-        const data = await res.json();
+        const data = ((res.headers?.get?.('content-type') || '').toLowerCase().includes('application/json') ? await res.json().catch(() => null) : null);
         const customVoices = (data.voices || []).filter(v => v.is_cloned);
         if (customVoices.length > 0) {
           state.activeVoiceProfile = customVoices[0];
@@ -180,7 +188,9 @@ window.VoiceLab = (function () {
             state.recordedBlob = blob;
 
             if (audioElem) {
-              audioElem.src = URL.createObjectURL(blob);
+              if (state.recordedUrl) { try { URL.revokeObjectURL(state.recordedUrl); } catch (_) {} }
+              state.recordedUrl = URL.createObjectURL(blob);
+              audioElem.src = state.recordedUrl;
               previewContainer.style.display = 'block';
             }
 
@@ -335,7 +345,7 @@ window.VoiceLab = (function () {
         });
 
         if (res.ok) {
-          const data = await res.json();
+          const data = ((res.headers?.get?.('content-type') || '').toLowerCase().includes('application/json') ? await res.json().catch(() => null) : null);
           state.activeVoiceProfile = data.voice;
           updateVoiceBadge(name);
           if (feedback) {
@@ -422,7 +432,7 @@ window.VoiceLab = (function () {
         });
 
         if (res.ok) {
-          const job = await res.json();
+          const job = ((res.headers?.get?.('content-type') || '').toLowerCase().includes('application/json') ? await res.json().catch(() => null) : null);
           pollJobCompletion(job.id);
         } else {
           fallbackWebAudioSynthesis(text, speed, emotion);
@@ -440,7 +450,7 @@ window.VoiceLab = (function () {
         try {
           const res = await fetch(`${LOCAL_INFERENCE_URL}/jobs/${jobId}`);
           if (res.ok) {
-            const data = await res.json();
+            const data = ((res.headers?.get?.('content-type') || '').toLowerCase().includes('application/json') ? await res.json().catch(() => null) : null);
             const pct = Math.min(95, (data.progress || 20));
             if (progressFill) progressFill.style.width = `${pct}%`;
             if (progressPercent) progressPercent.textContent = `${pct}%`;

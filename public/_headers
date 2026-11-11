@@ -2,11 +2,15 @@
   X-Frame-Options: SAMEORIGIN
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
   Permissions-Policy: microphone=(self), camera=(self), display-capture=(self)
-  Access-Control-Allow-Origin: *
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' https://api.dictionaryapi.dev https://en.wiktionary.org https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://tessdata.projectnaptha.com https://careerwithenglish.pages.dev https://*.pages.dev blob: data:; frame-src 'self' https://www.youtube.com https://youtube.com https://www.youtube-nocookie.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'
   Cache-Control: public, max-age=0, must-revalidate
 
 /index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/sw.js
   Cache-Control: no-cache, no-store, must-revalidate
 
 /favicon.svg

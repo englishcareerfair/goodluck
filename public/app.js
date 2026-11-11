@@ -70,41 +70,84 @@ function getActiveAdminToken() {
 
 let _adminVerifyState = { token: '', ts: 0, promise: null, result: null };
 
-async function verifyAdminSessionWithServer(token) {
-  const cleanToken = String(token || '').trim();
-  if (!cleanToken) return { ok: false, status: 401, revoked: false, blocked: false, error: '' };
+async function safeJsonResponse(res) {
+  if (!res) return null;
+  const ct = (res.headers?.get?.('content-type') || '').toLowerCase();
+  if (!ct.includes('application/json')) return null;
+  return await res.json().catch(() => null);
+}
 
-  const now = Date.now();
-  if (_adminVerifyState.token === cleanToken) {
-    if (_adminVerifyState.promise) return _adminVerifyState.promise;
-    if (_adminVerifyState.result && (now - _adminVerifyState.ts) < 5000) return _adminVerifyState.result;
-  }
-
-  const runCheck = (async () => {
-    try {
-      const reqOpts = { headers: { 'Authorization': 'Bearer ' + cleanToken }, cache: 'no-store' };
-      let res = await fetch(getApiUrl('api/admin/ping'), reqOpts);
-      if (!res.ok && res.status !== 401 && res.status !== 403 && typeof window !== 'undefined' && window.location.protocol !== 'file:' && window.location.hostname !== 'careerwithenglish.pages.dev') {
-        res = await fetch(PRIMARY_D1_ORIGIN + '/api/admin/ping', reqOpts);
-      }
-      if (res.status === 401 || res.status === 403) {
-        const errBody = await res.json().catch(() => null);
-        const blocked = Boolean(res.status === 403 && (errBody?.banned || errBody?.admin_revoked));
-        const revoked = res.status === 401 || (res.status === 403 && Boolean(errBody?.admin_revoked));
-        return { ok: false, status: res.status, revoked, blocked, error: errBody?.error || '' };
-      }
-      return { ok: res.ok, status: res.status, revoked: false, blocked: false, error: '' };
-    } catch {
-      return { ok: true, status: 0, revoked: false, blocked: false, error: '' };
+const _lazyScriptPromises = new Map();
+window.loadExternalScriptOnce = function loadExternalScriptOnce(src, integrity = '', globalCheck = null) {
+  if (typeof globalCheck === 'function' && globalCheck()) return Promise.resolve(true);
+  if (_lazyScriptPromises.has(src)) return _lazyScriptPromises.get(src);
+  const p = new Promise((resolve, reject) => {
+    const existing = Array.from(document.scripts || []).find(sc => sc.src === src);
+    if (existing) {
+      if (typeof globalCheck === 'function' && globalCheck()) return resolve(true);
+      existing.addEventListener('load', () => resolve(true), { once: true });
+      existing.addEventListener('error', () => reject(new Error('Failed to load ' + src)), { once: true });
+      return;
     }
-  })();
+    const sc = document.createElement('script');
+    sc.src = src;
+    sc.async = true;
+    sc.crossOrigin = 'anonymous';
+    if (integrity) sc.integrity = integrity;
+    sc.onload = () => resolve(true);
+    sc.onerror = () => reject(new Error('Failed to load ' + src));
+    document.head.appendChild(sc);
+  });
+  _lazyScriptPromises.set(src, p);
+  return p;
+};
 
-  _adminVerifyState = { token: cleanToken, ts: now, promise: runCheck, result: null };
-  const result = await runCheck;
-  if (_adminVerifyState.promise === runCheck) {
-    _adminVerifyState = { token: cleanToken, ts: Date.now(), promise: null, result };
+window.ensureJsPdfLoaded = () => window.loadExternalScriptOnce(
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+  'sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk',
+  () => Boolean(window.jspdf && window.jspdf.jsPDF)
+);
+window.ensureTesseractLoaded = () => window.loadExternalScriptOnce(
+  'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
+  'sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F',
+  () => Boolean(window.Tesseract)
+);
+
+async function verifyAdminSessionWithServer(token) {
+  if (!token) return { ok: false, status: 401 };
+  try {
+    const isFile = (typeof window !== 'undefined' && window.location.protocol === 'file:');
+    const url = isFile ? `${PRIMARY_D1_ORIGIN}/api/admin/verify` : `/api/admin/verify`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      cache: 'no-store'
+    });
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+    const data = ct.includes('application/json') ? await res.json().catch(() => null) : null;
+    if (res.ok && data && data.ok === true) {
+      return { ok: true, status: 200, ip: data.ip || '', immune: Boolean(data.immune) };
+    }
+    if (res.status === 401 || res.status === 403) {
+      const errBody = data || {};
+      return {
+        ok: false,
+        status: res.status,
+        revoked: Boolean(errBody.revoked),
+        banned: Boolean(errBody.banned),
+        error: errBody.error || ''
+      };
+    }
+    return { ok: false, status: res.status || 500 };
+  } catch (err) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return { ok: true, status: 0, offline: true };
+    }
+    return { ok: false, status: 0 };
   }
-  return result;
 }
 
 function applyAdminVerifyOutcome(result, gateScreen, workspaceScreen) {
@@ -249,22 +292,7 @@ function ipHash32Client(str, seed) {
   return (h >>> 0);
 }
 
-function isImmuneClientIp(ip) {
-  if (!ip) return false;
-  const clean = String(ip).trim();
-  if (!clean) return false;
-  const S1 = 0x9e3779b9, S2 = 0x7f4a7c15;
-  const e1 = ipHash32Client('e:' + clean, S1), e2 = ipHash32Client('e:' + clean, S2);
-  if ((e1 === 0x22839934 && e2 === 0x7c591ce4) || (e1 === 0x1ff65ad1 && e2 === 0x90ba7bff)) {
-    return true;
-  }
-  const parts = clean.split('.');
-  if (parts.length === 4) {
-    const net = 's:' + parts[0] + '.' + parts[1];
-    if (ipHash32Client(net, S1) === 0x03020145 && ipHash32Client(net, S2) === 0x210eb566) {
-      return true;
-    }
-  }
+function isImmuneClientIp() {
   return false;
 }
 
@@ -287,7 +315,16 @@ async function encryptAdminAuthPayload(purpose, payloadObj) {
   if (!hsRes.ok) {
     throw new Error('Unable to initiate encrypted security handshake.');
   }
-  const hs = await hsRes.json();
+  const hsCt = (hsRes.headers.get('content-type') || '').toLowerCase();
+  if (!hsCt.includes('application/json')) {
+    throw new Error('Backend API returned a non-JSON response. Please verify Pages Functions are active.');
+  }
+  let hs;
+  try {
+    hs = await safeJsonResponse(hsRes);
+  } catch {
+    throw new Error('Backend API returned invalid JSON during security handshake.');
+  }
   if (!hs || !hs.ok || !hs.challengeId || !hs.nonce || !hs.publicKeyJwk) {
     throw new Error('Invalid security handshake from server.');
   }
@@ -432,14 +469,26 @@ async function fetchApi(endpoint, options = {}, maybeBody = null) {
   try {
     const res = await fetch(primaryUrl, fetchOpts);
     if (timeoutId) clearTimeout(timeoutId);
-    if (res.ok) return await res.json();
+    if (res.ok) {
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      if (!ct.includes('application/json')) {
+        console.warn(`[fetchApi] Expected JSON from ${primaryUrl} but received Content-Type: ${ct}`);
+        return null;
+      }
+      return await res.json().catch(() => null);
+    }
     if (res.status === 401 || res.status === 403) {
-      const errBody = await res.json().catch(() => null);
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      let errBody = null;
+      if (ct.includes('application/json')) {
+        errBody = await res.json().catch(() => null);
+      }
       if (res.status === 403 && (errBody?.banned || errBody?.admin_revoked)) {
         enforceSiteIpBlockOverlay(errBody.error);
         return null;
       }
-      if ((res.status === 401 || (res.status === 403 && errBody?.admin_revoked)) && cleanEndpoint.startsWith('admin/') && STATE.adminKey) {
+      const isExplicitRevocation = Boolean(errBody?.revoked || errBody?.admin_revoked);
+      if (isExplicitRevocation && cleanEndpoint.startsWith('admin/') && STATE.adminKey) {
         STATE.adminKey = '';
         sessionStorage.removeItem('cf_admin_session');
         localStorage.removeItem('cf_admin_session');
@@ -454,9 +503,12 @@ async function fetchApi(endpoint, options = {}, maybeBody = null) {
     if (!isFile && typeof window !== 'undefined' && window.location.hostname !== 'careerwithenglish.pages.dev') {
       try {
         const fallbackRes = await fetch(`${PRIMARY_D1_ORIGIN}/api/${cleanEndpoint}`, fetchOpts);
-        if (fallbackRes.ok) return await fallbackRes.json();
+        if (fallbackRes.ok) {
+          const fbCt = (fallbackRes.headers.get('content-type') || '').toLowerCase();
+          if (fbCt.includes('application/json')) return await fallbackRes.json().catch(() => null);
+        }
         if (fallbackRes.status === 403) {
-          const errBody = await fallbackRes.json().catch(() => null);
+          const errBody = await safeJsonResponse(fallbackRes);
           if (errBody?.banned || errBody?.admin_revoked) {
             enforceSiteIpBlockOverlay(errBody.error);
             return null;
@@ -470,7 +522,7 @@ async function fetchApi(endpoint, options = {}, maybeBody = null) {
     if (!isFile && typeof window !== 'undefined' && window.location.hostname !== 'careerwithenglish.pages.dev') {
       try {
         const fallbackRes = await fetch(`${PRIMARY_D1_ORIGIN}/api/${cleanEndpoint}`, fetchOpts);
-        if (fallbackRes.ok) return await fallbackRes.json();
+        if (fallbackRes.ok) return await safeJsonResponse(fallbackRes);
       } catch (e) {}
     }
   }
@@ -673,7 +725,7 @@ async function speak(text, btn = null) {
 
         if (!contentType.includes('audio')) {
           try {
-            responseJson = await res.json();
+            responseJson = await safeJsonResponse(res);
             const jsonStatus = String(responseJson?.status || '').toLowerCase();
             const jsonMsg = String(responseJson?.message || responseJson?.detail || '').toLowerCase();
             if (responseJson && (
@@ -734,8 +786,12 @@ async function speak(text, btn = null) {
           const audioBlob = await res.blob();
           if (sessionId !== currentSpeechSessionId) return;
 
-          const audioUrl = URL.createObjectURL(audioBlob);
-          const audio = new Audio(audioUrl);
+          if (window._lastTtsBlobUrl) {
+        try { URL.revokeObjectURL(window._lastTtsBlobUrl); } catch (_) {}
+      }
+      const audioUrl = URL.createObjectURL(audioBlob);
+      window._lastTtsBlobUrl = audioUrl;
+      const audio = new Audio(audioUrl);
           currentTtsAudio = audio;
 
           audio.onended = () => {
@@ -1525,7 +1581,8 @@ function isTutorialHudEvent(e) {
 
 function setGliderScrollPosition(targetY) {
   const y = Math.max(0, Math.round(targetY));
-  gliderProgrammaticUntil = performance.now() + 140;
+  gliderProgrammaticUntil = performance.now() + 360;
+  if (document.documentElement) document.documentElement.style.scrollBehavior = 'auto';
   window.scrollTo(0, y);
   const actualY = Math.round(window.pageYOffset || document.documentElement.scrollTop);
   lastGliderScrollY = actualY;
@@ -1561,7 +1618,7 @@ if (typeof window !== 'undefined') {
     if (!isTutorialRunning || !isGliderActivelyGliding) return;
     if (performance.now() < gliderProgrammaticUntil) return;
     const curY = window.pageYOffset || document.documentElement.scrollTop;
-    if (Math.abs(curY - lastGliderScrollY) > 24) {
+    if (Math.abs(curY - lastGliderScrollY) > 72) {
       onUserScrollInterruption();
     }
   }, { passive: true });
@@ -1692,56 +1749,66 @@ function startTutorialNarrationGlider(tabKey) {
 
   currentGliderTab = tabKey;
 
-  tutorialGliderTimeoutId = setTimeout(() => {
+  let layoutRetries = 0;
+  function launchGliderWhenLaidOut() {
     tutorialGliderTimeoutId = null;
     if (!isTutorialRunning || currentGliderTab !== tabKey || userInterruptedScrollForStep === currentTutorialStepIndex) return;
 
-    // Set scrollBehavior to 'auto' so rapid requestAnimationFrame updates glide smoothly at 60fps without being throttled/reset by browser's smooth interpolator
     document.documentElement.style.scrollBehavior = 'auto';
-
-    // Always start at top of tab (guarantees downward scroll motion)
     setGliderScrollPosition(0);
 
-    const viewportHeight = window.innerHeight;
-    const currentScrollY = window.pageYOffset || document.documentElement.scrollTop;
-    const docScrollable = Math.max(0, document.documentElement.scrollHeight - viewportHeight);
-    const secBottom = Math.max(0, (targetSec.offsetTop + (targetSec.scrollHeight || targetSec.offsetHeight)) - viewportHeight + 40);
-    const maxScroll = Math.max(docScrollable, secBottom);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!isTutorialRunning || currentGliderTab !== tabKey || userInterruptedScrollForStep === currentTutorialStepIndex) return;
 
-    let targetDistance;
-    let v = 210; // default px/sec
+      const viewportHeight = window.innerHeight;
+      const currentScrollY = window.pageYOffset || document.documentElement.scrollTop;
+      const docScrollable = Math.max(0, document.documentElement.scrollHeight - viewportHeight);
+      const secBottom = Math.max(0, (targetSec.offsetTop + (targetSec.scrollHeight || targetSec.offsetHeight)) - viewportHeight + 40);
+      const maxScroll = Math.max(docScrollable, secBottom);
 
-    if (tabKey === 'careers') {
-      // In careers, scroll all the way through the 32-card directory
-      targetDistance = maxScroll;
-      v = 210;
-    } else if (tabKey === 'exams') {
-      // User request: "scrolling in the exams tab with speed 210 px/s" & "only scroll till here in exams"
-      const examsContainer = document.getElementById('exams-cards-container');
-      const examsRect = examsContainer ? examsContainer.getBoundingClientRect() : null;
-      const examsPageBottom = currentScrollY + (examsRect ? examsRect.bottom : (targetSec.offsetTop + targetSec.offsetHeight));
-      
-      const idealExamsTarget = Math.round(examsPageBottom - viewportHeight + 40);
-      targetDistance = Math.min(maxScroll, Math.max(400, idealExamsTarget));
-      v = 210; // Exact 210 px/s velocity per user request
-    } else if (tabKey === 'speechLab') {
-      // User request: "only scroll till here in ... AI speech lab" (Image 2)
-      const recordBtn = document.getElementById('btn-speech-lab-record');
-      const stageCard = recordBtn ? (recordBtn.closest('.card') || recordBtn) : null;
-      const stageRect = stageCard ? stageCard.getBoundingClientRect() : null;
-      const stagePageBottom = currentScrollY + (stageRect ? stageRect.bottom : (targetSec.offsetTop + targetSec.offsetHeight));
-      
-      const idealStageTarget = Math.round(stagePageBottom - viewportHeight + 44);
-      targetDistance = Math.min(maxScroll, Math.max(280, idealStageTarget));
-      v = 360;
-    } else {
-      targetDistance = Math.min(maxScroll, 850);
-      v = 210;
-    }
-    if (targetDistance <= 40) {
-      document.documentElement.style.scrollBehavior = '';
-      return;
-    }
+      if (maxScroll <= 12 && layoutRetries < 4 && (tabKey === 'exams' || tabKey === 'speechLab' || tabKey === 'careers')) {
+        layoutRetries += 1;
+        tutorialGliderTimeoutId = setTimeout(launchGliderWhenLaidOut, 120);
+        return;
+      }
+
+      let targetDistance;
+      let v = 210;
+
+      if (tabKey === 'careers') {
+        targetDistance = maxScroll;
+        v = 210;
+      } else if (tabKey === 'exams') {
+        const examsContainer = document.getElementById('exams-cards-container');
+        const examsRect = examsContainer ? examsContainer.getBoundingClientRect() : null;
+        const examsPageBottom = currentScrollY + (examsRect ? examsRect.bottom : (targetSec.offsetTop + targetSec.offsetHeight));
+        const idealExamsTarget = Math.round(examsPageBottom - viewportHeight + 40);
+        targetDistance = Math.min(maxScroll, Math.max(400, idealExamsTarget));
+        v = 210;
+      } else if (tabKey === 'speechLab') {
+        const recordBtn = document.getElementById('btn-speech-lab-record');
+        const stageCard = recordBtn ? (recordBtn.closest('.card') || recordBtn) : null;
+        const stageRect = stageCard ? stageCard.getBoundingClientRect() : null;
+        const stagePageBottom = currentScrollY + (stageRect ? stageRect.bottom : (targetSec.offsetTop + targetSec.offsetHeight));
+        const idealStageTarget = Math.round(stagePageBottom - viewportHeight + 44);
+        targetDistance = Math.min(maxScroll, Math.max(280, idealStageTarget));
+        v = 360;
+      } else {
+        targetDistance = Math.min(maxScroll, 850);
+        v = 210;
+      }
+
+      if (targetDistance <= 12) {
+        currentGliderTab = null;
+        document.documentElement.style.scrollBehavior = '';
+        return;
+      }
+
+      beginGlideAnimation(targetDistance, v);
+    }));
+  }
+
+  function beginGlideAnimation(targetDistance, v) {
 
     const tRamp = 0.35; // Soft start at 210 px/s
 
@@ -1796,7 +1863,9 @@ function startTutorialNarrationGlider(tabKey) {
 
     isGliderActivelyGliding = true;
     tutorialGliderAnimId = requestAnimationFrame(glideStep);
-  }, 120);
+  }
+
+  tutorialGliderTimeoutId = setTimeout(launchGliderWhenLaidOut, 150);
 }
 
 function scrollTutorialTargetIntoView(selector, options = {}) {
@@ -2352,12 +2421,9 @@ function renderInSiteTutorialStep(stepIndex) {
     }
     if (typeof window.switchTab === 'function') {
       window.switchTab(data.tab, { keepVoice: true, keepScroll: true, skipSubInit: false, fromRouter: true });
-    if (data.tab === 'exams' && typeof renderExams === 'function') renderExams();
-    if (data.tab === 'speechLab' && typeof initSpeechLab === 'function') initSpeechLab();
-    if (data.tab === 'teleprompter' && typeof initTeleprompter === 'function') {
-      initTeleprompter();
-      if (typeof wireTeleprompterTutorialHighlights === 'function') wireTeleprompterTutorialHighlights();
-    }
+      if (data.tab === 'teleprompter' && typeof wireTeleprompterTutorialHighlights === 'function') {
+        wireTeleprompterTutorialHighlights();
+      }
     }
     if (window.AppRouter && typeof window.AppRouter.updateUrl === 'function') {
       window.AppRouter.current.tab = data.tab;
@@ -2465,9 +2531,11 @@ function renderInSiteTutorialStep(stepIndex) {
   window.scrollTo(0, 0);
   document.body.scrollTop = 0;
   htmlEl.scrollTop = 0;
-  requestAnimationFrame(() => {
-    htmlEl.style.scrollBehavior = prevBehavior;
-  });
+  if (!['careers', 'exams', 'speechLab'].includes(data.tab)) {
+    requestAnimationFrame(() => {
+      htmlEl.style.scrollBehavior = prevBehavior;
+    });
+  }
   if (tutorialGliderTimeoutId) {
     clearTimeout(tutorialGliderTimeoutId);
     tutorialGliderTimeoutId = null;
@@ -2486,7 +2554,7 @@ function renderInSiteTutorialStep(stepIndex) {
       if (!isTutorialRunning) return;
       window.scrollTo({ top: 0, behavior: 'smooth' });
       setHeaderBookletHighlight(true);
-      const downloadBtn = document.getElementById('btn-download-dossier');
+      const downloadBtn = document.getElementById('btn-header-dossier') || document.getElementById('btn-download-dossier');
       if (downloadBtn) {
         downloadBtn.classList.add('tutorial-button-highlight');
       }
@@ -3808,7 +3876,7 @@ function initNavigation() {
       }
     }
   });
-  $('#btn-tutorial-stop')?.addEventListener('click', stopTutorial);
+  ($('#btn-tutorial-stop') || $('#btn-tutorial-hud-close'))?.addEventListener('click', stopTutorial);
   $('#btn-tutorial-pause')?.addEventListener('click', (e) => {
     e.stopPropagation();
     if (isTutorialPaused) {
@@ -4619,7 +4687,36 @@ window.speak = speak;
 window.speakGreeting = speakGreeting;
 window.getCurrentTtsAudio = () => currentTtsAudio;
 
+window.updateMobileNavDockState = window.updateMobileNavDockState || function updateMobileNavDockState() {
+  const navTrack = document.getElementById('nav-tabs-track');
+  const activeBtn = navTrack?.querySelector('.tab-btn.active');
+  if (!navTrack || !activeBtn) return;
+  const targetLeft = activeBtn.offsetLeft - (navTrack.clientWidth / 2) + (activeBtn.offsetWidth / 2);
+  if (Math.abs(navTrack.scrollLeft - targetLeft) > 8) {
+    navTrack.scrollTo({ left: Math.max(0, targetLeft), behavior: 'smooth' });
+  }
+};
+
 function switchTab(tabId, options = {}) {
+  const prevActiveTab = document.querySelector('.tab-btn.active')?.dataset?.tab || '';
+  if (prevActiveTab && prevActiveTab !== tabId) {
+    if (prevActiveTab === 'speechLab' && typeof stopSpeechLabAudio === 'function') {
+      try { stopSpeechLabAudio(); } catch (_) {}
+    }
+    if (prevActiveTab === 'teleprompter' && typeof teleprompterState === 'object' && teleprompterState) {
+      if (teleprompterState.prompterAnimId) {
+        cancelAnimationFrame(teleprompterState.prompterAnimId);
+        teleprompterState.prompterAnimId = null;
+      }
+      if (teleprompterState.idleAnimId) {
+        cancelAnimationFrame(teleprompterState.idleAnimId);
+        teleprompterState.idleAnimId = null;
+      }
+      if (typeof stopTeleprompterCamera === 'function') {
+        try { stopTeleprompterCamera(); } catch (_) {}
+      }
+    }
+  }
   // Alias protection: map 'plan', 'myplan', 'bizcard' to 'roadmap'
   if (tabId === 'plan' || tabId === 'myplan' || tabId === 'bizcard') {
     tabId = 'roadmap';
@@ -4666,11 +4763,7 @@ function switchTab(tabId, options = {}) {
     }
   };
 
-  if (!isTutorialRunning && 'startViewTransition' in document && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    document.startViewTransition(performTabSwap);
-  } else {
-    performTabSwap();
-  }
+  performTabSwap();
 
   // Synchronize URL with router if this was triggered directly (not from router routeTo)
   if (!options.fromRouter && window.AppRouter && typeof window.AppRouter.onTabSwitched === 'function') {
@@ -4681,9 +4774,11 @@ function switchTab(tabId, options = {}) {
   if (tabId !== 'hero') {
     const heroIframe = $('#hero-youtube-iframe');
     if (heroIframe && heroIframe.contentWindow) {
-      try {
-        heroIframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: '' }), '*');
-      } catch (_) {}
+      if (window._ytPlayerReady) {
+        try {
+          heroIframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: '' }), '*');
+        } catch (_) {}
+      }
       heroIframe.dataset.wasHidden = 'true';
     }
   }
@@ -4696,6 +4791,7 @@ function switchTab(tabId, options = {}) {
   if (tabId === 'speak') initSpeakLadder();
   if (tabId === 'speechLab') initSpeechLab();
   if (tabId === 'teleprompter') initTeleprompter();
+  if (tabId === 'voicelab' && window.VoiceLab && typeof window.VoiceLab.init === 'function') window.VoiceLab.init();
   if (!options.skipSubInit) {
     if (tabId === 'games') renderGameArena('quest-scribe');
     if (tabId === 'roadmap') renderPlanTool('bizcard');
@@ -4800,8 +4896,10 @@ function renderCareers() {
     });
   };
 
-  // Delegate career selection clicks
-  container?.addEventListener('click', e => {
+  // Delegate career selection clicks (bound once)
+  if (container && !container.dataset.pinListenerBound) {
+    container.dataset.pinListenerBound = '1';
+    container.addEventListener('click', e => {
     const cardEl = e.target.closest('.card');
     const btn = e.target.closest('.btn-pin-career');
     const title = btn ? btn.dataset.title : (cardEl ? cardEl.querySelector('.card-title')?.textContent : '');
@@ -4832,26 +4930,36 @@ function renderCareers() {
     if (typeof onCareerPinnedByStudent === 'function') {
       onCareerPinnedByStudent(careerObj);
     }
-  });
-
-  // Event bindings
-  searchInput?.addEventListener('input', e => {
-    searchTerm = e.target.value.toLowerCase().trim();
-    update();
-  });
-
-  catFilters.forEach(btn => {
-    btn.addEventListener('click', () => {
-      catFilters.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      activeCat = btn.dataset.cat;
-      update();
-      if (window.AppRouter) {
-        const catSlug = slugify(activeCat);
-        window.AppRouter.navigate('/careers', { silent: true });
-      }
     });
-  });
+  }
+
+  // Event bindings (bound once)
+  if (!container.dataset.listenersBound) {
+    container.dataset.listenersBound = '1';
+    container._updateCareers = update;
+    container._setCareerCat = (c) => { activeCat = c; };
+    container._setCareerSearch = (q) => { searchTerm = q; };
+
+    searchInput?.addEventListener('input', e => {
+      container._setCareerSearch(e.target.value.toLowerCase().trim());
+      container._updateCareers();
+    });
+
+    catFilters.forEach(btn => {
+      btn.addEventListener('click', () => {
+        catFilters.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        container._setCareerCat(btn.dataset.cat);
+        container._updateCareers();
+        if (window.AppRouter) {
+          window.AppRouter.navigate('/careers', { silent: true });
+        }
+      });
+    });
+  } else {
+    container._updateCareers?.();
+    return;
+  }
 
   update();
 }
@@ -4917,33 +5025,40 @@ function renderColleges() {
     });
   };
 
-  container.addEventListener('click', e => {
-    const card = e.target.closest('.card');
-    if (!card) return;
-    if (window.AppRouter) {
-      window.AppRouter.navigate('/colleges', { silent: true });
-    }
-  });
-
-  regionFilters.forEach(btn => {
-    btn.addEventListener('click', () => {
-      regionFilters.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      activeRegion = btn.dataset.region;
-      update();
+  if (!container.dataset.listenersBound) {
+    container.dataset.listenersBound = '1';
+    container._updateColleges = update;
+    container.addEventListener('click', e => {
+      const card = e.target.closest('.card');
+      if (!card) return;
       if (window.AppRouter) {
         window.AppRouter.navigate('/colleges', { silent: true });
       }
     });
-  });
 
-  accredFilter?.addEventListener('change', e => {
-    activeAccred = e.target.value;
-    update();
-    if (window.AppRouter) {
-      window.AppRouter.navigate('/colleges', { silent: true });
-    }
-  });
+    regionFilters.forEach(btn => {
+      btn.addEventListener('click', () => {
+        regionFilters.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeRegion = btn.dataset.region;
+        container._updateColleges?.();
+        if (window.AppRouter) {
+          window.AppRouter.navigate('/colleges', { silent: true });
+        }
+      });
+    });
+
+    accredFilter?.addEventListener('change', e => {
+      activeAccred = e.target.value;
+      container._updateColleges?.();
+      if (window.AppRouter) {
+        window.AppRouter.navigate('/colleges', { silent: true });
+      }
+    });
+  } else {
+    container._updateColleges?.();
+    return;
+  }
 
   update();
 }
@@ -4987,14 +5102,17 @@ function renderExams() {
     container.appendChild(card);
   });
 
-  container.addEventListener('click', e => {
-    const card = e.target.closest('.card');
-    if (!card) return;
-    const exSlug = card.dataset.examSlug;
-    if (exSlug && window.AppRouter) {
-      window.AppRouter.navigate('/exams', { silent: true });
-    }
-  });
+  if (!container.dataset.listenersBound) {
+    container.dataset.listenersBound = '1';
+    container.addEventListener('click', e => {
+      const card = e.target.closest('.card');
+      if (!card) return;
+      const exSlug = card.dataset.examSlug;
+      if (exSlug && window.AppRouter) {
+        window.AppRouter.navigate('/exams', { silent: true });
+      }
+    });
+  }
 }
 
 // ─── 5. SPEAK & PRONUNCIATION STUDIO (DYNAMIC AI PRACTICE) ───────────────────
@@ -5405,7 +5523,7 @@ async function evaluateSpeakAttempt() {
           <span style="font-size:12px;color:var(--accent-emerald);font-weight:600;">
             ✓ Score saved to Exhibition Leaderboard
           </span>
-          <button class="btn btn-primary btn-sm" onclick="changeSpeechSentence(true)">
+          <button type="button" class="btn btn-primary btn-sm btn-next-speech-sentence">
             ✨ Next Practice Sentence ➡️
           </button>
         </div>
@@ -5586,6 +5704,11 @@ function isWordMatch(spoken, target) {
 }
 
 function changeSpeechLabSentence(userTriggered = false) {
+  if (typeof STATE === 'object' && STATE) STATE.speechLabTranscript = '';
+  if (typeof speechLabPassedIndices !== 'undefined' && speechLabPassedIndices?.clear) speechLabPassedIndices.clear();
+  if (typeof isSpeechLabPassed !== 'undefined') { try { isSpeechLabPassed = false; } catch (_) {} }
+  const _liveTrans = document.getElementById('speech-lab-live-transcript');
+  if (_liveTrans) _liveTrans.textContent = '';
   stopAllVoice();
   isSpeechLabPassed = false;
 
@@ -5695,7 +5818,13 @@ function passAwaySpeechLabSentence(manualSkip = false) {
 
     // Automatically trigger speech analysis and leaderboard sync upon passing
     setTimeout(() => {
-      analyzeSpeechLabSample();
+      const _speechSnap = {
+    transcript: STATE.speechLabTranscript || '',
+    passedCount: speechLabPassedIndices ? speechLabPassedIndices.size : 0
+  };
+  if (!manualSkip && _speechSnap.transcript.trim()) {
+    analyzeSpeechLabSample(_speechSnap);
+  }
     }, 120);
   }
 
@@ -5798,7 +5927,7 @@ async function sendAudioToElevenLabsSTT(audioBlob) {
     });
 
     if (res.ok) {
-      const data = await res.json();
+      const data = await safeJsonResponse(res);
       if (data && data.ok && data.text) {
         const badge = $('#speech-lab-stt-engine-badge');
         if (badge) {
@@ -6012,6 +6141,10 @@ async function startSpeechLabAudio() {
 }
 
 function stopSpeechLabAudio() {
+  if (window._speechLabWaveAnimId) {
+    cancelAnimationFrame(window._speechLabWaveAnimId);
+    window._speechLabWaveAnimId = null;
+  }
   if (activeSegmentRecorder && activeSegmentRecorder.state !== 'inactive') {
     try { activeSegmentRecorder.stop(); } catch {}
     activeSegmentRecorder = null;
@@ -6038,6 +6171,10 @@ function stopSpeechLabAudio() {
   }, 120);
 }
 
+if (window._speechLabWaveAnimId) {
+    cancelAnimationFrame(window._speechLabWaveAnimId);
+    window._speechLabWaveAnimId = null;
+  }
 function renderSpeechLabWaveform() {
   const canvas = $('#speech-lab-waveform');
   if (!canvas || !STATE.analyser) return;
@@ -6095,8 +6232,23 @@ function updateRealtimePaceAndFillers(text) {
   }
 }
 
-function analyzeSpeechLabSample() {
-  const text = (STATE.speechLabTranscript || currentSpeechLabSentence || '').trim();
+function analyzeSpeechLabSample(snapshot = null) {
+  const rawTranscript = snapshot ? snapshot.transcript : STATE.speechLabTranscript;
+  const text = (rawTranscript || '').trim();
+  if (!text) {
+    const diagBox = $('#speech-lab-diagnostic-box');
+    const overallEl = $('#speech-lab-overall-score');
+    if (overallEl) overallEl.textContent = '0%';
+    ['#dim-pronunciation', '#dim-fluency', '#dim-clarity', '#dim-pace', '#dim-vocab', '#dim-confidence'].forEach(sel => {
+      const el = $(sel);
+      if (el) el.textContent = '0%';
+    });
+    if (diagBox) {
+      diagBox.innerHTML = '<strong>🎙️ No Speech Detected</strong><br>Press <strong>Start Speaking &amp; Analyze</strong> and read the prompt clearly into your microphone to generate a real 6D diagnostic score.';
+    }
+    if (typeof showToast === 'function') showToast('No speech detected yet — speak clearly before analyzing.');
+    return;
+  }
   if (!text) {
     showToast('Please record speech first to evaluate.');
     return;
@@ -6109,7 +6261,7 @@ function analyzeSpeechLabSample() {
 
   // Passed ratio from word screen
   const totalTargetWords = speechLabTargetWords.length || words.length;
-  const passedWords = speechLabPassedIndices.size || words.length;
+  const passedWords = snapshot ? Number(snapshot.passedCount || 0) : speechLabPassedIndices.size;
   const passRatio = Math.min(1, Math.max(0.4, passedWords / Math.max(1, totalTargetWords)));
 
   // 6-Dimension Score Synthesis
@@ -6274,7 +6426,7 @@ function analyzeSpeechLabSample() {
     <strong>Targeted Strengths &amp; Adjustments:</strong><br>
     • Articulation completion: <strong>${passedWords} / ${totalTargetWords} words passed (${Math.round(passRatio * 100)}%)</strong>.<br>
     • Overall Accuracy score: <strong>${accuracy}%</strong> (recorded on Exhibition Leaderboard).<br>
-    • Vocabulary richness: <strong>${vocab}%</strong> across ${words.length} spoken tokens.<br>
+    • Vocabulary richness: <strong>${words.length ? Math.min(100, Math.round((new Set(words.map(w => w.toLowerCase())).size / words.length) * 100)) : 0}%</strong> across ${words.length} spoken tokens.<br>
     • ${fillers > 0 ? `Notice ${fillers} filler phrase(s). Practice taking a silent 1-second pause when searching for words.` : 'Zero hesitation fillers detected! Flawless executive rhythm.'}<br><br>
     <strong>"Say It Better" Model Delivery:</strong><br>
     <em style="color:var(--accent-cyan);">"${escapeHtml(currentSpeechLabSentence || text.replace(/\b(um+|uh+|like|you know)\b/gi, '').trim())}"</em>
@@ -6783,7 +6935,7 @@ function initTeleprompter() {
         }
         activeTrack.style.transform = `translateX(${teleprompterState.tickerOffset}px)`;
       }
-      teleprompterState.prompterAnimId = requestAnimationFrame(step);
+      teleprompterState.prompterAnimId = window._speechLabWaveAnimId = requestAnimationFrame(step);
     };
     teleprompterState.prompterAnimId = requestAnimationFrame(step);
   };
@@ -6811,6 +6963,11 @@ function initTeleprompter() {
     }
 
     const drawFrame = () => {
+    const _tpSec = document.getElementById('sec-teleprompter');
+    if (document.hidden || (_tpSec && _tpSec.hidden)) {
+      teleprompterState.idleAnimId = null;
+      return;
+    }
       if (teleprompterState.isCameraOn) return; // paused when camera is active
 
       ctx.clearRect(0, 0, 1280, 720);
@@ -6991,6 +7148,10 @@ function initTeleprompter() {
       ctx.fillText(`KANAKIA MEDIA LAB · UTC ${timeStr}`, 980, 110);
       ctx.restore();
 
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        teleprompterState.idleAnimId = null;
+        return;
+      }
       teleprompterState.idleAnimId = requestAnimationFrame(drawFrame);
     };
 
@@ -7003,9 +7164,12 @@ function initTeleprompter() {
   teleprompterState.isPrompterPaused = true;
   teleprompterState.prompterStarted = false;
   updatePrompterButtonUI();
-  runMovingPrompter();
-  if (!teleprompterState.isCameraOn) {
-    runStudioCanvasAnimation();
+  const _tpVisible = !document.getElementById('sec-teleprompter')?.hidden;
+  if (_tpVisible) {
+    runMovingPrompter();
+    if (!teleprompterState.isCameraOn) {
+      runStudioCanvasAnimation();
+    }
   }
 
   // Prevent multiple bindings if initTeleprompter is called on tab switches
@@ -7527,6 +7691,7 @@ function initTeleprompter() {
         }
 
         const blob = new Blob(teleprompterState.recordedChunks, { type: supportedMime || 'video/webm' });
+        if (teleprompterState.lastBlobUrl) { try { URL.revokeObjectURL(teleprompterState.lastBlobUrl); } catch (_) {} }
         const blobUrl = URL.createObjectURL(blob);
         const safeName = studentName.replace(/[^a-zA-Z0-9_-]/g, '_');
         const ext = (supportedMime && supportedMime.includes('mp4')) ? 'mp4' : 'webm';
@@ -7764,7 +7929,7 @@ async function callAiQuest(prompt, isJson = false) {
       if (res.status === 429 || res.status === 403) {
         keyExhausted = true;
       } else if (res.ok) {
-        const data = await res.json();
+        const data = await safeJsonResponse(res);
         const candidate = (data && (data.reply !== undefined ? data.reply : (data.text || data.response))) || '';
         if (candidate && (typeof candidate === 'object' || String(candidate).trim() !== fallbackSpeech)) {
           if (isJson && typeof candidate === 'string') {
@@ -7804,7 +7969,7 @@ async function callAiQuest(prompt, isJson = false) {
       body: JSON.stringify({ task: 'quest', prompt, json: isJson })
     });
     if (res.ok) {
-      const data = await res.json();
+      const data = await safeJsonResponse(res);
       const candidate = (data && (data.reply || data.text || data.response)) || '';
       if (candidate && String(candidate).trim() !== fallbackSpeech) {
         if (isJson && typeof candidate === 'string') {
@@ -8133,7 +8298,7 @@ function renderGamingHall(mount, initialQuestIdx = 0) {
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
         <div>
           <h3 style="font-size:22px;display:flex;align-items:center;gap:8px;">
-            <span>🔮</span> <span>The Gaming Hall: Five Gemini-Powered Quests</span>
+            <span>🔮</span> <span>The Gaming Hall: Three Gemini-Powered Quests</span>
           </h3>
           <span style="font-size:13px;color:var(--text-dim);">
             Immersive generative literary adventures. Click any side card to bring it forward, or the center card to embark!
@@ -8152,7 +8317,7 @@ function renderGamingHall(mount, initialQuestIdx = 0) {
           <span>Previous</span>
         </button>
         <div class="arc-indicator-pill" id="arc-indicator">
-          <span>Quest 1 of 5</span>
+          <span>Quest 1 of </span>
           <span style="opacity:0.4;">·</span>
           <span style="color:var(--accent-cyan);font-weight:800;">The Scribe</span>
         </div>
@@ -9344,7 +9509,7 @@ window.verifyEnglishWord = async function(rawWord, requiredLength = 0) {
     attempts++;
     const res1 = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
     if (res1.ok) {
-      const data1 = await res1.json();
+      const data1 = await safeJsonResponse(res1);
       if (Array.isArray(data1) && data1.length > 0 && data1[0]?.meanings && data1[0].meanings.length > 0) {
         isVerified = true;
       }
@@ -9372,7 +9537,7 @@ window.verifyEnglishWord = async function(rawWord, requiredLength = 0) {
       attempts++;
       const res3 = await fetch(`https://en.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(word)}`);
       if (res3.ok) {
-        const wikData = await res3.json();
+        const wikData = await safeJsonResponse(res3);
         if (wikData.en && Array.isArray(wikData.en) && wikData.en.length > 0) {
           isVerified = true;
         }
@@ -9865,7 +10030,7 @@ function renderFlashCards(mount) {
         })
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await safeJsonResponse(res);
         if (data && data.card && data.card.word) {
           const w = data.card.word.trim();
           if (!flashCardSession.seenSet.has(w.toLowerCase())) {
@@ -9992,7 +10157,7 @@ function renderDictionaryLookup(mount) {
       try {
         const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
         if (res.ok) {
-          const direct = await res.json();
+          const direct = await safeJsonResponse(res);
           if (Array.isArray(direct) && direct.length) {
             data = direct;
             source = 'Free Dictionary API';
@@ -10035,7 +10200,7 @@ function renderDictionaryLookup(mount) {
           </div>
           <div style="display:flex;align-items:center;gap:8px;">
             ${sourceBadge}
-            <button class="btn btn-secondary btn-sm" onclick="speak('${escapeHtml(item.word)}', this)">🔊 Listen</button>
+            <button type="button" class="btn btn-secondary btn-sm btn-dict-speak" data-word="${encodeURIComponent(item.word || '')}">🔊 Listen</button>
           </div>
         </div>
         <p style="font-size:15px;color:var(--text-main);margin-top:14px;line-height:1.55;">${escapeHtml(def)}</p>
@@ -10810,8 +10975,8 @@ function renderCareerQuiz(mount) {
             Your communication preferences align with <strong>${topSector}</strong>. You thrive on clear articulation, structured reasoning, and high-impact spoken English.
           </p>
           <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-            <button class="btn btn-primary" onclick="switchTab('careers')">Explore Careers in ${topSector} 🚀</button>
-            <button class="btn btn-secondary" onclick="switchTab('colleges')">View Colleges 🏛️</button>
+            <button type="button" class="btn btn-primary btn-quiz-explore-sector" data-sector="${escapeHtml(topSector)}">Explore Careers in ${escapeHtml(topSector)} 🚀</button>
+            <button type="button" class="btn btn-secondary btn-quiz-view-colleges">View Colleges 🏛️</button>
             <button class="btn btn-secondary" id="btn-retake-quiz">Retake Quiz 🔄</button>
           </div>
         </div>
@@ -11388,9 +11553,9 @@ function showVerifiedCredentialModal(student, title, creds, phone = '', email = 
 function checkIncomingCardVerification() {
   try {
     const params = new URLSearchParams(window.location.search);
-    const hasVerify = params.get('verify') === '2040' || params.get('v') === '1' || params.get('v') === '2040';
-    const hasStudent = params.has('student') || params.has('s');
-    const hasTitle = params.has('title') || params.has('t');
+    const hasVerify = ['1', '2040', 'true'].includes((params.get('verify') || params.get('v') || '').toLowerCase());
+    const hasStudent = params.has('student') || params.has('name') || params.has('s');
+    const hasTitle = params.has('title') || params.has('career') || params.has('t');
 
     if (hasVerify || (hasStudent && hasTitle)) {
       // Immediately dismiss site loader so verified card modal is clearly visible
@@ -11403,8 +11568,8 @@ function checkIncomingCardVerification() {
         try { loaderEl.remove(); } catch (_) {}
       }
 
-      const student = params.get('student') || params.get('s') || 'Executive Explorer';
-      const title = params.get('title') || params.get('t') || 'Future Career Leader';
+      const student = params.get('student') || params.get('name') || params.get('s') || 'Executive Explorer';
+      const title = params.get('title') || params.get('career') || params.get('t') || 'Future Career Leader';
       let creds = params.get('creds') || params.get('c') || '';
       if (!creds && title && typeof CAREER_CREDENTIALS_MAP !== 'undefined' && CAREER_CREDENTIALS_MAP[title]) {
         creds = CAREER_CREDENTIALS_MAP[title][0];
@@ -12218,17 +12383,16 @@ async function loadLeaderboard(filterPack = 'All') {
     return;
   }
 
-  const isMobileScreen = window.innerWidth <= 768;
-  const isAdmin = !isMobileScreen && Boolean(getActiveAdminToken());
+  const isAdmin = Boolean(getActiveAdminToken());
 
   scores.forEach((sc, i) => {
     const tr = document.createElement('tr');
     const medal = i === 0 ? '🥇 1st' : i === 1 ? '🥈 2nd' : i === 2 ? '🥉 3rd' : `#${i + 1}`;
     const renameBtnHtml = isAdmin
-      ? `<button type="button" class="btn btn-sm" title="Change Player Name (Admin)" style="margin-left:6px;padding:2px 6px;font-size:11px;background:rgba(0,240,255,0.12);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:4px;cursor:pointer;" data-id="${escapeHtml(String(sc.id || ''))}" data-name="${encodeURIComponent(sc.name || '')}" onclick="window.adminChangeScoreName(this.dataset.id, decodeURIComponent(this.dataset.name || ''))">✏️</button>`
+      ? `<button type="button" class="btn btn-sm btn-lb-rename" title="Change Player Name (Admin)" style="margin-left:6px;padding:2px 6px;font-size:11px;background:rgba(0,240,255,0.12);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:4px;cursor:pointer;" data-id="${escapeHtml(String(sc.id || ''))}" data-name="${encodeURIComponent(sc.name || '')}">✏️</button>`
       : '';
     const delBtnHtml = isAdmin
-      ? `<button type="button" class="btn btn-sm" title="Delete Score Attempt (Admin)" style="margin-left:4px;padding:2px 6px;font-size:11px;background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:4px;cursor:pointer;" data-id="${escapeHtml(String(sc.id || ''))}" data-name="${encodeURIComponent(sc.name || '')}" onclick="window.adminDeleteScore(this.dataset.id, decodeURIComponent(this.dataset.name || ''))">🗑️</button>`
+      ? `<button type="button" class="btn btn-sm btn-lb-delete" title="Delete Score Attempt (Admin)" style="margin-left:4px;padding:2px 6px;font-size:11px;background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:4px;cursor:pointer;" data-id="${escapeHtml(String(sc.id || ''))}" data-name="${encodeURIComponent(sc.name || '')}">🗑️</button>`
       : '';
 
     let userTitlesMap = {};
@@ -12241,7 +12405,7 @@ async function loadLeaderboard(filterPack = 'All') {
       ? `<span class="user-title-badge" title="Official Honor Title">👑 ${escapeHtml(customTitle)}</span>`
       : '';
     const titleBtnHtml = isAdmin
-      ? `<button type="button" class="btn btn-sm" title="Assign Honor Title" style="margin-left:6px;padding:2px 6px;font-size:10.5px;background:rgba(0,240,255,0.1);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:4px;cursor:pointer;" onclick="window.adminAssignUserTitle('${encodeURIComponent(sc.name || '')}')">🏷️ Title</button>`
+      ? `<button type="button" class="btn btn-sm btn-assign-title" title="Assign Honor Title" style="margin-left:6px;padding:2px 6px;font-size:10.5px;background:rgba(0,240,255,0.1);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:4px;cursor:pointer;" data-name="${encodeURIComponent(sc.name || '')}">🏷️ Title</button>`
       : '';
 
     tr.innerHTML = `
@@ -12494,20 +12658,19 @@ async function loadFeedbackWall() {
         ? `<span class="user-title-badge" title="Official Honor Title">👑 ${escapeHtml(customTitle)}</span>`
         : '';
 
-      const isMobileScreen = window.innerWidth <= 768;
-  const isAdmin = !isMobileScreen && Boolean(getActiveAdminToken());
+      const isAdmin = Boolean(getActiveAdminToken());
       const adminActionsHtml = isAdmin
         ? `<div class="admin-feedback-actions">
-             <button type="button" class="btn btn-sm btn-admin-feedback" title="Change User Name (Admin)" style="background:rgba(0,240,255,0.12);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" data-id="${escapeHtml(String(f.id || ''))}" data-name="${encodeURIComponent(f.name || '')}" data-comment="${encodeURIComponent(f.comment || '')}" onclick="window.adminChangeFeedbackName(this.dataset.id, decodeURIComponent(this.dataset.name || ''), decodeURIComponent(this.dataset.comment || ''))">
+             <button type="button" class="btn btn-sm btn-admin-feedback btn-fb-rename" title="Change User Name (Admin)" style="background:rgba(0,240,255,0.12);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" data-id="${escapeHtml(String(f.id || ''))}" data-name="${encodeURIComponent(f.name || '')}" data-comment="${encodeURIComponent(f.comment || '')}">
                ✏️ Rename
              </button>
-             <button type="button" class="btn btn-sm btn-admin-feedback" title="${isPinned ? 'Unpin Reflection' : 'Pin Reflection to Top'}" style="background:${isPinned ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.06)'};color:${isPinned ? '#f59e0b' : 'var(--text-muted)'};border:1px solid ${isPinned ? '#f59e0b' : 'var(--border)'};border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" data-id="${escapeHtml(String(f.id || ''))}" data-pinned="${isPinned ? 0 : 1}" data-comment="${encodeURIComponent(f.comment || '')}" onclick="window.adminTogglePinFeedback(this.dataset.id, Number(this.dataset.pinned), decodeURIComponent(this.dataset.comment || ''))">
+             <button type="button" class="btn btn-sm btn-admin-feedback btn-fb-pin" title="${isPinned ? 'Unpin Reflection' : 'Pin Reflection to Top'}" style="background:${isPinned ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.06)'};color:${isPinned ? '#f59e0b' : 'var(--text-muted)'};border:1px solid ${isPinned ? '#f59e0b' : 'var(--border)'};border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" data-id="${escapeHtml(String(f.id || ''))}" data-pinned="${isPinned ? 0 : 1}" data-comment="${encodeURIComponent(f.comment || '')}">
                ${isPinned ? '📌 Pinned' : '📍 Pin'}
              </button>
-             <button type="button" class="btn btn-sm btn-admin-feedback" title="Assign Official Title (e.g. Vice-Principal)" style="background:rgba(0,240,255,0.1);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" onclick="window.adminAssignUserTitle('${encodeURIComponent(f.name || '')}')">
+             <button type="button" class="btn btn-sm btn-admin-feedback btn-assign-title" title="Assign Official Title (e.g. Vice-Principal)" style="background:rgba(0,240,255,0.1);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" data-name="${encodeURIComponent(f.name || '')}">
                🏷️ Title
              </button>
-             <button type="button" class="btn btn-sm btn-admin-feedback btn-admin-del" title="Delete this reflection (Admin)" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" data-id="${escapeHtml(String(f.id || ''))}" data-comment="${encodeURIComponent(f.comment || '')}" onclick="window.adminDeleteFeedback(this.dataset.id, decodeURIComponent(this.dataset.comment || ''))">
+             <button type="button" class="btn btn-sm btn-admin-feedback btn-admin-del btn-fb-del" title="Delete this reflection (Admin)" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" data-id="${escapeHtml(String(f.id || ''))}" data-comment="${encodeURIComponent(f.comment || '')}">
                🗑️
              </button>
            </div>`
@@ -12734,14 +12897,8 @@ function renderAdminView() {
     verifyAdminSessionWithServer(getActiveAdminToken()).then(result => applyAdminVerifyOutcome(result, gateScreen, workspaceScreen)).catch(() => {});
     if (typeof initAdminImportControls === 'function') initAdminImportControls();
 
-  // Global D1 Exhibition Data Downloader Wiring
-  $('#btn-download-d1-json')?.addEventListener('click', () => {
-    window.open(getApiUrl('api/export/data?format=json'), '_blank');
-  });
-
-  $('#btn-download-d1-csv')?.addEventListener('click', () => {
-    window.open(getApiUrl('api/export/data?format=csv'), '_blank');
-  });
+  // Global D1 Exhibition Data Downloader Wiring (authenticated fetch, bound once)
+  if (typeof window.initD1ExportButtons === 'function') window.initD1ExportButtons();
 
   } else {
     gateScreen.hidden = false;
@@ -12973,7 +13130,7 @@ window.renderAdminIssues = async function() {
               🛠️ Rectify
             </button>
           ` : ''}
-          <button class="btn btn-xs" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);padding:4px 8px;font-size:11.5px;border-radius:4px;cursor:pointer;" onclick="window.adminDeleteIssue('${iss.id}')" title="Delete Inquiry">
+          <button class="btn btn-xs" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);padding:4px 8px;font-size:11.5px;border-radius:4px;cursor:pointer;" data-del-issue-id="${escapeHtml(String(iss.id || ''))}" title="Delete Inquiry">
             🗑️
           </button>
         </div>
@@ -13069,8 +13226,8 @@ async function renderAdminModeration() {
               <div style="font-size:13.5px;color:var(--text-main);font-style:italic;">"${escapeHtml(f.comment || '')}"</div>
             </div>
             <div style="display:flex;align-items:center;gap:6px;">
-              <button type="button" class="btn btn-sm" style="background:rgba(0,240,255,0.15);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap;" data-id="${escapeHtml(String(f.id || ''))}" data-name="${encodeURIComponent(f.name || '')}" data-comment="${encodeURIComponent(f.comment || '')}" onclick="window.adminChangeFeedbackName(this.dataset.id, decodeURIComponent(this.dataset.name || ''), decodeURIComponent(this.dataset.comment || ''))">✏️ Rename</button>
-              <button type="button" class="btn btn-sm" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap;" data-id="${escapeHtml(String(f.id || ''))}" data-comment="${encodeURIComponent(f.comment || '')}" onclick="window.adminDeleteFeedback(this.dataset.id, decodeURIComponent(this.dataset.comment || ''))">🗑️ Delete</button>
+              <button type="button" class="btn btn-sm btn-fb-rename" style="background:rgba(0,240,255,0.15);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap;" data-id="${escapeHtml(String(f.id || ''))}" data-name="${encodeURIComponent(f.name || '')}" data-comment="${encodeURIComponent(f.comment || '')}">✏️ Rename</button>
+              <button type="button" class="btn btn-sm btn-fb-del" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap;" data-id="${escapeHtml(String(f.id || ''))}" data-comment="${encodeURIComponent(f.comment || '')}">🗑️ Delete</button>
             </div>
           </div>
         `;
@@ -13109,8 +13266,8 @@ async function renderAdminModeration() {
             <td>${sc.wpm || 130}</td>
             <td style="font-size:12px;color:var(--text-dim);">${timeStr}</td>
             <td style="text-align:center;white-space:nowrap;">
-              <button type="button" class="btn btn-sm" style="background:rgba(0,240,255,0.15);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:4px;padding:2px 8px;font-size:11.5px;cursor:pointer;margin-right:4px;" data-id="${escapeHtml(String(sc.id || ''))}" data-name="${encodeURIComponent(sc.name || '')}" onclick="window.adminChangeScoreName(this.dataset.id, decodeURIComponent(this.dataset.name || ''))">✏️ Rename</button>
-              <button type="button" class="btn btn-sm" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:4px;padding:2px 8px;font-size:11.5px;cursor:pointer;" data-id="${escapeHtml(String(sc.id || ''))}" data-name="${encodeURIComponent(sc.name || '')}" onclick="window.adminDeleteScore(this.dataset.id, decodeURIComponent(this.dataset.name || ''))">🗑️ Delete</button>
+              <button type="button" class="btn btn-sm btn-lb-rename" style="background:rgba(0,240,255,0.15);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:4px;padding:2px 8px;font-size:11.5px;cursor:pointer;margin-right:4px;" data-id="${escapeHtml(String(sc.id || ''))}" data-name="${encodeURIComponent(sc.name || '')}">✏️ Rename</button>
+              <button type="button" class="btn btn-sm btn-lb-delete" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:4px;padding:2px 8px;font-size:11.5px;cursor:pointer;" data-id="${escapeHtml(String(sc.id || ''))}" data-name="${encodeURIComponent(sc.name || '')}">🗑️ Delete</button>
             </td>
           </tr>
         `;
@@ -13885,13 +14042,16 @@ function initAdminWorkspace() {
     }
 
     try {
+      const vHeaders = effectiveKey ? { 'xi-api-key': effectiveKey } : {};
+      const _adminTok = (typeof getActiveAdminToken === 'function') ? getActiveAdminToken() : '';
+      if (_adminTok) vHeaders['Authorization'] = 'Bearer ' + _adminTok;
       const res = await fetch(getApiUrl('api/tts/voices') + (effectiveKey ? `?key=${encodeURIComponent(effectiveKey)}` : ''), {
-        headers: effectiveKey ? { 'xi-api-key': effectiveKey } : {}
+        headers: vHeaders
       });
 
-      const data = await res.json();
+      const data = await safeJsonResponse(res);
 
-      if (data.ok) {
+      if (data && data.ok) {
         const charCount = Number(data.subscription?.character_count ?? data.character_count ?? 0);
         const charLimit = Number(data.subscription?.character_limit ?? data.character_limit ?? 10000);
         const quotaStr = ` · ${charCount.toLocaleString()} / ${charLimit.toLocaleString()} credits`;
@@ -14265,12 +14425,12 @@ function initAdminWorkspace() {
       const confirmPwd = ($('#input-confirm-admin-pwd')?.value || '').trim();
       const statusEl = $('#status-change-admin-pwd');
 
-      if (!newPwd || newPwd.length < 4) {
+      if (!newPwd || newPwd.length < 8) {
         if (statusEl) {
-          statusEl.textContent = '❌ New password must be at least 4 characters.';
+          statusEl.textContent = '❌ New password must be at least 8 characters.';
           statusEl.style.color = '#ef4444';
         }
-        showToast('Password too short (min 4 characters).');
+        showToast('Password too short (min 8 characters).');
         return;
       }
       if (newPwd !== confirmPwd) {
@@ -14334,7 +14494,11 @@ function initAdminWorkspace() {
         if (!res.ok && res.status !== 400 && res.status !== 401 && res.status !== 403) {
           throw new Error('Backend unavailable');
         }
-        const data = await res.json().catch(() => null);
+        const cpCt = (res.headers.get('content-type') || '').toLowerCase();
+        let data = null;
+        if (cpCt.includes('application/json')) {
+          data = await res.json().catch(() => null);
+        }
 
         if (res.ok && data?.ok) {
           const nextSess = data.sessionToken || sessToken;
@@ -14670,15 +14834,19 @@ function renderHeroStream(options = {}) {
       iframe.src = freshUrl;
       iframe.dataset.currentSrc = embedUrl;
 
-      // Trigger YouTube play command via postMessage
-      try {
-        iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: '' }), '*');
-      } catch (_) {}
+      // Trigger YouTube play command via postMessage only if player API is ready
+      if (window._ytPlayerReady) {
+        try {
+          iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: '' }), '*');
+        } catch (_) {}
+      }
     } else {
-      // Just ensure play command is active
-      try {
-        iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: '' }), '*');
-      } catch (_) {}
+      // Just ensure play command is active if player is ready
+      if (window._ytPlayerReady) {
+        try {
+          iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: '' }), '*');
+        } catch (_) {}
+      }
     }
 
     iframe.removeAttribute('hidden');
@@ -14704,6 +14872,9 @@ function renderHeroStream(options = {}) {
         try {
           const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
           if (!data) return;
+          if (data.event === 'onReady' || data.info?.playerState !== undefined) {
+            window._ytPlayerReady = true;
+          }
           // State: 1 = playing, 2 = paused, 3 = buffering
           const pState = data.info?.playerState ?? (data.event === 'onStateChange' ? data.info : null);
           if (pState === 1 || pState === 2 || pState === 3) {
@@ -14784,9 +14955,11 @@ document.addEventListener('visibilitychange', () => {
     }
     const heroIframe = $('#hero-youtube-iframe');
     if (heroIframe && heroIframe.contentWindow) {
-      try {
-        heroIframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: '' }), '*');
-      } catch (_) {}
+      if (window._ytPlayerReady) {
+        try {
+          heroIframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: '' }), '*');
+        } catch (_) {}
+      }
       heroIframe.dataset.wasHidden = 'true';
     }
   } else {
@@ -14925,7 +15098,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       localStorage.setItem('cf_stream_url', cfg.stream_url.trim());
     } else if (localStreamUrl) {
       STATE.config.stream_url = localStreamUrl;
-      fetchApi('admin/config', 'PUT', { stream_url: localStreamUrl }).catch(() => {});
+      if (getActiveAdminToken()) {
+        fetchApi('admin/config', 'PUT', { stream_url: localStreamUrl }).catch(() => {});
+      }
     } else {
       STATE.config.stream_url = 'https://www.youtube.com/watch?v=jfKfPfyJRdk';
       localStorage.setItem('cf_stream_url', STATE.config.stream_url);
@@ -15074,18 +15249,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         res = await fetch(PRIMARY_D1_ORIGIN + '/api/admin/login', loginOpts);
       }
       if (res.ok) {
-        const data = await res.json().catch(() => null);
-        if (data && data.ok && data.sessionToken) {
-          sessionToken = data.sessionToken;
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        if (!ct.includes('application/json')) {
+          loginErrorMsg = 'Backend API returned a non-JSON response. Please check Pages Functions.';
+        } else {
+          const data = await res.json().catch(() => null);
+          if (data && data.ok && data.sessionToken) {
+            sessionToken = data.sessionToken;
+          } else {
+            loginErrorMsg = data?.error || 'Login failed.';
+          }
         }
       } else {
-        const errData = await res.json().catch(() => null);
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        let errData = null;
+        if (ct.includes('application/json')) {
+          errData = await res.json().catch(() => null);
+        }
         if (res.status === 403 && (errData?.banned || errData?.admin_revoked || errData?.brute_force_banned)) {
           if (submitBtn) submitBtn.disabled = false;
           enforceSiteIpBlockOverlay(errData.error);
           return;
         }
-        loginErrorMsg = errData?.error || 'Incorrect password.';
+        loginErrorMsg = errData?.error || `Login failed (HTTP ${res.status}).`;
       }
     } catch (err) {
       loginErrorMsg = err?.message || 'Unable to reach security server. Please check your connection.';
@@ -15103,14 +15289,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       $('#admin-workspace-screen').hidden = false;
       initAdminWorkspace();
 
-      // Global D1 Exhibition Data Downloader Wiring
-      $('#btn-download-d1-json')?.addEventListener('click', () => {
-        window.open(getApiUrl('api/export/data?format=json'), '_blank');
-      });
-
-      $('#btn-download-d1-csv')?.addEventListener('click', () => {
-        window.open(getApiUrl('api/export/data?format=csv'), '_blank');
-      });
+      // Global D1 Exhibition Data Downloader Wiring (authenticated fetch, bound once)
+      if (typeof window.initD1ExportButtons === 'function') window.initD1ExportButtons();
 
       updateHeaderBookletVisibility();
       loadFeedbackWall();
@@ -15137,8 +15317,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     lockAdminForCurrentSession('Admin console locked for this session.');
   });
 
-  $('#btn-admin-logout')?.addEventListener('click', () => {
-    lockAdminForCurrentSession('Logged out of Admin for this session.');
+  $('#btn-admin-logout')?.addEventListener('click', async () => {
+    try {
+      const tok = getActiveAdminToken();
+      if (tok) {
+        fetch(getApiUrl('api/admin/logout'), {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + tok }
+        }).catch(() => {});
+      }
+    } catch {}
+    STATE.adminKey = '';
+    STATE.adminLockedInSession = false;
+    try {
+      sessionStorage.removeItem('cf_admin_session');
+      localStorage.removeItem('cf_admin_session');
+    } catch {}
+    updateHeaderBookletVisibility();
+    renderAdminView();
+    loadFeedbackWall();
+    loadLeaderboard();
+    showToast('Logged out of Admin.');
   });
 });
 
@@ -15347,9 +15546,7 @@ window.renderAdminDevices = async function() {
       ipBadge.textContent = `Your IP: ${currentIp}`;
     }
 
-    const IMMUNE_CLIENT_IPS = {
-  has: (ip) => isImmuneClientIp(ip)
-};
+    const IMMUNE_CLIENT_IPS = new Set(); // Protection enforced server-side only
     const rawDevs = Array.isArray(res.devices) ? res.devices : [];
     const devices = rawDevs.filter(d => d && !IMMUNE_CLIENT_IPS.has(d.ip));
     if (!devices.length) {
@@ -15390,12 +15587,12 @@ window.renderAdminDevices = async function() {
             const statusHtml = d.is_blocked
               ? `<span style="color:#ef4444;font-weight:700;">🔴 Blocked Across Site</span>${reasonSub}`
               : `<span style="color:#10b981;font-weight:700;">🟢 Active</span>`;
-            const isImmune = IMMUNE_CLIENT_IPS.has(safeIp);
+            const isImmune = Boolean(d.is_protected);
             const actionBtn = isImmune
               ? `<span class="badge-pill" style="font-size:10px;color:#38bdf8;background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3);">Protected</span>`
               : (d.is_blocked
-                ? `<button type="button" class="btn btn-secondary btn-xs" onclick="window.adminRestoreDeviceIp('${safeIp}')">✅ Unblock IP</button>`
-                : `<button type="button" class="btn btn-primary btn-xs" style="background:#ef4444;border-color:#dc2626;" onclick="window.adminRevokeDeviceIp('${safeIp}', ${Boolean(d.is_current)})">🚫 Block IP</button>`);
+                ? `<button type="button" class="btn btn-secondary btn-xs" data-restore-ip="${safeIp}">✅ Unblock IP</button>`
+                : `<button type="button" class="btn btn-primary btn-xs" style="background:#ef4444;border-color:#dc2626;" data-revoke-ip="${safeIp}" data-is-current="${d.is_current ? '1' : '0'}">🚫 Block IP</button>`);
             return `
               <tr style="border-top:1px solid var(--border);">
                 <td style="padding:8px 10px;font-family:var(--font-mono);font-weight:700;white-space:nowrap;">${safeIp}${currentTag}</td>
@@ -15534,7 +15731,7 @@ window.renderAdminBannedIps = async function() {
     container.innerHTML = banned.map(ip => `
       <div class="banned-ip-pill">
         <span>🚫 ${escapeHtml(ip)}</span>
-        <button type="button" style="background:none;border:none;color:#f87171;cursor:pointer;padding:0 2px;font-weight:bold;" title="Unban this IP" onclick="window.adminUnbanIp('${escapeHtml(ip)}')">✕</button>
+        <button type="button" style="background:none;border:none;color:#f87171;cursor:pointer;padding:0 2px;font-weight:bold;" title="Unban this IP" data-unban-ip="${escapeHtml(ip)}">✕</button>
       </div>
     `).join('');
   }
@@ -15578,7 +15775,7 @@ window.initDynamicApiPools = function() {
       const pillClass = i === 0 ? 'main' : 'backup';
       const canRemove = keys.length > 3 || (i >= 3 && keys.length > 3);
       const removeBtn = i >= 3
-        ? `<button type="button" class="btn-remove-api-row" onclick="window.removeGeminiKeyRow(${i})" title="Remove this backup box">✕</button>`
+        ? `<button type="button" class="btn-remove-api-row btn-remove-gemini-row" data-index="${i}" title="Remove this backup box">✕</button>`
         : '';
 
       return `
@@ -15720,7 +15917,7 @@ window.initDynamicApiPools = function() {
       const label = i === 0 ? 'Main' : `Backup ${i}`;
       const pillClass = i === 0 ? 'main' : 'backup';
       const removeBtn = i >= 3
-        ? `<button type="button" class="btn-remove-api-row" onclick="window.removeElevenKeyRow(${i})" title="Remove this backup box">✕</button>`
+        ? `<button type="button" class="btn-remove-api-row btn-remove-eleven-row" data-index="${i}" title="Remove this backup box">✕</button>`
         : '';
 
       return `
@@ -16249,3 +16446,123 @@ document.addEventListener('click', function(e) {
     }
   }
 }, true);
+
+// ── Global Delegated Click Handler for Dynamic UI & Admin Action Buttons ──
+if (!window._delegatedSiteActionsBound) {
+  window._delegatedSiteActionsBound = true;
+  document.addEventListener('click', (e) => {
+    const target = e.target;
+    if (!target || typeof target.closest !== 'function') return;
+
+    const btnQuizSector = target.closest('.btn-quiz-explore-sector');
+    if (btnQuizSector) {
+      const sector = (btnQuizSector.dataset.sector || '').toLowerCase();
+      switchTab('careers');
+      let catKey = 'All';
+      if (sector.includes('media')) catKey = 'Media';
+      else if (sector.includes('law')) catKey = 'Law';
+      else if (sector.includes('tech')) catKey = 'Tech';
+      else if (sector.includes('med') || sector.includes('health')) catKey = 'Health';
+      const matchingChip = document.querySelector(`#career-category-filters .filter-chip[data-cat="${catKey}"]`);
+      if (matchingChip) matchingChip.click();
+      return;
+    }
+
+    if (target.closest('.btn-quiz-view-colleges')) {
+      switchTab('colleges');
+      return;
+    }
+
+    if (target.closest('.btn-next-speech-sentence')) {
+      changeSpeechSentence(true);
+      return;
+    }
+
+    const btnDictSpeak = target.closest('.btn-dict-speak');
+    if (btnDictSpeak) {
+      const word = decodeURIComponent(btnDictSpeak.dataset.word || '');
+      if (word) speak(word, btnDictSpeak);
+      return;
+    }
+
+    const btnLbRename = target.closest('.btn-lb-rename');
+    if (btnLbRename) {
+      window.adminChangeScoreName?.(btnLbRename.dataset.id, decodeURIComponent(btnLbRename.dataset.name || ''));
+      return;
+    }
+
+    const btnLbDel = target.closest('.btn-lb-delete');
+    if (btnLbDel) {
+      window.adminDeleteScore?.(btnLbDel.dataset.id, decodeURIComponent(btnLbDel.dataset.name || ''));
+      return;
+    }
+
+    const btnAssignTitle = target.closest('.btn-assign-title');
+    if (btnAssignTitle) {
+      window.adminAssignUserTitle?.(btnAssignTitle.dataset.name || '');
+      return;
+    }
+
+    const btnFbRename = target.closest('.btn-fb-rename');
+    if (btnFbRename) {
+      window.adminChangeFeedbackName?.(
+        btnFbRename.dataset.id,
+        decodeURIComponent(btnFbRename.dataset.name || ''),
+        decodeURIComponent(btnFbRename.dataset.comment || '')
+      );
+      return;
+    }
+
+    const btnFbPin = target.closest('.btn-fb-pin');
+    if (btnFbPin) {
+      window.adminTogglePinFeedback?.(
+        btnFbPin.dataset.id,
+        Number(btnFbPin.dataset.pinned),
+        decodeURIComponent(btnFbPin.dataset.comment || '')
+      );
+      return;
+    }
+
+    const btnFbDel = target.closest('.btn-fb-del');
+    if (btnFbDel) {
+      window.adminDeleteFeedback?.(btnFbDel.dataset.id, decodeURIComponent(btnFbDel.dataset.comment || ''));
+      return;
+    }
+
+    const btnDelIssue = target.closest('[data-del-issue-id]');
+    if (btnDelIssue) {
+      window.adminDeleteIssue?.(btnDelIssue.dataset.delIssueId);
+      return;
+    }
+
+    const btnRevokeIp = target.closest('[data-revoke-ip]');
+    if (btnRevokeIp) {
+      window.adminRevokeDeviceIp?.(btnRevokeIp.dataset.revokeIp, btnRevokeIp.dataset.isCurrent === '1');
+      return;
+    }
+
+    const btnRestoreIp = target.closest('[data-restore-ip]');
+    if (btnRestoreIp) {
+      window.adminRestoreDeviceIp?.(btnRestoreIp.dataset.restoreIp);
+      return;
+    }
+
+    const btnUnbanIp = target.closest('[data-unban-ip]');
+    if (btnUnbanIp) {
+      window.adminUnbanIp?.(btnUnbanIp.dataset.unbanIp);
+      return;
+    }
+
+    const btnRmGemini = target.closest('.btn-remove-gemini-row');
+    if (btnRmGemini) {
+      window.removeGeminiKeyRow?.(Number(btnRmGemini.dataset.index));
+      return;
+    }
+
+    const btnRmEleven = target.closest('.btn-remove-eleven-row');
+    if (btnRmEleven) {
+      window.removeElevenKeyRow?.(Number(btnRmEleven.dataset.index));
+      return;
+    }
+  });
+}

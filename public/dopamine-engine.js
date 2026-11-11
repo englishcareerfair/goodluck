@@ -88,16 +88,47 @@
     }
   }
 
-  // ── 2. Confetti Particle Bursts ─────────────────────────────────────────────
+  // ── 2. Confetti Particle Bursts (Lazy Loaded) ───────────────────────────────
+  let confettiLoadPromise = null;
+  function ensureConfettiLoaded() {
+    if (typeof window.confetti === 'function') return Promise.resolve(true);
+    const url = 'https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js';
+    const integrity = 'sha384-sPwMflxqfAN+Q5mvlkLmHiX3PORGbZSXHiSGPTXT9VHCD/AB+b+r+vJWsqprv+7k';
+    if (typeof window.loadExternalScriptOnce === 'function') {
+      return window.loadExternalScriptOnce(url, integrity, () => typeof window.confetti === 'function');
+    }
+    if (!confettiLoadPromise) {
+      confettiLoadPromise = new Promise((resolve) => {
+        const s = document.createElement('script');
+        s.src = url;
+        s.integrity = integrity;
+        s.crossOrigin = 'anonymous';
+        s.async = true;
+        s.onload = () => resolve(typeof window.confetti === 'function');
+        s.onerror = () => resolve(false);
+        document.head.appendChild(s);
+      });
+    }
+    return confettiLoadPromise;
+  }
+
   function triggerConfettiBurst(originX = 0.5, originY = 0.6) {
     if (window.STATE?.config?.flags?.dopamine_fx === false) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const fire = () => {
+      if (typeof window.confetti === 'function') {
+        window.confetti({
+          particleCount: 65,
+          spread: 70,
+          origin: { x: originX, y: originY },
+          colors: ['#00f0ff', '#e8a04a', '#10b981', '#a855f7', '#ffd700']
+        });
+      }
+    };
     if (typeof window.confetti === 'function') {
-      window.confetti({
-        particleCount: 65,
-        spread: 70,
-        origin: { x: originX, y: originY },
-        colors: ['#00f0ff', '#e8a04a', '#10b981', '#a855f7', '#ffd700']
-      });
+      fire();
+    } else {
+      ensureConfettiLoaded().then(fire).catch(() => {});
     }
   }
 

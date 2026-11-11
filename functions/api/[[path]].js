@@ -6,7 +6,7 @@
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const json = (data, status = 200) =>
+const json = (data, status = 200, extraHeaders = null) =>
   new Response(JSON.stringify(data), {
     status,
     headers: {
@@ -17,10 +17,19 @@ const json = (data, status = 200) =>
       'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Pragma': 'no-cache',
       'Expires': '0',
+      ...(extraHeaders && typeof extraHeaders === 'object' ? extraHeaders : {}),
     },
   });
 
 const err = (msg, status = 400) => json({ error: msg }, status);
+
+function csvCell(val) {
+  let s = val === null || val === undefined ? '' : String(val);
+  if (/^[\s]*[=+\-@\t\r]/.test(s)) {
+    s = "'" + s;
+  }
+  return `"${s.replace(/"/g, '""')}"`;
+}
 
 /** Levenshtein distance calculation */
 function levenshtein(a, b) {
@@ -504,8 +513,13 @@ async function sha256(str) {
 // Initial fallback one-way PBKDF2-SHA-512 verifier (100k iterations, never stores plaintext password)
 const INITIAL_AUTH_SALT_HEX = '67b1e28b68e6a42f4ff70cf09e64285031daafdf1e930c29550d27b2085be5a4';
 const INITIAL_AUTH_DK_HEX = '2c5498c0db0234b0b1796c357c5ae92a8974c68e95a6735862134e12183992c600b5883f7acf931c64352e0d4f932b1cde634f40a44417f34e594355f112811f';
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30-day sliding expiry
 const MEM_FALLBACK_SESSIONS = new Map();
 let MEM_FALLBACK_AUTH_RECORD = null;
+let MEM_FALLBACK_VAULT_KEY_HEX = '';
+let MEM_FALLBACK_ECDH = null;
+let MEM_SCORES_CLEARED = false;
+let MEM_FEEDBACK_CLEARED = false;
 
 function constantTimeEqualStr(a, b) {
   const s1 = String(a || '');
@@ -596,10 +610,13 @@ async function pbkdf2Sha512Hex(password, saltHex, iterations = 100000) {
 }
 
 async function getOrInitVaultKeyBytes(db) {
-  let hex = await authKvRawGet(db, 'sec_vault_key_v1');
+  let hex = db ? await authKvRawGet(db, 'sec_vault_key_v1') : MEM_FALLBACK_VAULT_KEY_HEX;
   if (!hex || hex.length !== 64) {
-    hex = randomHex(32);
+    hex = MEM_FALLBACK_VAULT_KEY_HEX && MEM_FALLBACK_VAULT_KEY_HEX.length === 64 ? MEM_FALLBACK_VAULT_KEY_HEX : randomHex(32);
+    MEM_FALLBACK_VAULT_KEY_HEX = hex;
     if (db) await authKvRawSet(db, 'sec_vault_key_v1', hex);
+  } else {
+    MEM_FALLBACK_VAULT_KEY_HEX = hex;
   }
   return hexToBytes(hex);
 }
@@ -645,12 +662,18 @@ async function buildEncryptedAuthRecord(db, saltHex, dkHex, epoch = 1) {
   return { inner, sealedWrapper: await sealVaultObject(db, inner, 'careerfair-d1-admin-auth-v3') };
 }
 
-async function ensureEncryptedAdminAuth(db) {
+async function ensureEncryptedAdminAuth(db, env) {
+  const envPwd = String(env?.ADMIN_PASSWORD || '').trim();
+  const defaultSalt = INITIAL_AUTH_SALT_HEX;
+  const defaultDk = envPwd
+    ? await pbkdf2Sha512Hex(envPwd, defaultSalt, 100000)
+    : INITIAL_AUTH_DK_HEX;
+
   if (!db) {
     if (!MEM_FALLBACK_AUTH_RECORD) {
       MEM_FALLBACK_AUTH_RECORD = {
         v: 3, alg: 'PBKDF2-SHA512', iter: 100000,
-        salt: INITIAL_AUTH_SALT_HEX, dk: INITIAL_AUTH_DK_HEX, epoch: 1, updated_at: Date.now()
+        salt: defaultSalt, dk: defaultDk, epoch: 1, updated_at: Date.now()
       };
     }
     return MEM_FALLBACK_AUTH_RECORD;
@@ -658,46 +681,50 @@ async function ensureEncryptedAdminAuth(db) {
 
   try { await ensureDbSchema(db); } catch {}
   const existingRaw = await authKvRawGet(db, 'admin_auth_v3');
+  const syncMarker = await authKvRawGet(db, 'admin_pwd_sync_v4');
   if (existingRaw) {
     try {
       const parsed = JSON.parse(existingRaw);
       const inner = parsed?.sealed ? await unsealVaultObject(db, parsed, 'careerfair-d1-admin-auth-v3') : parsed;
       if (inner && inner.salt && inner.dk) {
-        // Purge any leftover legacy plaintext key from D1 & memory cache
-        await authKvRawDelete(db, 'admin_password');
-        if (GLOBAL_CACHE?.kv) GLOBAL_CACHE.kv.admin_password = '';
-        return inner;
+        if (syncMarker === '1') {
+          await authKvRawDelete(db, 'admin_password');
+          if (GLOBAL_CACHE?.kv) GLOBAL_CACHE.kv.admin_password = '';
+          return inner;
+        }
+        const matchesDefault = envPwd
+          ? constantTimeEqualStr(await pbkdf2Sha512Hex(envPwd, inner.salt, Number(inner.iter || 100000)), inner.dk)
+          : (inner.salt === INITIAL_AUTH_SALT_HEX && constantTimeEqualStr(inner.dk, INITIAL_AUTH_DK_HEX));
+        if (matchesDefault) {
+          await authKvRawSet(db, 'admin_pwd_sync_v4', '1');
+          await authKvRawDelete(db, 'admin_password');
+          if (GLOBAL_CACHE?.kv) GLOBAL_CACHE.kv.admin_password = '';
+          return inner;
+        }
       }
     } catch {}
   }
 
-  // First-time migration from legacy D1 kv 'admin_password' (if present) -> encrypted PBKDF2-SHA-512 + AES-GCM vault
-  const legacyPlain = String((await authKvRawGet(db, 'admin_password')) || '').trim();
-  let saltHex = INITIAL_AUTH_SALT_HEX;
-  let dkHex = INITIAL_AUTH_DK_HEX;
-  if (legacyPlain) {
-    saltHex = randomHex(32);
-    dkHex = await pbkdf2Sha512Hex(legacyPlain, saltHex, 100000);
-  }
-  const { inner, sealedWrapper } = await buildEncryptedAuthRecord(db, saltHex, dkHex, 1);
+  const { inner, sealedWrapper } = await buildEncryptedAuthRecord(db, defaultSalt, defaultDk, 1);
   await authKvRawSet(db, 'admin_auth_v3', JSON.stringify(sealedWrapper));
+  await authKvRawSet(db, 'admin_pwd_sync_v4', '1');
   await authKvRawDelete(db, 'admin_password');
   if (GLOBAL_CACHE?.kv) GLOBAL_CACHE.kv.admin_password = '';
   return inner;
 }
 
-async function verifyAdminPassword(db, candidatePwd) {
+async function verifyAdminPassword(db, candidatePwd, env) {
   const pwd = String(candidatePwd || '').trim();
   if (!pwd) return { ok: false, authRec: null };
-  const authRec = await ensureEncryptedAdminAuth(db);
+  const authRec = await ensureEncryptedAdminAuth(db, env);
   if (!authRec || !authRec.salt || !authRec.dk) return { ok: false, authRec };
   const computed = await pbkdf2Sha512Hex(pwd, authRec.salt, Number(authRec.iter || 100000));
   return { ok: constantTimeEqualStr(computed, authRec.dk), authRec };
 }
 
-async function setNewAdminPassword(db, newPwd) {
+async function setNewAdminPassword(db, newPwd, env) {
   const cleanPwd = String(newPwd || '').trim();
-  const prev = await ensureEncryptedAdminAuth(db);
+  const prev = await ensureEncryptedAdminAuth(db, env);
   const nextEpoch = Number(prev?.epoch || 1) + 1;
   const saltHex = randomHex(32);
   const dkHex = await pbkdf2Sha512Hex(cleanPwd, saltHex, 100000);
@@ -708,6 +735,7 @@ async function setNewAdminPassword(db, newPwd) {
   }
   const { inner, sealedWrapper } = await buildEncryptedAuthRecord(db, saltHex, dkHex, nextEpoch);
   await authKvRawSet(db, 'admin_auth_v3', JSON.stringify(sealedWrapper));
+  await authKvRawSet(db, 'admin_pwd_sync_v4', '1');
   await authKvRawDelete(db, 'admin_password');
   if (GLOBAL_CACHE?.kv) GLOBAL_CACHE.kv.admin_password = '';
   try {
@@ -719,12 +747,14 @@ async function setNewAdminPassword(db, newPwd) {
 async function createAdminSession(req, db, epoch, clientIp) {
   const rawToken = 'adm_sess_' + randomHex(32);
   const tokenHash = await sha256(rawToken);
+  const now = Date.now();
   const rec = {
     epoch: Number(epoch || 1),
     ip: clientIp || '',
     ua: (req?.headers?.get('User-Agent') || '').slice(0, 140),
-    created_at: Date.now(),
-    last_seen: Date.now()
+    created_at: now,
+    last_seen: now,
+    expires_at: now + SESSION_TTL_MS
   };
   if (db) {
     await authKvRawSet(db, 'admin_sess_' + tokenHash, JSON.stringify(rec));
@@ -734,10 +764,10 @@ async function createAdminSession(req, db, epoch, clientIp) {
   return rawToken;
 }
 
-async function validateAdminSessionToken(db, rawToken) {
+async function validateAdminSessionToken(db, rawToken, env) {
   const token = String(rawToken || '').trim();
   if (!token.startsWith('adm_sess_') || token.length < 40) return null;
-  const authRec = await ensureEncryptedAdminAuth(db);
+  const authRec = await ensureEncryptedAdminAuth(db, env);
   const expectedEpoch = Number(authRec?.epoch || 1);
   const tokenHash = await sha256(token);
   let rec = null;
@@ -752,6 +782,26 @@ async function validateAdminSessionToken(db, rawToken) {
     if (db) await authKvRawDelete(db, 'admin_sess_' + tokenHash);
     return null;
   }
+
+  const now = Date.now();
+  const expiresAt = Number(rec.expires_at || (Number(rec.last_seen || rec.created_at || now) + SESSION_TTL_MS));
+  if (now > expiresAt) {
+    if (db) await authKvRawDelete(db, 'admin_sess_' + tokenHash);
+    else MEM_FALLBACK_SESSIONS.delete(tokenHash);
+    return null;
+  }
+
+  // Sliding expiry: Refresh expires_at & last_seen (throttled to once every 5 minutes)
+  if (now - Number(rec.last_seen || 0) > 5 * 60 * 1000) {
+    rec.last_seen = now;
+    rec.expires_at = now + SESSION_TTL_MS;
+    if (db) {
+      await authKvRawSet(db, 'admin_sess_' + tokenHash, JSON.stringify(rec));
+    } else {
+      MEM_FALLBACK_SESSIONS.set(tokenHash, rec);
+    }
+  }
+
   return { tokenHash, rec, authRec };
 }
 
@@ -769,14 +819,20 @@ async function getOrInitServerEcdhKeypair(db) {
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
-        if (parsed?.privJwk && parsed?.pubJwk) return parsed;
+        if (parsed?.privJwk && parsed?.pubJwk) {
+          MEM_FALLBACK_ECDH = parsed;
+          return parsed;
+        }
       } catch {}
     }
+  } else if (MEM_FALLBACK_ECDH?.privJwk && MEM_FALLBACK_ECDH?.pubJwk) {
+    return MEM_FALLBACK_ECDH;
   }
   const kp = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
   const privJwk = await crypto.subtle.exportKey('jwk', kp.privateKey);
   const pubJwk = await crypto.subtle.exportKey('jwk', kp.publicKey);
   const record = { privJwk, pubJwk, created_at: Date.now() };
+  MEM_FALLBACK_ECDH = record;
   if (db) await authKvRawSet(db, 'sec_ecdh_v1', JSON.stringify(record));
   return record;
 }
@@ -891,9 +947,9 @@ async function verifyAuth(req, env, db, requiredScope = null, url = null) {
 
   // 1. Check Opaque Master Admin Session Token (adm_sess_...)
   if (token.startsWith('adm_sess_')) {
-    const sessInfo = await validateAdminSessionToken(db, token);
+    const sessInfo = await validateAdminSessionToken(db, token, env);
     if (!sessInfo) {
-      return { ok: false, status: 401, error: 'Admin session expired or invalid. Please sign in again.' };
+      return { ok: false, status: 401, error: 'Admin session expired or invalid. Please sign in again.', revoked: true };
     }
     if (clientIp) {
       const blockedIps = await getAdminBlockedIps(db);
@@ -1053,8 +1109,11 @@ const GLOBAL_CACHE = {
 };
 
 let isDbSchemaReady = false;
+let schemaInitPromise = null;
 async function ensureDbSchema(db) {
   if (!db || isDbSchemaReady) return;
+  if (schemaInitPromise) return schemaInitPromise;
+  schemaInitPromise = (async () => {
   const queries = [
     `CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS scores (
@@ -1127,10 +1186,26 @@ async function ensureDbSchema(db) {
     `CREATE INDEX IF NOT EXISTS idx_telemetry_created ON telemetry_sessions(created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_user_issues_status ON user_issues(status)`
   ];
-  for (const q of queries) {
-    try { await db.prepare(q).run(); } catch (e) {}
+  if (typeof db.batch === 'function') {
+    try {
+      await db.batch(queries.map(q => db.prepare(q)));
+    } catch {
+      for (const q of queries) {
+        try { await db.prepare(q).run(); } catch (e) {}
+      }
+    }
+  } else {
+    for (const q of queries) {
+      try { await db.prepare(q).run(); } catch (e) {}
+    }
   }
   isDbSchemaReady = true;
+  })();
+  try {
+    await schemaInitPromise;
+  } finally {
+    schemaInitPromise = null;
+  }
 }
 
 // ─── Default Speaking Packs (10 sentences each) ──────────────────────────────
@@ -1385,8 +1460,6 @@ export async function onRequest(ctx) {
     const stream_url = (await kvGet(db, 'stream_url', '')) || GLOBAL_CACHE.kv.stream_url || env.STREAM_URL || env.YOUTUBE_URL || 'https://www.youtube.com/watch?v=jfKfPfyJRdk';
     const stream_title = (await kvGet(db, 'stream_title', '')) || GLOBAL_CACHE.kv.stream_title || 'Career Fair 2026 — Live Stage Broadcast';
     const stream_active = ((await kvGet(db, 'stream_active', '')) || GLOBAL_CACHE.kv.stream_active || '1') === '1';
-    const rclone_remote = (await kvGet(db, 'rclone_remote', '')) || GLOBAL_CACHE.kv.rclone_remote || env.RCLONE_REMOTE || 'gdrive:careerfair_telemetry';
-    const rclone_endpoint = (await kvGet(db, 'rclone_endpoint', '')) || env.RCLONE_ENDPOINT || '';
 
     let user_titles = {};
     if (db) {
@@ -1434,8 +1507,6 @@ export async function onRequest(ctx) {
       stream_url,
       stream_title,
       stream_active,
-      rclone_remote,
-      rclone_endpoint,
       user_titles,
       has_gemini_key,
       eleven_voice,
@@ -1572,18 +1643,18 @@ export async function onRequest(ctx) {
     q += ' ORDER BY acc DESC, fluency DESC, ts DESC LIMIT 100';
 
     let results = [];
+    let dbQuerySucceeded = false;
     if (db) {
       try {
         const queryRes = binds.length ? await db.prepare(q).bind(...binds).all() : await db.prepare(q).all();
-        if (queryRes && queryRes.results && queryRes.results.length > 0) {
+        if (queryRes && Array.isArray(queryRes.results)) {
           results = queryRes.results;
+          dbQuerySucceeded = true;
         }
       } catch {}
     }
 
-    // D1 is the authoritative source of truth.
-    // Fall back to in-memory cache ONLY if D1 is unreachable or returned 0 rows.
-    if ((!results || results.length === 0) && GLOBAL_CACHE.scores.length > 0) {
+    if (!dbQuerySucceeded && !MEM_SCORES_CLEARED && (!results || results.length === 0) && GLOBAL_CACHE.scores.length > 0) {
       let cached = [...GLOBAL_CACHE.scores];
       if (pack && pack !== 'All') {
         const isSpeech = (pack.toLowerCase() === 'speech lab' || pack.toLowerCase() === 'ai speech lab');
@@ -1593,8 +1664,7 @@ export async function onRequest(ctx) {
         cached = cached.filter(s => s.class_name === className);
       }
       results = cached;
-    } else if (results && results.length > 0 && (!pack || pack === 'All') && (!className || className === 'All')) {
-      // Keep memory cache aligned with authoritative D1 database
+    } else if (dbQuerySucceeded && (!pack || pack === 'All') && (!className || className === 'All')) {
       GLOBAL_CACHE.scores = [...results];
     }
 
@@ -1655,8 +1725,13 @@ export async function onRequest(ctx) {
 
     let transcript = fallbackText;
 
-    // ElevenLabs STT API integration if audio and key are available
-    if (audioFile && env.ELEVEN_KEY && typeof env.ELEVEN_KEY === 'string' && env.ELEVEN_KEY.trim()) {
+    // ElevenLabs STT API integration if audio and key (env or admin KV) are available
+    let attemptElevenKey = (typeof env.ELEVEN_KEY === 'string' && env.ELEVEN_KEY.trim())
+      || (await kvGet(db, 'eleven_key', ''))
+      || (await kvGet(db, 'eleven_keys', ''))
+      || '';
+    attemptElevenKey = String(attemptElevenKey).split(/[\r\n,]+/)[0].trim();
+    if (audioFile && attemptElevenKey) {
       try {
         const sttForm = new FormData();
         let fileName = 'attempt.webm';
@@ -1671,7 +1746,7 @@ export async function onRequest(ctx) {
 
         const sttRes = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
           method: 'POST',
-          headers: { 'xi-api-key': env.ELEVEN_KEY.trim() },
+          headers: { 'xi-api-key': attemptElevenKey },
           body: sttForm,
         });
 
@@ -1724,6 +1799,7 @@ export async function onRequest(ctx) {
         ts: Date.now()
       };
 
+      MEM_SCORES_CLEARED = false;
       // In-memory persistent cache update
       const existingIdx = GLOBAL_CACHE.scores.findIndex(s => s.name.toLowerCase() === name.toLowerCase());
       if (existingIdx === -1) {
@@ -1986,6 +2062,7 @@ export async function onRequest(ctx) {
       ts: Date.now()
     };
 
+    MEM_FEEDBACK_CLEARED = false;
     // Update in-memory persistent cache
     GLOBAL_CACHE.feedback.unshift(fbObj);
 
@@ -2019,17 +2096,17 @@ export async function onRequest(ctx) {
       const authCheck = await verifyAuth(request, env, db, 'read:feedback', url);
       if (!authCheck.ok) return err(authCheck.error, authCheck.status);
     }
-    const page = parseInt(url.searchParams.get('page') || '1', 10);
+    const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
     const limit = 50;
     const offset = (page - 1) * limit;
 
     let items = [];
     let total = 0;
     let avg = 5.0;
+    let dbFeedbackOk = false;
 
     if (db) {
       try {
-        // Check if pinned column exists, order by pinned DESC, ts DESC
         let results;
         try {
           const q = await db.prepare('SELECT * FROM feedback WHERE approved=1 ORDER BY pinned DESC, ts DESC LIMIT ? OFFSET ?')
@@ -2041,9 +2118,10 @@ export async function onRequest(ctx) {
           results = q.results;
         }
         const statRow = await db.prepare('SELECT COUNT(*) as c, AVG(r_useful) as avg_rating FROM feedback WHERE approved=1').first();
-        if (results && results.length > 0) {
+        if (Array.isArray(results)) {
+          dbFeedbackOk = true;
           items = results;
-          total = statRow?.c || results.length;
+          total = statRow?.c ?? results.length;
           if (statRow && statRow.avg_rating !== null && statRow.avg_rating !== undefined) {
             avg = Number(Number(statRow.avg_rating).toFixed(1));
           }
@@ -2062,8 +2140,8 @@ export async function onRequest(ctx) {
       pinnedList = GLOBAL_CACHE.pinned_feedbacks || [];
     }
 
-    // Merge with in-memory cache to guarantee persistence
-    if (GLOBAL_CACHE.feedback.length > 0) {
+    // Only merge in-memory fallback cache when D1 is unbound/unavailable and not reset
+    if (!dbFeedbackOk && !MEM_FEEDBACK_CLEARED && GLOBAL_CACHE.feedback.length > 0) {
       const seenComments = new Set(items.map(f => (f.comment || '').trim()));
       for (const f of GLOBAL_CACHE.feedback) {
         const c = (f.comment || '').trim();
@@ -2895,7 +2973,7 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     if (!dec.ok) {
       return err(dec.error || 'Encrypted authentication required', 400);
     }
-    const check = await verifyAdminPassword(db, dec.payload?.password);
+    const check = await verifyAdminPassword(db, dec.payload?.password, env);
     if (!check.ok) {
       const bf = await recordFailedAuthAttempt(request, db, 'Wrong admin login password');
       if (bf.banned) {
@@ -2928,7 +3006,9 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     const authCheck = await verifyAuth(request, env, db, 'manage:config', url);
     if (!authCheck.ok) {
       return json({
+        ok: false,
         error: authCheck.error,
+        revoked: Boolean(authCheck.revoked),
         admin_revoked: Boolean(authCheck.admin_revoked),
         banned: Boolean(authCheck.banned),
         brute_force_banned: Boolean(authCheck.brute_force_banned),
@@ -3036,7 +3116,7 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     if (!currentPassword) {
       return err('Current password is required', 400);
     }
-    const curCheck = await verifyAdminPassword(db, currentPassword);
+    const curCheck = await verifyAdminPassword(db, currentPassword, env);
     if (!curCheck.ok) {
       const bf = await recordFailedAuthAttempt(request, db, 'Wrong current password');
       if (bf.banned) {
@@ -3050,10 +3130,10 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       return err('Current password is incorrect', 401);
     }
     const newPassword = String(dec.payload?.newPassword || '').trim();
-    if (!newPassword || newPassword.length < 4 || newPassword.length > 256) {
-      return err('New password must be between 4 and 256 characters long', 400);
+    if (!newPassword || newPassword.length < 8 || newPassword.length > 256) {
+      return err('New password must be between 8 and 256 characters long', 400);
     }
-    const updatedAuth = await setNewAdminPassword(db, newPassword);
+    const updatedAuth = await setNewAdminPassword(db, newPassword, env);
     const newSessionToken = await createAdminSession(request, db, updatedAuth.epoch, getClientIp(request));
     return json({ ok: true, message: 'Admin password changed successfully', sessionToken: newSessionToken }, 200, { 'Cache-Control': 'no-store' });
   }
@@ -3068,8 +3148,8 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
 
     // 1. Purge from in-memory cache
     GLOBAL_CACHE.scores = (GLOBAL_CACHE.scores || []).filter(s => {
-      if (id && String(s.id).trim() === String(id).trim()) return false;
-      if (name && (s.name || '').trim().toLowerCase() === name.toLowerCase()) return false;
+      if (id) return String(s.id).trim() !== String(id).trim();
+      if (name) return (s.name || '').trim().toLowerCase() !== name.toLowerCase();
       return true;
     });
 
@@ -3078,11 +3158,9 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       try {
         if (id && !isNaN(Number(id))) {
           await db.prepare('DELETE FROM scores WHERE id=?').bind(Number(id)).run();
-        }
-        if (id) {
+        } else if (id) {
           await db.prepare('DELETE FROM scores WHERE id=?').bind(String(id)).run();
-        }
-        if (name) {
+        } else if (name) {
           await db.prepare('DELETE FROM scores WHERE LOWER(TRIM(name))=LOWER(?)').bind(name).run();
           await db.prepare('DELETE FROM scores WHERE name=?').bind(name).run();
         }
@@ -3103,8 +3181,8 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
 
     // 1. Purge from in-memory cache
     GLOBAL_CACHE.feedback = (GLOBAL_CACHE.feedback || []).filter(f => {
-      if (id && String(f.id).trim() === String(id).trim()) return false;
-      if (comment && (f.comment || '').trim() === comment) return false;
+      if (id) return String(f.id).trim() !== String(id).trim();
+      if (comment) return (f.comment || '').trim() !== comment;
       return true;
     });
 
@@ -3113,11 +3191,9 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       try {
         if (id && !isNaN(Number(id))) {
           await db.prepare('DELETE FROM feedback WHERE id=?').bind(Number(id)).run();
-        }
-        if (id) {
+        } else if (id) {
           await db.prepare('DELETE FROM feedback WHERE id=?').bind(String(id)).run();
-        }
-        if (comment) {
+        } else if (comment) {
           await db.prepare('DELETE FROM feedback WHERE TRIM(comment)=?').bind(comment).run();
           await db.prepare('DELETE FROM feedback WHERE comment=?').bind(comment).run();
         }
@@ -3141,8 +3217,8 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
 
     // Update in-memory persistent cache
     (GLOBAL_CACHE.feedback || []).forEach(f => {
-      if (id && String(f.id).trim() === String(id).trim()) {
-        f.name = cleanNewName;
+      if (id) {
+        if (String(f.id).trim() === String(id).trim()) f.name = cleanNewName;
       } else if (comment && (f.comment || '').trim() === String(comment).trim()) {
         f.name = cleanNewName;
       } else if (oldName && (f.name || '').trim().toLowerCase() === String(oldName).trim().toLowerCase()) {
@@ -3157,11 +3233,9 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
           await db.prepare('UPDATE feedback SET name = ? WHERE id = ?').bind(cleanNewName, Number(id)).run();
         } else if (id) {
           await db.prepare('UPDATE feedback SET name = ? WHERE id = ?').bind(cleanNewName, String(id)).run();
-        }
-        if (comment) {
+        } else if (comment) {
           await db.prepare('UPDATE feedback SET name = ? WHERE TRIM(comment) = ?').bind(cleanNewName, String(comment).trim()).run();
-        }
-        if (oldName) {
+        } else if (oldName) {
           await db.prepare('UPDATE feedback SET name = ? WHERE TRIM(LOWER(name)) = ?').bind(cleanNewName, String(oldName).trim().toLowerCase()).run();
         }
       } catch (e) {
@@ -3185,8 +3259,8 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
 
     // Update in-memory persistent cache
     (GLOBAL_CACHE.scores || []).forEach(s => {
-      if (id && String(s.id).trim() === String(id).trim()) {
-        s.name = cleanNewName;
+      if (id) {
+        if (String(s.id).trim() === String(id).trim()) s.name = cleanNewName;
       } else if (oldName && (s.name || '').trim().toLowerCase() === String(oldName).trim().toLowerCase()) {
         s.name = cleanNewName;
       }
@@ -3199,8 +3273,7 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
           await db.prepare('UPDATE scores SET name = ? WHERE id = ?').bind(cleanNewName, Number(id)).run();
         } else if (id) {
           await db.prepare('UPDATE scores SET name = ? WHERE id = ?').bind(cleanNewName, String(id)).run();
-        }
-        if (oldName) {
+        } else if (oldName) {
           await db.prepare('UPDATE scores SET name = ? WHERE TRIM(LOWER(name)) = ?').bind(cleanNewName, String(oldName).trim().toLowerCase()).run();
         }
       } catch (e) {
@@ -3214,6 +3287,7 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
   if (path === '/admin/reset' && method === 'POST') {
     const authCheck = await verifyAuth(request, env, db, 'manage:config', url);
     if (!authCheck.ok) return err(authCheck.error, authCheck.status);
+    MEM_SCORES_CLEARED = true;
     GLOBAL_CACHE.scores = [];
     if (db) {
       try { await db.prepare('DELETE FROM scores').run(); } catch {}
@@ -3224,6 +3298,7 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
   if (path === '/admin/reset-feedback' && method === 'POST') {
     const authCheck = await verifyAuth(request, env, db, 'manage:config', url);
     if (!authCheck.ok) return err(authCheck.error, authCheck.status);
+    MEM_FEEDBACK_CLEARED = true;
     GLOBAL_CACHE.feedback = [];
     if (db) {
       try { await db.prepare('DELETE FROM feedback').run(); } catch {}
@@ -3239,7 +3314,7 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       if (db) {
         const { results } = await db.prepare('SELECT * FROM scores ORDER BY level DESC, acc DESC').all();
         for (const r of (results || [])) {
-          csv += `${r.id},"${r.name}","${r.pack}",${r.level},${r.acc},${r.fluency},${r.clarity},${r.wpm},"${r.class_name}","${r.target_career}","${new Date(r.ts).toISOString()}"\n`;
+          csv += `${r.id},${csvCell(r.name)},${csvCell(r.pack)},${r.level},${r.acc},${r.fluency},${r.clarity},${r.wpm},${csvCell(r.class_name)},${csvCell(r.target_career)},${csvCell(new Date(r.ts).toISOString())}\n`;
         }
       }
     } catch {}
@@ -3260,8 +3335,7 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       if (db) {
         const { results } = await db.prepare('SELECT * FROM feedback ORDER BY ts DESC').all();
         for (const r of (results || [])) {
-          const cleanComment = String(r.comment || '').replace(/"/g, '""');
-          csv += `${r.id},"${r.name}","${r.role}","${r.class_info}",${r.r_useful},${r.r_games},${r.r_speaking},"${cleanComment}","${new Date(r.ts).toISOString()}"\n`;
+          csv += `${r.id},${csvCell(r.name)},${csvCell(r.role)},${csvCell(r.class_info)},${r.r_useful},${r.r_games},${r.r_speaking},${csvCell(r.comment)},${csvCell(new Date(r.ts).toISOString())}\n`;
         }
       }
     } catch {}
@@ -3543,17 +3617,7 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     if (existingIdx >= 0) GLOBAL_CACHE.telemetry[existingIdx] = sessionObj;
     else GLOBAL_CACHE.telemetry.unshift(sessionObj);
 
-    // Optional relay to rclone HTTP rc server if configured
-    const rcloneEndpoint = await kvGet(db, 'rclone_endpoint', env.RCLONE_ENDPOINT || '');
-    if (rcloneEndpoint) {
-      try {
-        fetch(rcloneEndpoint.replace(/\/$/, '') + '/operations/mkdir', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fs: 'gdrive:', remote: `careerfair_telemetry/${sessionId}` })
-        }).catch(() => {});
-      } catch {}
-    }
+    // Telemetry persisted to Cloudflare D1 & cache; outbound rclone relay disabled from unauthenticated visitor endpoint
 
     return json({
       ok: true,
@@ -3697,12 +3761,24 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
   if (path === '/ml/detect-human' && method === 'POST') {
     let body;
     try { body = await request.json(); } catch { body = {}; }
-    const hasImage = Boolean(body.image || body.frame);
-    const confidence = hasImage ? 0.94 : 0.88;
+    const rawImg = String(body.image || body.frame || '').trim();
+    const b64Part = rawImg.replace(/^data:image\/[a-z0-9.+-]+;base64,/i, '');
+    const hasValidImage = Boolean(rawImg && /^[A-Za-z0-9+/=\s]+$/.test(b64Part) && b64Part.length >= 64);
+    if (!hasValidImage) {
+      return json({
+        ok: true,
+        detected: false,
+        confidence: 0,
+        bbox: null,
+        method: 'server-frame-validator',
+        reason: 'No valid image frame supplied',
+        timestamp: Date.now()
+      });
+    }
     return json({
       ok: true,
       detected: true,
-      confidence,
+      confidence: 0.91,
       bbox: { x: 80, y: 50, width: 240, height: 280 },
       method: 'server-ml-yolo-heuristic',
       timestamp: Date.now()
@@ -3725,12 +3801,17 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     if (method === 'POST') {
       try { body = await request.json(); } catch { body = {}; }
     }
-    let rawVoicesKeys = (body.keysPool && Array.isArray(body.keysPool) && body.keysPool.length ? body.keysPool.join('\n') : '')
+    const hasReqOverride = Boolean((body.keysPool && Array.isArray(body.keysPool) && body.keysPool.length) || body.apiKey || request.headers.get('xi-api-key') || url.searchParams.get('key'));
+    let isVoicesAdmin = false;
+    if (hasReqOverride) {
+      const vcAuth = await verifyAuth(request, env, db, 'manage:config', url);
+      if (!vcAuth.ok) return err('Admin authorization required to supply custom ElevenLabs keys', 401);
+      isVoicesAdmin = true;
+    }
+    let rawVoicesKeys = (isVoicesAdmin && body.keysPool && Array.isArray(body.keysPool) && body.keysPool.length ? body.keysPool.join('\n') : '')
+      || (isVoicesAdmin ? (body.apiKey || request.headers.get('xi-api-key') || url.searchParams.get('key') || '') : '')
       || (await kvGet(db, 'eleven_keys', ''))
       || (await kvGet(db, 'eleven_key', ''))
-      || body.apiKey
-      || request.headers.get('xi-api-key')
-      || url.searchParams.get('key')
       || env.ELEVEN_KEY
       || '';
     let elevenKeyPool = String(rawVoicesKeys).split(/[\r\n,]+/).map(k => k.trim()).filter(Boolean);
@@ -3777,8 +3858,8 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       }
     }
 
-    // Update active key pointer if a backup succeeded WITHOUT deleting earlier keys from pool
-    if (successfulKeyIdx > 0 && db) {
+    // Update active key pointer only for authenticated admin checks (never overwrite from anonymous caller)
+    if (isVoicesAdmin && successfulKeyIdx > 0 && db) {
       await kvSet(db, 'eleven_key', elevenKeyPool[successfulKeyIdx] || '');
     }
 
@@ -3956,12 +4037,18 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       } catch (_) {}
     }
 
-    // Resolve key pool from body, header, database KV, or env
-    let rawTtsKeys = (body.keysPool && Array.isArray(body.keysPool) && body.keysPool.length ? body.keysPool.join('\n') : '')
+    // Only allow custom request-supplied ElevenLabs keys from authenticated admin sessions
+    const hasTtsReqOverride = Boolean((body.keysPool && Array.isArray(body.keysPool) && body.keysPool.length) || body.apiKey || request.headers.get('xi-api-key'));
+    let isTtsAdmin = false;
+    if (hasTtsReqOverride) {
+      const ttsAuth = await verifyAuth(request, env, db, 'manage:config', url);
+      if (!ttsAuth.ok) return err('Admin authorization required to supply custom ElevenLabs keys', 401);
+      isTtsAdmin = true;
+    }
+    let rawTtsKeys = (isTtsAdmin && body.keysPool && Array.isArray(body.keysPool) && body.keysPool.length ? body.keysPool.join('\n') : '')
+      || (isTtsAdmin ? (body.apiKey || request.headers.get('xi-api-key') || '') : '')
       || (await kvGet(db, 'eleven_keys', ''))
       || (await kvGet(db, 'eleven_key', ''))
-      || body.apiKey
-      || request.headers.get('xi-api-key')
       || env.ELEVEN_KEY
       || '';
     let elevenKeyPool = String(rawTtsKeys).split(/[\r\n,]+/).map(k => k.trim()).filter(Boolean);
@@ -4094,8 +4181,8 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
         }
 
         if (audioBuffer) {
-          // Update active pointer if a backup key succeeded WITHOUT slicing/purging registered keys
-          if (db && kIdx > 0) {
+          // Never persist key pointer changes unless authenticated admin
+          if (db && kIdx > 0 && isTtsAdmin) {
             try {
               await kvSet(db, 'eleven_key', elevenKeyPool[kIdx] || '');
             } catch (_) {}
@@ -4145,6 +4232,8 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
 
   // ── 12. GET /export/data (Permanent Cloudflare D1 Dated Data Export) ─────────
   if ((path === '/export/data' || path === '/export-data') && method === 'GET') {
+    const authCheck = await verifyAuth(request, env, db, 'manage:config', url);
+    if (!authCheck.ok) return err(authCheck.error, authCheck.status);
     const format = url.searchParams.get('format') || 'json';
     let feedbackRows = [];
     let scoreRows = [];
@@ -4179,18 +4268,18 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       // 1. Export Titles
       for (const [tName, tVal] of Object.entries(titlesMap || {})) {
         if (tVal) {
-          csv += `Title,"title_${encodeURIComponent(tName)}","${(tName || '').replace(/"/g, '""')}","${(tVal || '').replace(/"/g, '""')}","Honor Title",0,${Date.now()},"${new Date().toISOString()}"\n`;
+          csv += `Title,${csvCell('title_' + encodeURIComponent(tName))},${csvCell(tName)},${csvCell(tVal)},"Honor Title",0,${Date.now()},${csvCell(new Date().toISOString())}\n`;
         }
       }
       // 2. Export Feedback (with assigned titles if available)
       for (const f of feedbackRows) {
         const userTitle = titlesMap[f.name] || '';
-        csv += `Feedback,"${f.id}","${(f.name || '').replace(/"/g, '""')}","${(userTitle || '').replace(/"/g, '""')}","${(f.comment || '').replace(/"/g, '""')}",${f.r_useful || 5},${f.ts},"${new Date(Number(f.ts)).toISOString()}"\n`;
+        csv += `Feedback,${csvCell(f.id)},${csvCell(f.name)},${csvCell(userTitle)},${csvCell(f.comment)},${f.r_useful || 5},${f.ts},${csvCell(new Date(Number(f.ts)).toISOString())}\n`;
       }
       // 3. Export Scores (with assigned titles or target_career)
       for (const s of scoreRows) {
         const userTitle = titlesMap[s.name] || s.target_career || '';
-        csv += `Score,"${s.id}","${(s.name || '').replace(/"/g, '""')}","${(userTitle || '').replace(/"/g, '""')}","${s.pack} Level ${s.level} (Accuracy ${s.acc}%)",${s.acc},${s.ts},"${new Date(Number(s.ts)).toISOString()}"\n`;
+        csv += `Score,${csvCell(s.id)},${csvCell(s.name)},${csvCell(userTitle)},${csvCell(`${s.pack} Level ${s.level} (Accuracy ${s.acc}%)`)},${s.acc},${s.ts},${csvCell(new Date(Number(s.ts)).toISOString())}\n`;
       }
       return new Response(csv, {
         headers: {

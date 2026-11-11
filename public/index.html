@@ -7,7 +7,7 @@
   <meta name="description" content="Career Fair 2026 — Student Career Intelligence &amp; Spoken English Platform. Explore 32+ careers, accredited colleges, speech evaluation, and arcade games.">
   <title>Career Fair 2026 · Every Career Speaks English</title>
   
-  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="logo.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -19,29 +19,22 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="styles.css?v=24.1">
-  <script src="/qrcode.min.js"></script>
+  <link rel="stylesheet" href="styles.css?v=26.5">
+  <script src="/qrcode.min.js" defer></script>
   <script>
-    if (typeof qrcode === 'undefined') {
-      const _qrScript = document.createElement('script');
-      _qrScript.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
-      _qrScript.integrity = 'sha384-lQXOAyZwHXE55JFyrOMB7nY2Wv+m5ZWNtJcHrd1rceRQXAYNLak8ukN5TjBTcIwz';
-      _qrScript.crossOrigin = 'anonymous';
-      document.head.appendChild(_qrScript);
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
     }
   </script>
-  <!-- High-Precision Vector PDF, Tesseract OCR & Confetti (Pinned versions with Subresource Integrity) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" integrity="sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F" crossorigin="anonymous" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js" integrity="sha384-sPwMflxqfAN+Q5mvlkLmHiX3PORGbZSXHiSGPTXT9VHCD/AB+b+r+vJWsqprv+7k" crossorigin="anonymous" defer></script>
-  <!-- Architectural Engines -->
-  <script src="dossier-pdf.js?v=24.8" defer></script>
-  <script src="dopamine-engine.js?v=23.9" defer></script>
-  <script src="game-completion-detector.js?v=7.7" defer></script>
-    <script src="guide-avatar.js?v=14.1" defer></script>
-    <!-- Google Universal Sentence Encoder (USE) & TensorFlow.js for Jobtris Semantic Intelligence -->
-  <script src="loader.js?v=14.1"></script>
-  <script src="app.js?v=25.4" defer></script>
+  <script src="dossier-pdf.js?v=26.5" defer></script>
+  <script src="dopamine-engine.js?v=26.5" defer></script>
+  <script src="game-completion-detector.js?v=26.5" defer></script>
+  <script src="guide-avatar.js?v=26.5" defer></script>
+  <script src="voicelab.js?v=26.5" defer></script>
+  <script src="loader.js?v=26.5"></script>
+  <script src="app.js?v=26.5" defer></script>
   <!-- Critical Inlined CSS for Instant Loading Screen (Prevents FOUC on First Open) -->
   <style id="loader-critical-css">
     .site-loader {
@@ -516,11 +509,11 @@
         <!-- Interactive Animated Theme Switcher (Light / Dark) -->
         <div class="theme-switcher" role="radiogroup" aria-label="Toggle visual theme" title="Toggle visual theme" tabindex="0" data-active-theme="dark">
           <div class="theme-switcher-slider" aria-hidden="true"></div>
-          <button class="theme-btn" data-theme-val="light" title="Light Corporate Mode" type="button">
-            <span class="theme-btn-icon">☀️</span> <span class="theme-btn-text">Light</span>
+          <button class="theme-btn" data-theme-val="light" role="radio" aria-checked="false" aria-label="Light visual theme" title="Light Corporate Mode" type="button">
+            <span class="theme-btn-icon" aria-hidden="true">☀️</span> <span class="theme-btn-text">Light</span>
           </button>
-          <button class="theme-btn active" data-theme-val="dark" title="Dark Corporate Mode" type="button">
-            <span class="theme-btn-icon">🌙</span> <span class="theme-btn-text">Dark</span>
+          <button class="theme-btn active" data-theme-val="dark" role="radio" aria-checked="true" aria-label="Dark visual theme" title="Dark Corporate Mode" type="button">
+            <span class="theme-btn-icon" aria-hidden="true">🌙</span> <span class="theme-btn-text">Dark</span>
           </button>
         </div>
       </div>
@@ -615,12 +608,12 @@
               <!-- Active iframe (populated dynamically with YouTube stream) -->
               <iframe
                 id="hero-youtube-iframe"
-                src="https://www.youtube.com/embed/3Hn-jH3up9Y?playsinline=1&rel=0&modestbranding=1&enablejsapi=1&autoplay=1&mute=1"
-                data-current-src="https://www.youtube.com/embed/3Hn-jH3up9Y?playsinline=1&rel=0&modestbranding=1&enablejsapi=1&autoplay=1&mute=1"
+                src="about:blank"
+                data-current-src=""
+                loading="lazy"
                 title="Career Fair 2026 Live Broadcast"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-                referrerpolicy="strict-origin-when-cross-origin"
-                allowfullscreen>
+                referrerpolicy="strict-origin-when-cross-origin">
               </iframe>
 
               <!-- Standby Mode Card (shown when stream is offline or unconfigured) -->
@@ -682,7 +675,7 @@
 
       <!-- Filters & Search -->
       <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
-        <input type="search" id="career-search-input" placeholder="Search by career, skill, or keyword..." style="max-width:400px;">
+        <input type="search" id="career-search-input" aria-label="Search careers by title, skill, or keyword" placeholder="Search by career, skill, or keyword..." style="max-width:400px;">
         <div class="filter-row" id="career-category-filters" style="margin-bottom:0;">
           <button class="filter-chip active" data-cat="All">All Categories</button>
           <button class="filter-chip" data-cat="Health">Healthcare &amp; Medicine</button>
@@ -720,7 +713,7 @@
         </div>
 
         <div style="display:flex;gap:8px;align-items:center;">
-          <label style="font-size:13px;color:var(--text-muted);font-weight:600;">Filter Accreditation:</label>
+          <label for="college-accreditation-filter" style="font-size:13px;color:var(--text-muted);font-weight:600;">Filter Accreditation:</label>
           <select id="college-accreditation-filter" style="width:auto;padding:6px 12px;font-size:13px;">
             <option value="All">All Accreditations</option>
             <option value="NAAC A++">NAAC A++ (Highest Grade)</option>
@@ -1115,6 +1108,286 @@
       </div>
     </section>
 
+    <!-- ── SECTION: AI VOICE LAB (ZERO-SHOT CLONING & ACOUSTIC TIMBRE) ── -->
+    <section class="section-shell" id="sec-voicelab" hidden>
+      <div class="section-head">
+        <div>
+          <div class="section-label">ZERO-SHOT ACOUSTIC AI &amp; TIMBRE CLONING</div>
+          <h2 class="section-title">AI Voice Lab &amp; Neural Voice Studio</h2>
+        </div>
+        <p class="section-desc">
+          Capture 10 seconds of speech to extract acoustic formants, fundamental frequency (F0), and vocal resonance. Synthesize speeches in your personal timbre or test human ear perception in the Turing Challenge.
+        </p>
+      </div>
+
+      <!-- Engine Status & Active Profile Bar -->
+      <div class="card" style="margin-bottom:18px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span id="vl-status-dot" style="width:10px;height:10px;border-radius:50%;background:var(--accent-amber, #f59e0b);display:inline-block;"></span>
+          <div>
+            <strong id="vl-backend-indicator" style="font-size:13px;color:var(--text-main);">IN-BROWSER WEBAUDIO ENGINE READY</strong>
+            <div id="vl-backend-url" style="font-size:11.5px;color:var(--text-dim);">Local Synthesis &amp; Acoustic Formants Fallback</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span id="vl-active-voice-badge" class="badge-pill" style="font-size:11.5px;background:rgba(212,175,55,0.15);color:var(--accent-gold, #d4af37);border:1px solid rgba(212,175,55,0.3);">No Voice Profile Selected</span>
+          <button type="button" class="btn btn-secondary btn-xs" id="btn-vl-clear-session" style="font-size:11px;padding:3px 8px;">Purge Session Data 🗑️</button>
+        </div>
+      </div>
+
+      <!-- VoiceLab Mode Tabs -->
+      <div class="filter-row" style="margin-bottom:18px;">
+        <button type="button" class="filter-chip active" data-vl-mode="clone">🧬 Voice Cloning</button>
+        <button type="button" class="filter-chip" data-vl-mode="challenge">🎯 Voice Challenge</button>
+        <button type="button" class="filter-chip" data-vl-mode="timemachine">⏳ Time Machine</button>
+        <button type="button" class="filter-chip" data-vl-mode="multilingual">🌐 Multilingual</button>
+        <button type="button" class="filter-chip" data-vl-mode="doppelganger">🎭 Doppelgänger</button>
+        <button type="button" class="filter-chip" data-vl-mode="guess">🤖 Turing Guess</button>
+        <button type="button" class="filter-chip" data-vl-mode="assistant">💬 Voice Assistant</button>
+      </div>
+
+      <!-- Mode 1: Clone & Synthesize -->
+      <div id="vl-panel-clone" class="vl-panel">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:20px;">
+          <!-- 1. Microphone Recording & Timbre Conditioning -->
+          <div class="card">
+            <h3 style="font-size:17px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:8px;">
+              <span>🎙️</span> <span>Step 1: Record Clean Voice Sample</span>
+            </h3>
+            <p style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;">
+              Choose a prompt sentence and read it aloud for 10–15 seconds to capture natural pitch, pacing, and harmonic resonance.
+            </p>
+
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+              <button type="button" class="btn btn-secondary btn-xs" id="btn-vl-sentence-tech">Tech Prompt</button>
+              <button type="button" class="btn btn-secondary btn-xs" id="btn-vl-sentence-career">Career Prompt</button>
+              <button type="button" class="btn btn-secondary btn-xs" id="btn-vl-sentence-custom">Free Speech</button>
+            </div>
+
+            <div id="vl-sample-sentence-text" style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-size:13px;line-height:1.5;margin-bottom:14px;color:var(--text-main);font-style:italic;">
+              "Artificial intelligence is changing how humans interact with technology. Today, I am going to discover something extraordinary: a computer that can speak using the characteristics of my own voice."
+            </div>
+
+            <!-- Visualizer Canvas -->
+            <div style="position:relative;width:100%;height:68px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:14px;overflow:hidden;display:flex;align-items:center;justify-content:center;">
+              <canvas id="vl-audio-visualizer-canvas" width="400" height="68" style="width:100%;height:100%;"></canvas>
+              <div id="vl-visualizer-placeholder" style="position:absolute;font-size:12px;color:var(--text-dim);pointer-events:none;">
+                Waveform visualizer idle · Press record to begin
+              </div>
+            </div>
+
+            <!-- Recording Control Buttons -->
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-primary btn-sm" id="btn-vl-record-toggle">
+                <span id="vl-record-icon">🎙️</span> <span id="vl-record-label">Start Recording</span>
+              </button>
+              <span id="vl-record-timer" style="font-family:var(--font-mono);font-size:12.5px;color:#ef4444;font-weight:700;display:none;">● 00:00</span>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-vl-rerecord" style="display:none;">🔄 Re-record</button>
+            </div>
+
+            <!-- Preview Recorded Audio -->
+            <div id="vl-recorded-preview-container" style="display:none;margin-bottom:14px;">
+              <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Captured Audio Preview:</label>
+              <audio id="vl-recorded-audio-element" controls style="width:100%;height:36px;"></audio>
+            </div>
+
+            <!-- Profile Name & Consent -->
+            <div style="margin-bottom:12px;">
+              <label for="vl-voice-name-input" style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Voice Profile Name:</label>
+              <input type="text" id="vl-voice-name-input" placeholder="e.g. Aarav Sharma Voice Profile" style="width:100%;padding:8px 10px;font-size:13px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-input);color:var(--text-main);">
+            </div>
+
+            <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin-bottom:14px;">
+              <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--text-muted);cursor:pointer;">
+                <input type="checkbox" id="vl-consent-checkbox" style="margin-top:2px;">
+                <span>I confirm that this recording is my own voice and give consent to synthesize audio using this temporary profile.</span>
+              </label>
+            </div>
+
+            <button type="button" class="btn btn-accent btn-sm" id="btn-vl-condition-voice" disabled style="width:100%;justify-content:center;">
+              🧬 Condition Voice Timbre &amp; Extract Formants
+            </button>
+            <div id="vl-conditioning-feedback" style="font-size:12px;margin-top:8px;"></div>
+          </div>
+
+          <!-- 2. Speech Synthesis & Testing -->
+          <div class="card">
+            <h3 style="font-size:17px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:8px;">
+              <span>🔊</span> <span>Step 2: Synthesize in Your Voice</span>
+            </h3>
+            <p style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;">
+              Type any sentence to generate speech cloned to your acoustic vocal characteristics.
+            </p>
+
+            <div style="margin-bottom:12px;">
+              <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Quick Career Scripts:</label>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary btn-xs vl-quick-script" data-text="Welcome esteemed judges and faculty to the Kanakia International School Exhibition! Every modern career speaks English.">Exhibition Welcome</button>
+                <button type="button" class="btn btn-secondary btn-xs vl-quick-script" data-text="As a future aerospace engineer, clear English communication is critical when coordinating flight navigation across international control towers.">Aerospace Script</button>
+                <button type="button" class="btn btn-secondary btn-xs vl-quick-script" data-text="Artificial neural networks decode acoustic phonemes and reconstruct personal vocal formants in real time.">AI Tech Script</button>
+              </div>
+            </div>
+
+            <div style="margin-bottom:12px;">
+              <label for="vl-synthesis-text" style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Text to Synthesize:</label>
+              <textarea id="vl-synthesis-text" rows="3" placeholder="Enter text to speak with your voice..." style="width:100%;padding:8px 10px;font-size:13px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-input);color:var(--text-main);resize:vertical;">Welcome to the 2026 Career Fair! Every modern career speaks English.</textarea>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+              <div>
+                <label for="vl-emotion-select" style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Emotion / Style:</label>
+                <select id="vl-emotion-select" style="width:100%;padding:7px 8px;font-size:12.5px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-input);color:var(--text-main);">
+                  <option value="neutral">Neutral &amp; Articulate</option>
+                  <option value="cheerful">Cheerful &amp; Uplifting</option>
+                  <option value="somber">Reflective &amp; Somber</option>
+                  <option value="commanding">Commanding &amp; Authoritative</option>
+                </select>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                  <label for="vl-speed-slider" style="font-size:12px;font-weight:700;">Speed:</label>
+                  <span id="vl-speed-val" style="font-size:11.5px;color:var(--accent-cyan);font-weight:700;">1.0x</span>
+                </div>
+                <input type="range" id="vl-speed-slider" min="0.6" max="1.6" step="0.1" value="1.0" style="width:100%;">
+              </div>
+            </div>
+
+            <button type="button" class="btn btn-primary btn-sm" id="btn-vl-synthesize-speech" style="width:100%;justify-content:center;">
+              ⚡ Synthesize Speech Now
+            </button>
+
+            <!-- Progress Bar -->
+            <div id="vl-progress-container" style="display:none;margin-top:14px;">
+              <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-dim);margin-bottom:4px;">
+                <span id="vl-progress-status">Synthesizing...</span>
+                <span id="vl-progress-percent">0%</span>
+              </div>
+              <div style="width:100%;height:6px;background:var(--border);border-radius:4px;overflow:hidden;">
+                <div id="vl-progress-fill" style="width:0%;height:100%;background:var(--accent-cyan);transition:width 0.3s ease;"></div>
+              </div>
+            </div>
+
+            <!-- Result Card -->
+            <div id="vl-generated-result-card" style="display:none;margin-top:14px;padding:12px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-sm);">
+              <div style="font-size:13px;font-weight:700;color:var(--accent-green, #10b981);margin-bottom:6px;">🎉 Audio Synthesized!</div>
+              <audio id="vl-generated-audio-element" controls style="width:100%;height:36px;margin-bottom:8px;"></audio>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary btn-xs" id="btn-vl-play-original">🔊 Play Original Sample</button>
+                <button type="button" class="btn btn-secondary btn-xs" id="btn-vl-play-cloned">⚡ Replay Synthesized Audio</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mode 2: Voice Challenge -->
+      <div id="vl-panel-challenge" class="vl-panel" style="display:none;">
+        <div class="card" style="max-width:680px;margin:0 auto;">
+          <h3 style="font-size:18px;font-weight:700;margin-bottom:6px;">🎯 Voice Matching Challenge</h3>
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">
+            Listen to the target master audio prompt and record your attempt to match tone, rhythm, and cadence!
+          </p>
+          <div id="vl-challenge-prompt" style="background:var(--bg-subtle);padding:12px 14px;border-radius:var(--radius-sm);font-size:14px;font-weight:600;margin-bottom:14px;border-left:3px solid var(--accent-cyan);">
+            "International diplomacy demands impeccable diction and unflinching composure."
+          </div>
+          <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-vl-play-challenge-target">🔊 Play Target Prompt</button>
+            <button type="button" class="btn btn-primary btn-sm" id="btn-vl-record-challenge-attempt">🎙️ Record My Attempt</button>
+          </div>
+          <div id="vl-challenge-feedback" style="display:none;padding:10px 12px;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);border-radius:var(--radius-sm);color:var(--accent-green, #10b981);font-size:13px;">
+            ✅ Cadence match: 94%! Pitch curve alignment: Excellent!
+          </div>
+        </div>
+      </div>
+
+      <!-- Mode 3: Time Machine -->
+      <div id="vl-panel-timemachine" class="vl-panel" style="display:none;">
+        <div class="card" style="max-width:680px;margin:0 auto;">
+          <h3 style="font-size:18px;font-weight:700;margin-bottom:6px;">⏳ Voice Time Machine</h3>
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
+            Hear your voice shifted across acoustic frequency spectrums through age, formant shifts, and pacing!
+          </p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));gap:10px;">
+            <button type="button" class="btn btn-secondary vl-timemachine-btn" data-preset="youth">👶 Youthful Spark</button>
+            <button type="button" class="btn btn-secondary vl-timemachine-btn" data-preset="baritone">🎙️ Deep Baritone</button>
+            <button type="button" class="btn btn-secondary vl-timemachine-btn" data-preset="speedrush">⚡ Turbo Orator</button>
+            <button type="button" class="btn btn-secondary vl-timemachine-btn" data-preset="slowmeditate">🧘 Calm &amp; Measured</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mode 4: Multilingual -->
+      <div id="vl-panel-multilingual" class="vl-panel" style="display:none;">
+        <div class="card" style="max-width:680px;margin:0 auto;">
+          <h3 style="font-size:18px;font-weight:700;margin-bottom:6px;">🌐 Multilingual Voice Articulation</h3>
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
+            Experience your timbre speaking international and regional career greetings:
+          </p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;">
+            <button type="button" class="btn btn-secondary vl-multilingual-btn" data-text="Welcome to the future of international career development.">🇬🇧 Global English</button>
+            <button type="button" class="btn btn-secondary vl-multilingual-btn" data-text="Kanakia International School me aapka swagat hai. Career Fair 2026.">🇮🇳 Hinglish Broadcast</button>
+            <button type="button" class="btn btn-secondary vl-multilingual-btn" data-text="Bienvenue au salon international des carrières 2026.">🇫🇷 French Diplomacy</button>
+            <button type="button" class="btn btn-secondary vl-multilingual-btn" data-text="Willkommen zur internationalen Karrieremesse.">🇩🇪 German Engineering</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mode 5: Doppelgänger -->
+      <div id="vl-panel-doppelganger" class="vl-panel" style="display:none;">
+        <div class="card" style="max-width:680px;margin:0 auto;">
+          <h3 style="font-size:18px;font-weight:700;margin-bottom:6px;">🎭 Doppelgänger Vocal Persona Studio</h3>
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
+            Switch speaking personas instantly with your vocal acoustics:
+          </p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;">
+            <button type="button" class="btn btn-secondary vl-persona-btn" data-text="Breaking news from the central auditorium! Career Fair 2026 is officially in session." data-emotion="commanding">🎙️ News Broadcaster</button>
+            <button type="button" class="btn btn-secondary vl-persona-btn" data-text="Today, we present a paradigm shift in autonomous neural technology and human intelligence." data-emotion="neutral">🚀 Silicon Valley Keynote</button>
+            <button type="button" class="btn btn-secondary vl-persona-btn" data-text="Ladies and gentlemen of the jury, the evidence clearly shows excellence and dedication." data-emotion="commanding">⚖️ Supreme Court Counsel</button>
+            <button type="button" class="btn btn-secondary vl-persona-btn" data-text="Congratulations! You have demonstrated exceptional mastery and articulated your path forward!" data-emotion="cheerful">🏆 Academic Dean</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mode 6: Turing Test -->
+      <div id="vl-panel-guess" class="vl-panel" style="display:none;">
+        <div class="card" style="max-width:680px;margin:0 auto;text-align:center;">
+          <h3 style="font-size:18px;font-weight:700;margin-bottom:6px;">🤖 The Acoustic Turing Test: Human or AI?</h3>
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
+            Listen to both recordings below. One is a live human speaking; the other is generated by our neural network. Can your ear spot the AI?
+          </p>
+          <div style="display:flex;justify-content:center;gap:12px;margin-bottom:18px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-vl-play-guess-a">▶️ Listen to Track A</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-vl-play-guess-b">▶️ Listen to Track B</button>
+          </div>
+          <div style="display:flex;justify-content:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-primary btn-sm vl-guess-choice" data-choice="A">Track A is the AI</button>
+            <button type="button" class="btn btn-primary btn-sm vl-guess-choice" data-choice="B">Track B is the AI</button>
+          </div>
+          <div id="vl-guess-result" style="display:none;margin-top:12px;padding:12px;border-radius:var(--radius-sm);background:var(--bg-subtle);">
+            <strong id="vl-guess-verdict" style="font-size:14px;"></strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mode 7: Voice Assistant -->
+      <div id="vl-panel-assistant" class="vl-panel" style="display:none;">
+        <div class="card" style="max-width:680px;margin:0 auto;">
+          <h3 style="font-size:18px;font-weight:700;margin-bottom:6px;">💬 Voice-Controlled Career Intelligence</h3>
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">
+            Ask any question about engineering, English, or artificial intelligence to receive spoken guidance:
+          </p>
+          <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <input type="text" id="vl-assistant-query" placeholder="Ask about 'artificial intelligence', 'engineer', or 'english'..." style="flex:1;min-width:220px;padding:9px 12px;font-size:13px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-input);color:var(--text-main);">
+            <button type="button" class="btn btn-primary btn-sm" id="btn-vl-ask-assistant">Ask Assistant ⚡</button>
+          </div>
+          <div id="vl-assistant-response-box" style="display:none;padding:14px;background:var(--bg-subtle);border-radius:var(--radius-sm);border-left:3px solid var(--accent-cyan);">
+            <div style="font-size:11.5px;font-weight:700;color:var(--accent-cyan);text-transform:uppercase;margin-bottom:4px;">Assistant Response:</div>
+            <p id="vl-assistant-text" style="font-size:13.5px;line-height:1.5;margin:0;color:var(--text-main);"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
 
     <!-- ── SECTION: ARCADE GAMES SUITE ── -->
     <section class="section-shell" id="sec-games" hidden>
@@ -1212,7 +1485,7 @@
           <thead>
             <tr>
               <th style="width:60px;">Rank</th>
-              <th>Student Name</th>
+              <th style="min-width: 290px;">Student Name</th>
               <th>Speaking Pack</th>
               <th>Accuracy</th>
               <th>Fluency</th>
@@ -1363,6 +1636,7 @@
         </p>
 
         <form id="admin-login-form" style="max-width:380px;margin:0 auto;text-align:left;">
+          <input type="text" name="username" autocomplete="username" style="display:none;" value="admin" aria-hidden="true">
           <label style="font-size:12.5px;font-weight:700;color:var(--text-muted);letter-spacing:0.04em;text-transform:uppercase;">
             Administrator Password
           </label>
@@ -1482,7 +1756,6 @@
                   style="width:100%;height:100%;border:0;"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
                   referrerpolicy="strict-origin-when-cross-origin"
-                  allowfullscreen
                   hidden>
                 </iframe>
                 <div id="admin-stream-preview-placeholder" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-dim);font-size:12.5px;padding:16px;text-align:center;">
@@ -1754,7 +2027,7 @@
                 <thead>
                   <tr>
                     <th style="width:50px;">#</th>
-                    <th>Student Name</th>
+                    <th style="min-width: 290px;">Student Name</th>
                     <th>Speaking Pack</th>
                     <th>Accuracy</th>
                     <th>Fluency</th>
@@ -1998,11 +2271,11 @@
       <div style="display:flex;flex-direction:column;gap:12px;">
         <div>
           <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Your Name / Student ID:</label>
-          <input type="text" id="issue-user-name" placeholder="e.g. Aarav Sharma" style="width:100%;font-size:13px;">
+          <input type="text" id="issue-user-name" placeholder="e.g. Aarav Sharma" style="width:100%;font-size:16px;">
         </div>
         <div>
           <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Issue Category:</label>
-          <select id="issue-category" style="width:100%;font-size:13px;padding:8px 12px;background:var(--bg-subtle);color:var(--text-main);border:1px solid var(--border);border-radius:var(--radius-sm);">
+          <select id="issue-category" style="width:100%;font-size:16px;padding:8px 12px;background:var(--bg-subtle);color:var(--text-main);border:1px solid var(--border);border-radius:var(--radius-sm);">
             <option value="" disabled selected>-- Select Issue Category (Mandatory) --</option>
             <option value="Audio / Speech Recognition">🎙️ Audio / Speech Recognition</option>
             <option value="Camera / Presence Detection">📷 Camera / Presence Detection</option>
@@ -2012,7 +2285,7 @@
         </div>
         <div>
           <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Describe the Error / Rectification Needed:</label>
-          <textarea id="issue-description" rows="3" placeholder="Please describe what happened..." style="width:100%;font-size:13px;padding:8px 12px;background:var(--bg-subtle);color:var(--text-main);border:1px solid var(--border);border-radius:var(--radius-sm);resize:vertical;"></textarea>
+          <textarea id="issue-description" rows="3" placeholder="Please describe what happened..." style="width:100%;font-size:16px;padding:8px 12px;background:var(--bg-subtle);color:var(--text-main);border:1px solid var(--border);border-radius:var(--radius-sm);resize:vertical;"></textarea>
         </div>
         <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:6px;">
           <button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-user-issue">Cancel</button>
@@ -2043,7 +2316,7 @@
     // ===== SETTINGS =====
     const CONFIG = {
       colors: ['#e8a04a', '#d4af37', '#f0b45a'],
-      count: 90,
+      count: (window.innerWidth && window.innerWidth <= 768) ? 28 : 48,
       minSize: 2,
       maxSize: 9,
       speed: 0.25,
@@ -2155,8 +2428,12 @@
 
     // ===== ANIMATION LOOP =====
     const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    let t = 0, ox = 0, oy = 0;
+    let t = 0, ox = 0, oy = 0, rafId = null;
     function frame() {
+      if (document.hidden) {
+        rafId = null;
+        return;
+      }
       t += 0.016;
       cx.clearRect(0, 0, W, H);
 
@@ -2205,9 +2482,18 @@
         cx.fillRect(p.x, p.y, p.s, p.s);
       }
       cx.globalAlpha = 1;
-      requestAnimationFrame(frame);
+      if (!still && !document.hidden) {
+        rafId = requestAnimationFrame(frame);
+      } else {
+        rafId = null;
+      }
     }
     frame();
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && !still && !rafId) {
+        rafId = requestAnimationFrame(frame);
+      }
+    });
 
     // ===== CHANGE COLORS =====
     // setParticleColors('#00e5ff')  or  setParticleColors('#ff0066', '#ffd400')
@@ -2241,7 +2527,7 @@
         <label for="tutorial-student-name-input" style="display:block;font-size:13px;font-weight:700;color:var(--accent-cyan);margin-bottom:6px;">
           👤 Enter Your Name to Personalize Your Booklet &amp; Pass: <span style="color:#ef4444;">*</span>
         </label>
-        <input type="text" id="tutorial-student-name-input" class="form-input" placeholder="Enter Your Full Name (Mandatory *)" autocomplete="name" style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;font-size:14px;font-weight:600;background:rgba(15,23,42,0.7);border:1px solid var(--border-strong);color:#ffffff;" />
+        <input type="text" id="tutorial-student-name-input" class="form-input" placeholder="Enter Your Full Name (Mandatory *)" autocomplete="name" style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;font-size:16px;font-weight:600;background:rgba(15,23,42,0.7);border:1px solid var(--border-strong);color:#ffffff;" />
       </div>
 
       <div class="tutorial-choice-grid">

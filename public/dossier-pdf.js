@@ -124,7 +124,11 @@
         curY += lineHeight;
         lineCount++;
         if (lineCount >= maxLines - 1) {
-          const remainingWords = words.slice(n).join(' ');
+          const remainingWords = words.slice(n).join(' ').trim();
+          if (ctx.measureText(remainingWords).width <= maxWidth) {
+            ctx.fillText(remainingWords, x, curY);
+            return curY + lineHeight;
+          }
           let truncated = remainingWords;
           while (ctx.measureText(truncated + '...').width > maxWidth && truncated.length > 0) {
             truncated = truncated.slice(0, -1);
@@ -138,6 +142,24 @@
     }
     ctx.fillText(line.trim(), x, curY);
     return curY + lineHeight;
+  }
+
+  // 5b. Single-line Auto-Fit Text Utility (prevents column/card overlap)
+  function fitTextToWidth(ctx, text, maxWidth, fontWeight = '800', startSize = 20, minSize = 11, fontFamily = '"Plus Jakarta Sans", sans-serif') {
+    const str = String(text || '');
+    let size = startSize;
+    while (size > minSize) {
+      ctx.font = `${fontWeight} ${size}px ${fontFamily}`;
+      if (ctx.measureText(str).width <= maxWidth) return str;
+      size -= 1;
+    }
+    ctx.font = `${fontWeight} ${minSize}px ${fontFamily}`;
+    if (ctx.measureText(str).width <= maxWidth) return str;
+    let out = str;
+    while (out.length > 1 && ctx.measureText(out + '...').width > maxWidth) {
+      out = out.slice(0, -1);
+    }
+    return out.trim() + '...';
   }
 
   // 6. QR Code Matrix Generator
@@ -321,6 +343,9 @@
   // =========================================================================
 
   async function generateStudentDossierPDF(customData = {}, options = {}) {
+    if ((!window.jspdf || !window.jspdf.jsPDF) && typeof window.ensureJsPdfLoaded === 'function') {
+      try { await window.ensureJsPdfLoaded(); } catch (_) {}
+    }
     const forcedTheme = (customData && typeof customData === 'object' && (customData.theme || customData.mode)) ||
                         (options && typeof options === 'object' && (options.theme || options.mode));
     
@@ -365,9 +390,9 @@
 
     // Data resolution
     const state = window.STATE || {};
-    let studentName = (customData?.name || customData?.studentName || state.studentName || localStorage.getItem('cf_student_name') || 'Tanmay Bajaj').trim();
-    let className = customData?.className || state.studentClass || localStorage.getItem('cf_student_class') || '10';
-    let chosenCareer = customData?.chosenCareer || state.chosenCareer || null;
+    let studentName = (customData?.name || customData?.studentName || state.studentName || state.studentProfile?.name || localStorage.getItem('cf_student_name') || 'Career Fair Student').trim();
+    let className = String(customData?.grade || customData?.className || customData?.class || state.studentClass || state.studentProfile?.grade || localStorage.getItem('cf_student_class') || '10').trim();
+    let chosenCareer = customData?.chosenCareer || (customData?.career ? (typeof customData.career === 'string' ? { title: customData.career } : customData.career) : null) || state.chosenCareer || state.studentProfile?.chosenCareer || null;
 
     if (!chosenCareer) {
       try {
@@ -523,14 +548,29 @@
 
     const colW = metaW / 3;
     metaCols.forEach((col, idx) => {
-      const cX = 80 + idx * colW + 36;
+      const colLeft = 80 + idx * colW;
+      const cX = colLeft + 36;
+      const availW = colW - 56;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(colLeft + 12, metaY + 8, colW - 24, metaH - 16);
+      ctx.clip();
+
       ctx.font = '700 11px "Space Grotesk", sans-serif';
       ctx.fillStyle = C.textDim;
       ctx.fillText(col.label, cX, metaY + 34);
 
-      ctx.font = col.font;
+      let fittedVal = col.val;
+      if (idx === 0) {
+        fittedVal = fitTextToWidth(ctx, col.val, availW, '800', 20, 11, '"Plus Jakarta Sans", sans-serif');
+      } else if (idx === 1) {
+        fittedVal = fitTextToWidth(ctx, col.val, availW, '700', 16, 11, '"Plus Jakarta Sans", sans-serif');
+      } else {
+        fittedVal = fitTextToWidth(ctx, col.val, availW, '700', 14, 10, '"Space Grotesk", sans-serif');
+      }
       ctx.fillStyle = col.color;
-      ctx.fillText(col.val, cX, metaY + 68);
+      ctx.fillText(fittedVal, cX, metaY + 68);
+      ctx.restore();
 
       if (idx < 2) {
         ctx.strokeStyle = C.innerBorder;
@@ -870,15 +910,16 @@
     ctx.fillText('CLASS OF 2040 · EXECUTIVE CREDENTIAL', bcLeftX + 140, bcCardY + 41);
     ctx.restore();
 
-    // Student Name matching .biz-card-name
-    ctx.font = '800 32px "Plus Jakarta Sans", sans-serif';
+    // Student Name matching .biz-card-name (auto-fit away from QR box)
+    const bcTextMaxW = (bcCardX + bcCardW - 32 - 140 - 24) - bcLeftX;
+    const fittedBcName = fitTextToWidth(ctx, bcStudentName.toUpperCase(), bcTextMaxW, '800', 32, 16, '"Plus Jakarta Sans", sans-serif');
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(bcStudentName.toUpperCase(), bcLeftX, bcCardY + 98);
+    ctx.fillText(fittedBcName, bcLeftX, bcCardY + 98);
 
     // Target Career Title matching .biz-card-title
-    ctx.font = '700 18px "Plus Jakarta Sans", sans-serif';
+    const fittedBcTitle = fitTextToWidth(ctx, `✨ ${bcCareerTitle}`, bcTextMaxW, '700', 18, 12, '"Plus Jakarta Sans", sans-serif');
     ctx.fillStyle = '#00f0ff';
-    ctx.fillText(`✨ ${bcCareerTitle}`, bcLeftX, bcCardY + 132);
+    ctx.fillText(fittedBcTitle, bcLeftX, bcCardY + 132);
 
     // Optional email & phone lines
     let contactOffY = 0;
@@ -932,7 +973,7 @@
 
     // Verification URL
     const targetOrigin = (window.location && window.location.origin && !window.location.origin.startsWith('file')) ? window.location.origin : 'https://careerwithenglish.pages.dev';
-    const verifyUrl = bcVerifyUrl || `${targetOrigin}/?verify=1&id=${encodeURIComponent(docId)}&name=${encodeURIComponent(bcStudentName)}&career=${encodeURIComponent(bcCareerTitle)}&class=${encodeURIComponent(className)}`;
+    const verifyUrl = bcVerifyUrl || `${targetOrigin}/?verify=2040&id=${encodeURIComponent(docId)}&student=${encodeURIComponent(bcStudentName)}&title=${encodeURIComponent(bcCareerTitle)}&class=${encodeURIComponent(className)}`;
     const qrMatrix = getDynamicQrMatrix(verifyUrl);
 
     // Render Crisp QR Code inside white card

@@ -168,6 +168,13 @@
   // ── 3. DOM & Canvas Tesseract.js OCR Scanner ────────────────────────────────
   async function initOcrEngine() {
     if (ocrWorker) return ocrWorker;
+    if (typeof window.Tesseract === 'undefined' && typeof window.ensureTesseractLoaded === 'function') {
+      try {
+        await window.ensureTesseractLoaded();
+      } catch (e) {
+        console.warn('Tesseract lazy-load notice:', e);
+      }
+    }
     if (typeof window.Tesseract !== 'undefined') {
       try {
         ocrWorker = await window.Tesseract.createWorker('eng');

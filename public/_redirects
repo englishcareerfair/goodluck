@@ -1,15 +1,16 @@
 # Cloudflare Pages SPA Routing Configuration
+# Note: /api/* routing to Pages Functions is controlled by _routes.json.
 
 # Prevent missing static assets from falling through to SPA index.html
-/*.js       /index.html 404
-/*.css      /index.html 404
-/*.png      /index.html 404
-/*.jpg      /index.html 404
-/*.jpeg     /index.html 404
-/*.svg      /index.html 404
-/*.json     /index.html 404
-/*.ico      /index.html 404
-/*.woff2    /index.html 404
+/*.js        /index.html 404
+/*.css       /index.html 404
+/*.png       /index.html 404
+/*.jpg       /index.html 404
+/*.jpeg      /index.html 404
+/*.svg       /index.html 404
+/*.json      /index.html 404
+/*.ico       /index.html 404
+/*.woff2     /index.html 404
 
 # Single Page Application (SPA) Deep-Linking Rewrite
-/*          /index.html 200
+/*           /index.html 200

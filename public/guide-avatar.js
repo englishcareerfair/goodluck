@@ -302,47 +302,77 @@
     async runHumanDetection() {
       const mlEngine = this.getMlEngine();
       const labelEl = document.getElementById('dg-detect-label');
+      const hasLiveCamera = Boolean(
+        this.videoStream &&
+        typeof this.videoStream.getVideoTracks === 'function' &&
+        this.videoStream.getVideoTracks().some(t => t.readyState === 'live')
+      );
 
-      if (mlEngine === 'server' || mlEngine === 'hybrid') {
+      if (!hasLiveCamera) {
+        this.humanDetected = false;
+        this.detectionConfidence = 0;
+        if (labelEl) {
+          labelEl.innerHTML = '<span>🤖 Simulated Guide Mode (No Camera)</span>';
+        }
+        return;
+      }
+
+      // Try client FaceDetector first when available
+      const videoEl = document.getElementById('dg-webcam-feed');
+      if ('FaceDetector' in window && videoEl && videoEl.readyState >= 2) {
         try {
-          const res = await fetch('/api/ml/detect-human', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ timestamp: Date.now() })
-          });
-          if (res.ok) {
-            const data = await res.json();
+          const detector = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
+          const faces = await detector.detect(videoEl);
+          if (faces && faces.length > 0) {
             this.humanDetected = true;
-            this.detectionConfidence = data.confidence || 0.94;
+            this.detectionConfidence = 0.96;
             if (labelEl) {
-              labelEl.innerHTML = `<span>👤 Human Presence Verified (${Math.round(this.detectionConfidence * 100)}%)</span>`;
+              labelEl.innerHTML = '<span>👤 Human Verified · 96%</span>';
             }
             return;
           }
         } catch (e) {}
       }
 
-      // Client-Side Browser Face Detection
-      if ('FaceDetector' in window) {
+      if (mlEngine === 'server' || mlEngine === 'hybrid') {
         try {
-          const videoEl = document.getElementById('dg-webcam-feed');
-          if (videoEl) {
-            const detector = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
-            const faces = await detector.detect(videoEl);
-            if (faces && faces.length > 0) {
+          let frameImageBase64 = '';
+          const w = Math.min(160, (videoEl && videoEl.videoWidth) || 160);
+          const h = Math.min(120, (videoEl && videoEl.videoHeight) || 120);
+          if (videoEl && videoEl.readyState >= 2 && w > 0 && h > 0) {
+            const cv = document.createElement('canvas');
+            cv.width = w;
+            cv.height = h;
+            const ctx = cv.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(videoEl, 0, 0, w, h);
+              frameImageBase64 = cv.toDataURL('image/jpeg', 0.6);
+            }
+          }
+          if (frameImageBase64 && frameImageBase64.length >= 64) {
+            const res = await fetch('/api/ml/detect-human', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ engine: mlEngine, frameImageBase64, timestamp: Date.now() })
+            });
+            const ct = (res.headers.get('content-type') || '').toLowerCase();
+            const data = (res.ok && ct.includes('application/json')) ? await res.json().catch(() => null) : null;
+            if (data && data.detected === true) {
               this.humanDetected = true;
-              this.detectionConfidence = 0.96;
+              this.detectionConfidence = Number(data.confidence || 0.9);
+              if (labelEl) {
+                labelEl.innerHTML = `<span>👤 Human Verified (${Math.round(this.detectionConfidence * 100)}%)</span>`;
+              }
+              return;
             }
           }
         } catch (e) {}
-      } else {
-        // Fallback simulation heuristic
-        this.humanDetected = true;
-        this.detectionConfidence = 0.95;
       }
 
+      this.humanDetected = false;
+      this.detectionConfidence = 0;
       if (labelEl) {
-        labelEl.innerHTML = `<span>👤 Human Verified · ${Math.round(this.detectionConfidence * 100)}%</span>`;
+        labelEl.innerHTML = '<span>📷 Camera Active · Standby</span>';
       }
     }
 
@@ -615,7 +645,8 @@
           })
         });
         if (res.ok) {
-          const data = await res.json();
+          const ct = (res.headers.get('content-type') || '').toLowerCase();
+        const data = (res.ok && ct.includes('application/json')) ? await res.json().catch(() => null) : null;
           if (data.text || data.response) {
             aiResponse = data.text || data.response;
           }
