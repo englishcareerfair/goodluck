@@ -26,7 +26,7 @@
     },
     {
       badge: 'LANGUAGE ARCADE',
-      text: 'Compete in 11 vocabulary, grammar, and speed-typing arcade games with OCR verification on Cloudflare D1.'
+      text: 'Compete in 8 interactive Gemini quests, vocabulary, spelling, and word arcade games with OCR verification on Cloudflare D1.'
     },
     {
       badge: 'YOUR BOOKLET',

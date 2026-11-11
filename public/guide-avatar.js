@@ -484,10 +484,10 @@
             window.switchTab('games');
           }
           await this.speakGuideLine(
-            "Welcome to the Language Arcade! Play Jobtris, Wordle, or Vocabulary Blitz. Our camera and OCR engine will automatically track your completion."
+            "Welcome to the Language Arcade! Play The Scribe, Wordle, or Spelling Bee Challenge. Our camera and OCR engine will automatically track your completion."
           );
           if (window.GameCompletionDetector) {
-            window.GameCompletionDetector.setActiveGame('jobtris');
+            window.GameCompletionDetector.setActiveGame('wordle');
           }
           break;
 

@@ -1274,7 +1274,7 @@ const TUTORIAL_EXPANDED_STEPS = [
     audioUrl: '/audio/tutorial/tutorial_exp_step6.mp3',
     speechText: 'Step into the shoes of a broadcast news anchor! Practice reading breaking international news scripts with an adjustable teleprompter mirror and live webcam video. Master poise, speed control, and camera presence!'
   },
-  // ── 10 GAMES SHOWCASED IN SEQUENCE ──
+  // ── 8 GAMES SHOWCASED IN SEQUENCE ──
   {
     step: 7,
     tab: 'games',
@@ -7565,7 +7565,7 @@ function initTeleprompter() {
   });
 }
 
-// ─── 9. ARCADE GAMES SUITE (JOBTRIS, WORDLE, FLASHCARDS, ETC.) ────────────────
+// ─── 9. ARCADE GAMES SUITE (GEMINI QUESTS, WORDLE, FLASHCARDS, ETC.) ─────────
 function renderStandaloneQuest(mount, questIdx) {
   const q = GAMING_HALL_QUESTS[questIdx];
   mount.innerHTML = `
@@ -7604,6 +7604,16 @@ function renderStandaloneQuest(mount, questIdx) {
       default: launchQuestScribe(stage);
     }
   }
+}
+
+/** Sync Hero stat and Arcade Games nav badge with the actual game tabs rendered in the DOM. */
+function syncArcadeGameCountBadges() {
+  const count = $$('#game-picker-tabs .filter-chip').length;
+  if (!count) return;
+  const heroStat = $('#stat-games-count');
+  if (heroStat) heroStat.textContent = String(count);
+  const tabBadge = $('.tab-btn[data-tab="games"] .tab-badge');
+  if (tabBadge) tabBadge.textContent = `${count} Game${count === 1 ? '' : 's'}`;
 }
 
 function renderGameArena(gameKey) {
@@ -7645,6 +7655,7 @@ function initGamePicker() {
   const tabsContainer = $('#game-picker-tabs');
   const leftBtn = $('#btn-game-scroll-left');
   const rightBtn = $('#btn-game-scroll-right');
+  syncArcadeGameCountBadges();
 
   // Wire game selection chips
   $$('#game-picker-tabs .filter-chip').forEach(btn => {
@@ -7672,7 +7683,7 @@ function initGamePicker() {
 }
 
 // =========================================================================
-// AI-POWERED GAMING HALL (5 Immersive Gemini Quests with 3D Arc Carousel)
+// AI-POWERED GAMING HALL (3 Immersive Gemini Quests with 3D Arc Carousel)
 // =========================================================================
 
 let gamingHallArcIndex = 0;
@@ -12063,7 +12074,7 @@ function updateLeaderboardBadges(scores) {
     topAcc = list.reduce((m, s) => Math.max(m, Number(s.acc || 0)), 0);
   }
 
-  // 1. Navigation Tab badge: [ 🏆 Leaderboard ] [ 🎯 98% Top ] (like [ 🎮 Arcade Games ] [ 7 Modes ])
+  // 1. Navigation Tab badge: [ 🏆 Leaderboard ] [ 🎯 98% Top ] (like [ 🎮 Arcade Games ] [ 8 Games ])
   const tabBadge = $('#tab-badge-leaderboard');
   if (tabBadge) {
     tabBadge.textContent = topAcc > 0 ? `🎯 ${topAcc}% Top` : (count > 0 ? `Top ${Math.min(10, count)}` : 'Live Top 10');
@@ -12287,7 +12298,7 @@ function updateFeedbackBadges(feedbacks) {
     avg = (sum / count).toFixed(1);
   }
 
-  // 1. Navigation Tab badge: [ 💬 Feedback ] [ ⭐ 5.0 ] (like [ 🎮 Arcade Games ] [ 7 Modes ])
+  // 1. Navigation Tab badge: [ 💬 Feedback ] [ ⭐ 5.0 ] (like [ 🎮 Arcade Games ] [ 8 Games ])
   const tabBadge = $('#tab-badge-feedback');
   if (tabBadge) {
     tabBadge.textContent = `⭐ ${avg}`;
@@ -13349,8 +13360,8 @@ function renderAdminFeatureFlags() {
         {
           key: 'games',
           label: 'Language Arcade Games Suite',
-          desc: 'All 11 interactive games: Wordle, Jobtris, Crossword, Hangman, Spelling Bee, and Gemini AI Quests.',
-          badge: '11 Games'
+          desc: 'All 8 interactive games: The Scribe, The Bard\'s Mirror, The Ink Cipher, Wordle, Flash Cards Studio, Word Check, Spelling Bee Challenge, and English Word Hangman.',
+          badge: '8 Games'
         },
         {
           key: 'ocr_enabled',
