@@ -1,0 +1,2364 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover">
+  <meta name="theme-color" content="#0c0d10">
+  <meta name="description" content="Career Fair 2026 — Student Career Intelligence &amp; Spoken English Platform. Explore 32+ careers, accredited colleges, speech evaluation, and arcade games.">
+  <title>Career Fair 2026 · Every Career Speaks English</title>
+  
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="logo.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  
+  <!-- Preconnect & Typography: Plus Jakarta Sans, Space Grotesk, JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="styles.css?v=24.1">
+  <script src="/qrcode.min.js"></script>
+  <script>
+    if (typeof qrcode === 'undefined') {
+      const _qrScript = document.createElement('script');
+      _qrScript.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
+      _qrScript.integrity = 'sha384-lQXOAyZwHXE55JFyrOMB7nY2Wv+m5ZWNtJcHrd1rceRQXAYNLak8ukN5TjBTcIwz';
+      _qrScript.crossOrigin = 'anonymous';
+      document.head.appendChild(_qrScript);
+    }
+  </script>
+  <!-- High-Precision Vector PDF, Tesseract OCR & Confetti (Pinned versions with Subresource Integrity) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" integrity="sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F" crossorigin="anonymous" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js" integrity="sha384-sPwMflxqfAN+Q5mvlkLmHiX3PORGbZSXHiSGPTXT9VHCD/AB+b+r+vJWsqprv+7k" crossorigin="anonymous" defer></script>
+  <!-- Architectural Engines -->
+  <script src="dossier-pdf.js?v=24.8" defer></script>
+  <script src="dopamine-engine.js?v=23.9" defer></script>
+  <script src="game-completion-detector.js?v=7.7" defer></script>
+    <script src="guide-avatar.js?v=14.0" defer></script>
+    <!-- Google Universal Sentence Encoder (USE) & TensorFlow.js for Jobtris Semantic Intelligence -->
+  <script src="loader.js?v=14.0"></script>
+  <script src="app.js?v=25.2" defer></script>
+  <!-- Critical Inlined CSS for Instant Loading Screen (Prevents FOUC on First Open) -->
+  <style id="loader-critical-css">
+    .site-loader {
+      position: fixed !important;
+      inset: 0 !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      height: 100dvh !important;
+      z-index: 99999999 !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      background: radial-gradient(circle at 50% 35%, #0f172a 0%, #07090e 100%) !important;
+      background-color: #07090e !important;
+      color: #ffffff !important;
+      padding: 20px max(16px, env(safe-area-inset-right)) 20px max(16px, env(safe-area-inset-left)) !important;
+      overflow: hidden !important;
+      box-sizing: border-box !important;
+      opacity: 1;
+      transform: scale(1);
+      transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1), transform 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    }
+    [data-theme="light"] .site-loader {
+      background: radial-gradient(circle at 50% 35%, #f8fafc 0%, #e2e8f0 100%) !important;
+      background-color: #f8fafc !important;
+      color: #0f172a !important;
+    }
+    .site-loader.loader-hidden {
+      opacity: 0 !important;
+      transform: scale(1.03) !important;
+      pointer-events: none !important;
+      display: none !important;
+    }
+    .loader-bg-overlay {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 50% 50%, rgba(0, 240, 255, 0.04) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .loader-card {
+      max-width: 480px !important;
+      width: 100% !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      text-align: center !important;
+      position: relative !important;
+      z-index: 2 !important;
+      gap: 16px !important;
+      box-sizing: border-box !important;
+    }
+    .loader-orbital-system {
+      position: relative !important;
+      width: 88px !important;
+      height: 88px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      flex-shrink: 0 !important;
+    }
+    .loader-ring {
+      position: absolute !important;
+      border-radius: 50% !important;
+      border: 2px solid transparent !important;
+      box-sizing: border-box !important;
+    }
+    .loader-ring.ring-outer {
+      inset: 0 !important;
+      border-top-color: #00f0ff !important;
+      border-right-color: rgba(0, 240, 255, 0.2) !important;
+      box-shadow: 0 0 16px rgba(0, 240, 255, 0.4) !important;
+      animation: loaderSpin 2.4s linear infinite !important;
+    }
+    .loader-ring.ring-mid {
+      inset: 10px !important;
+      border-bottom-color: #ff2a85 !important;
+      border-left-color: rgba(255, 42, 133, 0.2) !important;
+      box-shadow: 0 0 14px rgba(255, 42, 133, 0.4) !important;
+      animation: loaderSpinRev 3s linear infinite !important;
+    }
+    .loader-ring.ring-inner {
+      inset: 20px !important;
+      border-top-color: #8b5cf6 !important;
+      border-left-color: rgba(139, 92, 246, 0.2) !important;
+      box-shadow: 0 0 12px rgba(139, 92, 246, 0.4) !important;
+      animation: loaderSpin 1.8s linear infinite !important;
+    }
+    .loader-emblem {
+      width: 44px !important;
+      height: 44px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      z-index: 3 !important;
+      animation: loaderPulse 2.2s ease-in-out infinite !important;
+    }
+    .loader-logo-icon {
+      width: 44px !important;
+      height: 44px !important;
+      max-width: 44px !important;
+      max-height: 44px !important;
+      filter: drop-shadow(0 0 8px rgba(0, 240, 255, 0.6)) !important;
+    }
+    @keyframes loaderSpin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    @keyframes loaderSpinRev {
+      from { transform: rotate(360deg); }
+      to { transform: rotate(0deg); }
+    }
+    @keyframes loaderPulse {
+      0%, 100% { transform: scale(1); filter: brightness(1); }
+      50% { transform: scale(1.08); filter: brightness(1.25); }
+    }
+    .loader-brand-block {
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      gap: 6px !important;
+    }
+    .loader-school-pill {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 6px !important;
+      font-size: 11px !important;
+      font-weight: 700 !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.08em !important;
+      padding: 4px 10px !important;
+      border-radius: 99px !important;
+      background: rgba(255, 255, 255, 0.06) !important;
+      border: 1px solid rgba(255, 255, 255, 0.12) !important;
+      color: #00f0ff !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    }
+    [data-theme="light"] .loader-school-pill {
+      background: rgba(0, 0, 0, 0.04) !important;
+      border-color: rgba(0, 0, 0, 0.08) !important;
+      color: #0284c7 !important;
+    }
+    .loader-pulse-dot {
+      width: 6px !important;
+      height: 6px !important;
+      border-radius: 50% !important;
+      background: #10b981 !important;
+      box-shadow: 0 0 8px #10b981 !important;
+      display: inline-block !important;
+    }
+    .loader-heading {
+      font-size: clamp(20px, 5.5vw, 26px) !important;
+      font-weight: 800 !important;
+      letter-spacing: -0.02em !important;
+      margin: 0 !important;
+      line-height: 1.2 !important;
+      color: #ffffff !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    }
+    [data-theme="light"] .loader-heading {
+      color: #0f172a !important;
+    }
+    .loader-heading .loader-year {
+      background: linear-gradient(135deg, #00f0ff, #ff2a85) !important;
+      -webkit-background-clip: text !important;
+      -webkit-text-fill-color: transparent !important;
+    }
+    .loader-tagline {
+      font-size: 13px !important;
+      color: #94a3b8 !important;
+      margin: 0 !important;
+      font-weight: 500 !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    }
+    [data-theme="light"] .loader-tagline {
+      color: #64748b !important;
+    }
+    .loader-progress-section {
+      width: 100% !important;
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 8px !important;
+      box-sizing: border-box !important;
+    }
+    .loader-progress-track {
+      width: 100% !important;
+      height: 6px !important;
+      background: rgba(255, 255, 255, 0.08) !important;
+      border-radius: 99px !important;
+      overflow: hidden !important;
+      position: relative !important;
+      box-sizing: border-box !important;
+    }
+    [data-theme="light"] .loader-progress-track {
+      background: rgba(0, 0, 0, 0.08) !important;
+    }
+    .loader-progress-bar {
+      width: 15%;
+      height: 100% !important;
+      background: linear-gradient(90deg, #00f0ff, #8b5cf6, #ff2a85) !important;
+      border-radius: 99px !important;
+      box-shadow: 0 0 12px rgba(0, 240, 255, 0.6) !important;
+      transition: width 0.3s ease !important;
+    }
+    .loader-meta-row {
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      font-size: 12px !important;
+      color: #94a3b8 !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+      gap: 8px !important;
+      width: 100% !important;
+    }
+    .loader-status-msg {
+      font-weight: 500 !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      flex: 1 !important;
+      text-align: left !important;
+    }
+    .loader-status-pct {
+      font-weight: 700 !important;
+      color: #00f0ff !important;
+      font-variant-numeric: tabular-nums !important;
+      flex-shrink: 0 !important;
+      margin-left: 8px !important;
+    }
+    [data-theme="light"] .loader-status-pct {
+      color: #0284c7 !important;
+    }
+    .loader-tutorial-panel {
+      width: 100% !important;
+      background: rgba(255, 255, 255, 0.04) !important;
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+      border-radius: 14px !important;
+      padding: 12px 14px !important;
+      backdrop-filter: blur(12px) !important;
+      -webkit-backdrop-filter: blur(12px) !important;
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 8px !important;
+      text-align: left !important;
+      box-sizing: border-box !important;
+    }
+    [data-theme="light"] .loader-tutorial-panel {
+      background: rgba(255, 255, 255, 0.9) !important;
+      border-color: rgba(0, 0, 0, 0.08) !important;
+    }
+    .loader-tutorial-header {
+      display: flex !important;
+      align-items: center !important;
+      gap: 8px !important;
+      font-size: 11px !important;
+      font-weight: 700 !important;
+      letter-spacing: 0.06em !important;
+      color: #ff2a85 !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    }
+    .loader-tutorial-icon {
+      font-size: 14px !important;
+    }
+    .loader-tutorial-badge {
+      flex: 1 !important;
+    }
+    .loader-dots-indicator {
+      display: flex !important;
+      gap: 4px !important;
+      align-items: center !important;
+    }
+    .loader-dot {
+      width: 6px !important;
+      height: 6px !important;
+      border-radius: 50% !important;
+      background: rgba(255, 255, 255, 0.2) !important;
+      display: inline-block !important;
+      cursor: pointer !important;
+      transition: all 0.2s ease !important;
+    }
+    [data-theme="light"] .loader-dot {
+      background: rgba(0, 0, 0, 0.2) !important;
+    }
+    .loader-dot.active {
+      background: #ff2a85 !important;
+      width: 14px !important;
+      border-radius: 99px !important;
+    }
+    .loader-tutorial-text {
+      margin: 0 !important;
+      font-size: 12.5px !important;
+      line-height: 1.5 !important;
+      color: #e2e8f0 !important;
+      font-weight: 500 !important;
+      min-height: 38px !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    }
+    [data-theme="light"] .loader-tutorial-text {
+      color: #1e293b !important;
+    }
+    .loader-tips-nav {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 6px !important;
+      margin-left: auto !important;
+    }
+    .btn-loader-nav {
+      background: rgba(255, 255, 255, 0.08) !important;
+      border: 1px solid rgba(255, 255, 255, 0.2) !important;
+      color: #00f0ff !important;
+      border-radius: 99px !important;
+      padding: 4px 10px !important;
+      font-size: 11px !important;
+      font-weight: 700 !important;
+      cursor: pointer !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 4px !important;
+      transition: all 0.2s ease !important;
+      line-height: 1.2 !important;
+      touch-action: manipulation !important;
+      user-select: none !important;
+    }
+    .btn-loader-enter {
+      background: linear-gradient(135deg, #00f0ff, #8b5cf6) !important;
+      color: #07090e !important;
+      font-weight: 800 !important;
+      border: none !important;
+      border-radius: 99px !important;
+      padding: 8px 22px !important;
+      font-size: 13px !important;
+      cursor: pointer !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 6px !important;
+      box-shadow: 0 0 16px rgba(0, 240, 255, 0.4) !important;
+      transition: all 0.2s ease !important;
+      touch-action: manipulation !important;
+      user-select: none !important;
+    }
+    @media (max-width: 480px) {
+      .loader-card { gap: 12px !important; }
+      .loader-orbital-system { width: 76px !important; height: 76px !important; }
+      .loader-emblem { width: 36px !important; height: 36px !important; }
+      .loader-logo-icon { width: 36px !important; height: 36px !important; }
+      .loader-tutorial-panel { padding: 10px 12px !important; }
+      .loader-tutorial-text { font-size: 12px !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── 0. FULL-PAGE IMMERSIVE LOADING SCREEN ── -->
+  <div id="site-loader" class="site-loader" style="position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;z-index:99999999;background:#07090e;display:flex;align-items:center;justify-content:center;box-sizing:border-box;overflow:hidden;" aria-live="polite" aria-busy="true">
+    <div class="loader-bg-overlay"></div>
+    <div class="loader-card">
+      <div class="loader-orbital-system">
+        <div class="loader-ring ring-outer"></div>
+        <div class="loader-ring ring-mid"></div>
+        <div class="loader-ring ring-inner"></div>
+        <div class="loader-emblem">
+          <svg class="loader-logo-icon" width="44" height="44" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="50" cy="50" r="44" stroke="url(#loaderGrad1)" stroke-width="3" stroke-dasharray="140 70" stroke-linecap="round"/>
+            <circle cx="39" cy="42" r="17" stroke="rgba(0, 240, 255, 0.9)" stroke-width="2.5"/>
+            <circle cx="61" cy="42" r="17" stroke="rgba(255, 42, 133, 0.9)" stroke-width="2.5"/>
+            <circle cx="50" cy="62" r="17" stroke="rgba(16, 185, 129, 0.9)" stroke-width="2.5"/>
+            <defs>
+              <linearGradient id="loaderGrad1" x1="0" y1="0" x2="100" y2="100">
+                <stop offset="0%" stop-color="#00f0ff"/>
+                <stop offset="50%" stop-color="#8b5cf6"/>
+                <stop offset="100%" stop-color="#ff2a85"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+      </div>
+
+      <div class="loader-brand-block">
+        <div class="loader-school-pill">
+          <span class="loader-pulse-dot" aria-hidden="true"></span>
+          <span>KANAKIA INTERNATIONAL SCHOOL MIRA ROAD</span>
+        </div>
+        <h1 class="loader-heading">Career Fair <span class="loader-year">2026</span></h1>
+        <p class="loader-tagline">Every Modern Profession Speaks English</p>
+      </div>
+
+      <!-- Active Progress Bar Section -->
+      <div class="loader-progress-section" id="loader-progress-section" style="width:100%;display:flex;flex-direction:column;gap:8px;box-sizing:border-box;">
+        <div class="loader-progress-track" style="width:100%;height:6px;background:rgba(255,255,255,0.08);border-radius:99px;overflow:hidden;position:relative;box-sizing:border-box;">
+          <div class="loader-progress-bar" id="loader-progress-bar" style="width:15%;height:100%;background:linear-gradient(90deg,#00f0ff,#8b5cf6,#ff2a85);border-radius:99px;box-shadow:0 0 12px rgba(0,240,255,0.6);transition:width 0.25s ease;"></div>
+        </div>
+        <div class="loader-meta-row" style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#94a3b8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;width:100%;">
+          <span class="loader-status-msg" id="loader-status-msg" style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;text-align:left;">Initializing Career Intelligence Matrix...</span>
+          <span class="loader-status-pct" id="loader-status-pct" style="font-weight:700;color:#00f0ff;font-variant-numeric:tabular-nums;margin-left:8px;">15%</span>
+        </div>
+      </div>
+
+      <div class="loader-tutorial-panel" id="loader-tips-panel">
+        <div class="loader-tutorial-header">
+          <span class="loader-tutorial-icon">💡</span>
+          <span class="loader-tutorial-badge">TIPS</span>
+          <div class="loader-dots-indicator" id="loader-dots-indicator">
+            <span class="loader-dot active" data-tip="0"></span>
+            <span class="loader-dot" data-tip="1"></span>
+            <span class="loader-dot" data-tip="2"></span>
+            <span class="loader-dot" data-tip="3"></span>
+            <span class="loader-dot" data-tip="4"></span>
+            <span class="loader-dot" data-tip="5"></span>
+          </div>
+          <div class="loader-tips-nav">
+            <button type="button" class="btn-loader-nav" id="btn-loader-prev-tip" aria-label="Previous tip">◀</button>
+            <button type="button" class="btn-loader-nav" id="btn-loader-next-tip" aria-label="Next tip">Next Tip ▶</button>
+          </div>
+        </div>
+        <p class="loader-tutorial-text" id="loader-tutorial-text">
+          Explore 32+ Global Careers with AI-verified eligibility, top colleges, and admission pathways.
+        </p>
+      </div>
+
+      </div>
+  </div>
+
+  <!-- ── 1. AMBIENT BROADCAST & SCHOOL BRANDING BAR ── -->
+  <div class="top-broadcast-bar" id="top-bar">
+    <div class="school-tag" id="school-branding-wrap">
+      <span class="school-badge">FAIR 2026</span>
+      <span id="school-branding-name">Kanakia International School Mira Road</span>
+    </div>
+    
+    <div class="broadcast-alert" id="broadcast-alert-wrap">
+      <span class="live-pulse" aria-hidden="true"></span>
+      <span id="broadcast-text">Welcome to Career Fair 2026 · Explore 32+ Careers Where English Opens Doors!</span>
+    </div>
+    
+    <div id="live-timer-wrap" hidden>
+      <span class="timer-pill" id="live-timer-pill">⏳ Practice Timer: <strong id="timer-display">00:00</strong></span>
+    </div>
+  </div>
+
+  <!-- ── 2. SITE HEADER ── -->
+  <header class="site-header" id="top">
+    <div class="header-container">
+      <div class="site-brand" onclick="switchTab('hero')" role="button" tabindex="0">
+        <div class="brand-icon" aria-hidden="true">
+          <img src="logo.png" alt="Career Fair Logo" class="brand-logo-img">
+        </div>
+        <div class="brand-copy">
+          <div class="brand-name">Career Fair <span style="color:var(--accent-cyan);font-weight:700;">2026</span></div>
+          <div class="brand-subtitle">KANAKIA INTERNATIONAL SCHOOL · MIRA ROAD</div>
+        </div>
+      </div>
+      
+      <div class="header-actions-row">
+        <!-- Spoken Greeting Alias (Hidden to eliminate redundant greeting audio) -->
+        <button class="audio-greeting-btn" id="btn-greeting" type="button" aria-label="Listen to humanoid audio greeting" style="display:none;">
+          <span>🔊</span> <span class="greeting-btn-text"><span class="greeting-prefix">Listen AI </span>Greeting</span>
+        </button>
+
+        <!-- Official 2-Page Student Career Booklet & Business Card Download Button -->
+        <button class="header-dossier-btn" id="btn-header-dossier" type="button" aria-label="Download official student career booklet" style="display:none;" hidden>
+          <span>📖</span> <span class="dossier-btn-text"><span class="dossier-btn-prefix">Your </span>Booklet</span>
+        </button>
+
+        <!-- Interactive Platform In-Website Tutorial Button -->
+        <button class="header-tutorial-btn" id="btn-header-tutorial" type="button" aria-label="Start interactive website tutorial">
+          <span>💡</span> <span class="tutorial-btn-text"><span class="tutorial-btn-prefix">Start </span>Tutorial</span>
+        </button>
+
+        <!-- Interactive Animated Theme Switcher (Light / Dark) -->
+        <div class="theme-switcher" role="radiogroup" aria-label="Toggle visual theme" title="Toggle visual theme" tabindex="0" data-active-theme="dark">
+          <div class="theme-switcher-slider" aria-hidden="true"></div>
+          <button class="theme-btn" data-theme-val="light" title="Light Corporate Mode" type="button">
+            <span class="theme-btn-icon">☀️</span> <span class="theme-btn-text">Light</span>
+          </button>
+          <button class="theme-btn active" data-theme-val="dark" title="Dark Corporate Mode" type="button">
+            <span class="theme-btn-icon">🌙</span> <span class="theme-btn-text">Dark</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── 3. STICKY SUB-NAVBAR TABS WITH THEMED SCROLL DEVICE ── -->
+  <div class="sub-navbar-placeholder" id="sub-nav-placeholder" aria-hidden="true"></div>
+  <nav class="sub-navbar" id="sub-nav" aria-label="Platform navigation">
+    <div class="sub-navbar-container">
+      <button type="button" class="shelf-scroll-arrow shelf-scroll-prev" id="btn-nav-scroll-left" aria-label="Scroll navigation left" title="Scroll navigation left">
+        <span>‹</span>
+      </button>
+
+      <div class="nav-tabs-wrapper shelf-scroll-track" id="nav-tabs-track">
+        <button class="tab-btn active" data-tab="hero"><span>⚡</span> Overview</button>
+        <button class="tab-btn" data-tab="careers" data-flag="careers"><span>🎯</span> Careers <span class="tab-badge">32+</span></button>
+        <button class="tab-btn" data-tab="colleges" data-flag="colleges"><span>🏛️</span> Colleges <span class="tab-badge">NAAC/NIRF</span></button>
+        <button class="tab-btn" data-tab="exams" data-flag="exams"><span>📝</span> Exams <span class="tab-badge">CUET/CLAT</span></button>
+        <button class="tab-btn" data-tab="speak" data-flag="speechLab"><span>🗣️</span> Speak &amp; Pronunciation <span class="tab-badge">Studio</span></button>
+        <button class="tab-btn" data-tab="speechLab" data-flag="speechLab"><span>🎙️</span> AI Speech Lab <span class="tab-badge">6D Coach</span></button>
+        <button class="tab-btn" data-tab="teleprompter" data-flag="anchorMode"><span>📹</span> News Anchor &amp; Interview</button>
+        <button class="tab-btn" data-tab="games" data-flag="games"><span>🎮</span> Arcade Games <span class="tab-badge">11 Games</span></button>
+        <button class="tab-btn" data-tab="roadmap" data-flag="roadmap"><span>🗺️</span> My Plan &amp; Quiz</button>
+        <button class="tab-btn" data-tab="leaderboard" data-flag="leaderboard"><span>🏆</span> Leaderboard <span class="tab-badge" id="tab-badge-leaderboard">Live Top 10</span></button>
+        <button class="tab-btn" data-tab="feedback" data-flag="feedback"><span>💬</span> Feedback <span class="tab-badge" id="tab-badge-feedback">⭐ 5.0</span></button>
+        <button class="tab-btn" data-tab="admin"><span>⚙️</span> Admin</button>
+      </div>
+
+      <button type="button" class="shelf-scroll-arrow shelf-scroll-next" id="btn-nav-scroll-right" aria-label="Scroll navigation right" title="Scroll navigation right">
+        <span>›</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ── 4. MAIN WORKSPACE CONTENT ── -->
+  <main id="app-content">
+
+    <!-- ── SECTION: HERO STAGE ── -->
+    <section class="section-shell" id="sec-hero">
+      <div class="hero-stage">
+        <div class="hero-left">
+          <div class="hero-eyebrow">
+            <span>✨</span> <span>STUDENT CAREER INTELLIGENCE &amp; ENGLISH LAB</span>
+          </div>
+          <h1 class="hero-heading">
+            Good English<br>
+            <span class="gradient-text">opens every door.</span>
+          </h1>
+          <p class="hero-sub">
+            Not just for board exams. For the patient consults, the air traffic clearances, the courtrooms you address, the venture decks you present, and the future you build.
+          </p>
+          <div class="hero-actions">
+            <button class="btn btn-primary" onclick="switchTab('speak')">
+              <span>🎙️</span> <span>Test Pronunciation &amp; Speech</span>
+            </button>
+            <button class="btn btn-secondary" onclick="switchTab('colleges')">
+              <span>🏛️</span> <span>Explore Colleges</span>
+            </button>
+            <button class="btn btn-secondary" onclick="switchTab('games')">
+              <span>🎮</span> <span>Play Wordle &amp; Quests</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="hero-right">
+          <div class="hero-visualizer-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-family:var(--font-sub);font-size:12px;font-weight:700;letter-spacing:0.08em;color:var(--accent-cyan);text-transform:uppercase;">
+                  FAIR LIVE BROADCAST
+                </span>
+              </div>
+              <span class="badge-live-pulse" id="stream-live-badge">LIVE STREAM</span>
+            </div>
+            
+            <!-- 16:9 Stream Frame / Standby Wrapper -->
+            <div class="hero-stream-frame-wrap" id="hero-stream-container">
+              <!-- Stream Loading Screen (Replaces black screen with animated loading while video is initializing/buffering) -->
+              <div class="hero-stream-loader" id="hero-stream-loader">
+                <div class="stream-loader-spinner">
+                  <div class="spinner-ring"></div>
+                  <div class="stream-pulse-dot"></div>
+                </div>
+                <div class="stream-loader-title">Connecting to Live Broadcast...</div>
+                <div class="stream-loader-subtitle">Synchronizing Auditorium Stage Feed</div>
+                <div class="stream-loader-badge">
+                  <span class="pulse-indicator"></span> 1080p HD Live Stream
+                </div>
+              </div>
+
+              <!-- Active iframe (populated dynamically with YouTube stream) -->
+              <iframe
+                id="hero-youtube-iframe"
+                src="https://www.youtube.com/embed/3Hn-jH3up9Y?playsinline=1&rel=0&modestbranding=1&enablejsapi=1&autoplay=1&mute=1"
+                data-current-src="https://www.youtube.com/embed/3Hn-jH3up9Y?playsinline=1&rel=0&modestbranding=1&enablejsapi=1&autoplay=1&mute=1"
+                title="Career Fair 2026 Live Broadcast"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+                referrerpolicy="strict-origin-when-cross-origin"
+                allowfullscreen>
+              </iframe>
+
+              <!-- Standby Mode Card (shown when stream is offline or unconfigured) -->
+              <div class="hero-stream-standby" id="hero-stream-standby" hidden style="display:none;">
+                <div class="standby-icon">📡</div>
+                <h4 style="font-size:15px;font-weight:700;margin-bottom:4px;color:var(--text-main);">Live Stream Standby</h4>
+                <p style="font-size:12px;color:var(--text-muted);max-width:320px;margin-bottom:12px;line-height:1.4;">
+                  The official auditorium broadcast will appear here once the feed goes live.
+                </p>
+                <span class="badge-pill" style="font-size:11px;background:rgba(0,240,255,0.08);color:var(--accent-cyan);border:1px solid rgba(0,240,255,0.25);">
+                  🏛️ Kanakia International School Auditorium Feed
+                </span>
+              </div>
+            </div>
+
+            <!-- Stream Meta & Quick Action Strip -->
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:2px 0;font-size:12px;flex-wrap:wrap;gap:8px;">
+              <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1;">
+                <span style="color:#ef4444;font-size:10px;">🔴</span>
+                <span id="hero-stream-title-text" style="font-weight:600;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                  Career Fair 2026 · Live Stage Broadcast
+                </span>
+              </div>
+              <a id="hero-stream-external-link" href="https://www.youtube.com/watch?v=3Hn-jH3up9Y" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="padding:4px 10px;font-size:11px;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
+                <span>Watch on YouTube</span> <span>↗</span>
+              </a>
+            </div>
+            
+            <div class="hero-metrics-grid">
+              <div class="hero-stat-box">
+                <strong id="stat-careers-count">32+</strong>
+                <span>Career Tracks</span>
+              </div>
+              <div class="hero-stat-box">
+                <strong id="stat-colleges-count">25+</strong>
+                <span>Accredited Institutes</span>
+              </div>
+              <div class="hero-stat-box">
+                <strong id="stat-games-count">11</strong>
+                <span>Arcade Games</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── SECTION: CAREERS DIRECTORY ── -->
+    <section class="section-shell" id="sec-careers" hidden>
+      <div class="section-head">
+        <div>
+          <div class="section-label">CAREER INTELLIGENCE ARCHIVE</div>
+          <h2 class="section-title">Where English is Your Superpower</h2>
+        </div>
+        <p class="section-desc">
+          Every profession demands articulate communication. Discover entry salaries, peak packages, required entrance tests, and why English unlocks top compensation.
+        </p>
+      </div>
+
+      <!-- Filters & Search -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+        <input type="search" id="career-search-input" placeholder="Search by career, skill, or keyword..." style="max-width:400px;">
+        <div class="filter-row" id="career-category-filters" style="margin-bottom:0;">
+          <button class="filter-chip active" data-cat="All">All Categories</button>
+          <button class="filter-chip" data-cat="Health">Healthcare &amp; Medicine</button>
+          <button class="filter-chip" data-cat="Aviation">Aviation &amp; Defense</button>
+          <button class="filter-chip" data-cat="Tech">Software &amp; Tech</button>
+          <button class="filter-chip" data-cat="Law">Law &amp; Justice</button>
+          <button class="filter-chip" data-cat="Media">Media &amp; Journalism</button>
+          <button class="filter-chip" data-cat="Business">Business &amp; Finance</button>
+          <button class="filter-chip" data-cat="Creative">Creative Arts &amp; Cinema</button>
+          <button class="filter-chip" data-cat="Public Policy">Public Policy</button>
+        </div>
+      </div>
+
+      <div class="cards-grid" id="careers-cards-container"></div>
+    </section>
+
+    <!-- ── SECTION: COLLEGES ── -->
+    <section class="section-shell" id="sec-colleges" hidden>
+      <div class="section-head">
+        <div>
+          <div class="section-label">ACADEMIC EXCELLENCE &amp; STATUTORY RATINGS</div>
+          <h2 class="section-title">Colleges</h2>
+        </div>
+        <p class="section-desc">
+          Verified academic standards across Maharashtra, India, and overseas institutions — featuring official NAAC grades, NIRF ranks, UGC autonomous statuses, and professional regulatory approvals.
+        </p>
+      </div>
+
+      <!-- Region Switcher & Filters -->
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+        <div class="filter-row" id="college-region-filters" style="margin-bottom:0;">
+          <button class="filter-chip active" data-region="Maharashtra">🏛️ Maharashtra Premier</button>
+          <button class="filter-chip" data-region="PanIndia">🇮🇳 Top Indian Universities &amp; INIs</button>
+          <button class="filter-chip" data-region="Abroad">🌍 Global Study Abroad</button>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;">
+          <label style="font-size:13px;color:var(--text-muted);font-weight:600;">Filter Accreditation:</label>
+          <select id="college-accreditation-filter" style="width:auto;padding:6px 12px;font-size:13px;">
+            <option value="All">All Accreditations</option>
+            <option value="NAAC A++">NAAC A++ (Highest Grade)</option>
+            <option value="NAAC A+">NAAC A+ / A</option>
+            <option value="NIRF Top">NIRF Top Ranked</option>
+            <option value="Autonomous">UGC Autonomous / INI</option>
+            <option value="Professional">BCI / NMC / NBA / DGCA</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="cards-grid" id="colleges-cards-container"></div>
+    </section>
+
+    <!-- ── SECTION: ENTRANCE EXAMS ── -->
+    <section class="section-shell" id="sec-exams" hidden>
+      <div class="section-head">
+        <div>
+          <div class="section-label">GATEWAYS TO PRESTIGIOUS CAREERS</div>
+          <h2 class="section-title">National &amp; Global Entrance Exams</h2>
+        </div>
+        <p class="section-desc">
+          Comprehensive breakdown of competitive admissions: examination formats, annual timelines, syllabus structure, and the critical English component tested.
+        </p>
+      </div>
+
+      <div class="cards-grid" id="exams-cards-container"></div>
+    </section>
+
+    <!-- ── SECTION: SPEAK & PRONUNCIATION STUDIO ── -->
+    <section class="section-shell" id="sec-speak" hidden>
+      <div class="section-head">
+        <div>
+          <div class="section-label">VOICE ARTICULATION &amp; PHONETICS</div>
+          <h2 class="section-title">Pronunciation Studio &amp; Speech Practice</h2>
+        </div>
+        <p class="section-desc">
+          Practice articulate spoken English with dynamic AI-generated sentences. Listen to natural reference pronunciations, record your voice, check phonetic syllables, and test your speech accuracy!
+        </p>
+      </div>
+
+      <!-- Domain Pack Selector -->
+      <div class="filter-row" id="speak-pack-filters" style="margin-bottom:20px;">
+        <button class="filter-chip active" data-pack="Everyday">Everyday Fluency</button>
+        <button class="filter-chip" data-pack="Journalism">Broadcast Journalism</button>
+        <button class="filter-chip" data-pack="Law">Courtroom Advocacy</button>
+        <button class="filter-chip" data-pack="Academic">Scholarly Academic</button>
+      </div>
+
+      <div class="speech-studio-layout">
+        <!-- Main Challenge Card & Audio Testing -->
+        <div class="card" style="box-shadow:var(--card-shadow);padding:26px;">
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+              <span class="badge-pill badge-reg" id="active-challenge-pack-tag">Everyday Fluency</span>
+              <span class="badge-pill" id="active-challenge-ai-badge" style="display:none;"></span>
+            </div>
+
+            <h4 style="font-size:22px;line-height:1.45;margin-bottom:18px;color:var(--text-main);font-weight:700;" id="speak-target-sentence">
+              Loading challenge sentence...
+            </h4>
+
+            <!-- Listen button, Phonetics, and Change Sentence button -->
+            <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
+              <button class="btn btn-secondary btn-sm" id="btn-listen-target" type="button">
+                <span>🔊</span> <span>Listen Reference Audio</span>
+              </button>
+              <button class="btn btn-secondary btn-sm" id="btn-show-phonetics" type="button">
+                <span>📖</span> <span>Phonetic Breakdown</span>
+              </button>
+              <button class="btn btn-primary btn-sm" id="btn-change-sentence" type="button" style="background:var(--brand-gradient);border:none;color:#fff;">
+                <span>🎲</span> <span>Change Sentence</span>
+              </button>
+            </div>
+
+            <div id="phonetic-breakdown-box" style="display:none;background:var(--bg-subtle);padding:14px;border-radius:var(--radius-md);margin-bottom:18px;font-size:13.5px;border:1px solid var(--border);"></div>
+
+            <!-- Student Name (Mandatory) -->
+            <div style="margin-bottom:16px;">
+              <label for="speak-student-name" style="font-size:13px;font-weight:700;color:var(--text-main);display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+                Name <span style="color:#ef4444;" title="Mandatory">*</span>
+              </label>
+              <input type="text" id="speak-student-name" placeholder="Enter your name" required autocomplete="name" style="margin-top:2px;">
+            </div>
+
+            <!-- Speech Recording Controls -->
+            <div class="record-orb-container">
+              <button class="record-orb" id="speak-record-orb" type="button" aria-label="Start recording speech">
+                🎙️
+              </button>
+              <p style="margin-top:12px;font-size:13.5px;" id="speak-status-text">Click the microphone and read the sentence aloud clearly.</p>
+            </div>
+
+            <!-- Transcript Preview & Manual Fallback -->
+            <div style="margin-top:14px;">
+              <label style="font-size:12px;color:var(--text-dim);font-weight:600;">Recognized Spoken Transcript:</label>
+              <textarea id="speak-transcript-preview" placeholder="Your speech transcription will appear here in real-time..." style="height:70px;margin-top:4px;font-size:13.5px;"></textarea>
+            </div>
+          </div>
+
+          <!-- Evaluation Results Area -->
+          <div id="speak-eval-result" style="margin-top:16px;display:none;"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── SECTION: AI SPEECH LAB (6D COACH) ── -->
+    <section class="section-shell" id="sec-speechLab" hidden>
+      <div class="section-head">
+        <div>
+          <div class="section-label">ADVANCED MULTI-AXIS AI FEEDBACK</div>
+          <h2 class="section-title">AI Speech Lab &amp; Fluency Coach</h2>
+        </div>
+        <p class="section-desc">
+          Real-time speaking rate (WPM) gauge, verbatim filler-word detection (um, uh, like), 6-dimension scoring, live waveform visualization, and instant "Say It Better" rewrite synthesis.
+        </p>
+      </div>
+
+      <div class="speech-lab-layout">
+        <!-- Left: Recording Stage & Real-time Meters -->
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <h3 style="font-size:18px;">Speech Capture Stage</h3>
+            
+          </div>
+
+          <!-- Student Name Input (Top of Stage - Synced with Leaderboard) -->
+          <div id="speech-lab-name-container" style="background:var(--bg-subtle);border:1px solid rgba(0,240,255,0.35);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:14px;">
+            <label for="speech-lab-student-name" style="font-size:12.5px;font-weight:700;color:var(--text-main);display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <span>🎙️ Student Name <span style="color:#ef4444;" title="Mandatory for Leaderboard">*</span></span>
+              <span style="font-size:11px;color:var(--accent-cyan);font-weight:600;">Leaderboard Ranking</span>
+            </label>
+            <input type="text" id="speech-lab-student-name" placeholder="Enter your full name to map score on leaderboard" autocomplete="name" style="width:100%;font-size:14px;font-weight:600;padding:8px 12px;border-radius:var(--radius-sm);background:var(--surface-card);color:var(--text-main);border:1px solid var(--border);transition:all 0.2s ease;">
+          </div>
+
+          <!-- Waveform Canvas -->
+          <canvas id="speech-lab-waveform" style="width:100%;height:100px;background:#000;border-radius:var(--radius-md);margin-bottom:14px;"></canvas>
+
+          <!-- WPM Pace Meter -->
+          <div class="wpm-gauge-container">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <strong style="font-size:13.5px;">Speaking Pace (Words Per Minute)</strong>
+              <span style="font-family:var(--font-mono);font-size:14px;color:var(--accent-cyan);" id="wpm-value-label">0 WPM</span>
+            </div>
+            <div class="wpm-track">
+              <div class="wpm-needle" id="wpm-needle-indicator" style="left: 0%;"></div>
+            </div>
+            <div class="wpm-labels">
+              <span>Too Slow (&lt;100)</span>
+              <span style="color:var(--accent-emerald);">Ideal (120–150 WPM)</span>
+              <span>Rushing (&gt;165)</span>
+            </div>
+          </div>
+
+          <!-- Filler words detector box -->
+          <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <strong style="font-size:13px;">Verbatim Filler Words Detected:</strong>
+              <span class="badge-pill badge-global" id="filler-count-label">0 Fillers</span>
+            </div>
+            <div id="fillers-chips-container" style="display:flex;flex-wrap:wrap;gap:6px;min-height:26px;">
+              <span style="font-size:12px;color:var(--text-dim);">No hesitation fillers detected yet.</span>
+            </div>
+          </div>
+
+          <!-- Live AI Voice Teleprompter Screen (Broadcast Prompter with Pass-Away Sentence Flow) -->
+          <div id="speech-lab-ai-screen" class="teleprompter-glass-screen">
+            <!-- Screen Top Controls -->
+            <div class="teleprompter-header-bar">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <span class="teleprompter-live-indicator"><span class="prompter-pulse"></span> PROMPTER</span>
+                <span class="badge-pill" id="speech-lab-ai-badge" style="display:none;"></span>
+                <span class="badge-pill" id="speech-lab-stt-engine-badge" style="display:none;"></span>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-speech-lab-listen" title="Listen to AI sentence pronunciation">
+                  <span>🔊</span> <span class="btn-listen-text">Listen</span>
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-speech-lab-new-sentence" title="Skip to next AI practice sentence">
+                  <span>⏭️</span> <span>Next Cue</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Teleprompter Flow Stage Viewport -->
+            <div class="teleprompter-stage-viewport" id="speech-lab-viewport">
+              <div class="teleprompter-track" id="speech-lab-track">
+                <!-- Current Active Teleprompter Sentence -->
+                <div class="teleprompter-sentence" id="speech-lab-sentence-text">
+                  "Articulation in spoken English powers leadership, diplomacy, and global career mobility across every modern discipline."
+                </div>
+              </div>
+            </div>
+
+            <!-- Word Passing Status & Live Heard Feedback -->
+            <div class="teleprompter-footer-bar">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span id="speech-lab-pass-badge" class="badge-pill badge-nirf" style="font-size:12px;font-weight:700;">
+                  0 Sentences Passed
+                </span>
+                <span id="speech-lab-pass-percent" style="font-family:var(--font-mono);color:var(--accent-cyan);font-size:12px;font-weight:700;">0% Match</span>
+              </div>
+              <div id="speech-lab-live-heard" class="teleprompter-live-heard">
+                🎙️ Speak into microphone to pass sentence...
+              </div>
+            </div>
+          </div>
+
+
+
+          <div style="display:flex;gap:10px;margin-top:12px;">
+            <button class="btn btn-primary" id="btn-speech-lab-record" type="button">
+              <span>🎙️</span> <span>Record Voice</span>
+            </button>
+            <button class="btn btn-secondary" id="btn-speech-lab-stop" type="button" disabled>
+              <span>⏹️</span> <span>Stop Recording</span>
+            </button>
+            <button class="btn btn-accent" id="btn-speech-lab-analyze" type="button">
+              <span>✨</span> <span>Analyze My English</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Right: 6-Dimension Scorecard & AI Coaching -->
+        <div class="card" id="speech-lab-results-card">
+          <h3 style="font-size:18px;margin-bottom:8px;">6-Dimension Speech Assessment</h3>
+          <p style="font-size:13.5px;color:var(--text-dim);margin-bottom:14px;">Calculated using audio cadence, sentence structure, and vocabulary diversity.</p>
+
+          <!-- Overall Speech Accuracy Banner (Mapped to Leaderboard) -->
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(0,240,255,0.08);border:1px solid rgba(0,240,255,0.25);border-radius:var(--radius-md);margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+            <div>
+              <span style="font-size:13px;color:var(--text-muted);font-weight:600;">Overall Speech Accuracy:</span>
+              <strong id="speech-lab-accuracy-val" style="font-family:var(--font-mono);font-size:18px;color:var(--accent-cyan);margin-left:8px;">--%</strong>
+            </div>
+            <span class="badge-pill badge-global" id="speech-lab-leaderboard-status" style="display:none;font-size:11.5px;color:#34d399;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);">
+              &#10003; Mapped to Leaderboard
+            </span>
+          </div>
+
+          <!-- 6 Dimensions Grid -->
+          <div class="dimensions-grid">
+            <div class="dim-card"><div class="dim-score" id="dim-pronunciation">--</div><div class="dim-name">Pronunciation</div></div>
+            <div class="dim-card"><div class="dim-score" id="dim-fluency">--</div><div class="dim-name">Fluency</div></div>
+            <div class="dim-card"><div class="dim-score" id="dim-clarity">--</div><div class="dim-name">Clarity</div></div>
+            <div class="dim-card"><div class="dim-score" id="dim-pace">--</div><div class="dim-name">Pace</div></div>
+            <div class="dim-card"><div class="dim-score" id="dim-grammar">--</div><div class="dim-name">Structure</div></div>
+            <div class="dim-card"><div class="dim-score" id="dim-confidence">--</div><div class="dim-name">Confidence</div></div>
+          </div>
+
+          <!-- Spider Radar Canvas Visualizer -->
+          <div style="text-align:center;margin:10px 0;">
+            <canvas id="radar-canvas" width="280" height="200" style="max-width:100%;display:inline-block;"></canvas>
+          </div>
+
+          <!-- AI Coaching & Say It Better -->
+          <div id="ai-coaching-box" style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;margin-top:10px;font-size:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+              <strong style="color:var(--accent-cyan);display:block;">✨ Speech Coach Suggestions:</strong>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh-speech-coach" style="padding:3px 8px;font-size:11.5px;" title="Get another fresh speech coaching technique">
+                🔄 New Tip
+              </button>
+            </div>
+            <div style="color:var(--text-muted);font-size:13.5px;" id="ai-coaching-text">
+              <span style="color:var(--text-main);">💡 Focus on controlled cadence: pause briefly at punctuation marks to project authority, clarity, and executive presence.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── SECTION: NEWS ANCHOR & MOCK INTERVIEW ── -->
+    <section class="section-shell" id="sec-teleprompter" hidden>
+      <div class="section-head">
+        <div>
+          <div class="section-label">LIVE BROADCAST &amp; ON-CAMERA STUDIO</div>
+          <h2 class="section-title">News Anchor Teleprompter &amp; AI Interview</h2>
+        </div>
+        <p class="section-desc">
+          Step in front of the camera or connect an OBS Virtual Feed. Practice teleprompter scripts with authentic lower-third broadcast overlays and on-device recording.
+        </p>
+      </div>
+
+      <div class="broadcast-stage-grid">
+        <!-- Live Video & Broadcast Frame -->
+        <div class="video-frame-container" id="video-stage-wrapper">
+          <!-- Animated Cyber Newsroom Studio Background (Active when camera is off) -->
+          <canvas class="video-element" id="anchor-idle-canvas"></canvas>
+          <!-- Live Camera Stream Video (Shown when camera is active) -->
+          <video class="video-element" id="anchor-video" autoplay playsinline muted style="display:none;"></video>
+          
+          <!-- Moving Sentence Teleprompter HUD -->
+          <div class="teleprompter-ticker-container" id="teleprompter-box" style="display:none;cursor:pointer;" title="Click to Pause/Resume Teleprompter">
+            <div class="teleprompter-ticker-viewport" id="anchor-teleprompter-viewport">
+              <div class="teleprompter-ticker-track" id="anchor-teleprompter-track">
+                <span class="teleprompter-sentence-text" id="teleprompter-sentence-1">
+                  "Good evening, we are broadcasting live from the Career Fair 2026 at Kanakia International School. Today, students explore how articulate English powers over thirty-two professional trajectories — from commercial aviation to pediatric surgery."
+                </span>
+                <span class="teleprompter-ticker-sep">✦</span>
+                <span class="teleprompter-sentence-text" id="teleprompter-sentence-2">
+                  "Good evening, we are broadcasting live from the Career Fair 2026 at Kanakia International School. Today, students explore how articulate English powers over thirty-two professional trajectories — from commercial aviation to pediatric surgery."
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Authentic Lower-Third Broadcast Banner -->
+          <div class="news-lower-third" id="news-banner">
+            <span class="lower-third-tag" id="lower-third-tag">BREAKING NEWS</span>
+            <div class="lower-third-headline" id="lower-third-copy">
+              STUDENT BROADCAST · KANAKIA INTERNATIONAL SCHOOL
+            </div>
+          </div>
+        </div>
+
+        <!-- Camera Controls & Script Options -->
+        <div class="card">
+          <h3 style="font-size:18px;margin-bottom:12px;">Studio Controls</h3>
+          
+          <div style="margin-bottom:12px;">
+            <label for="anchor-name-input" style="font-size:13px;font-weight:700;">Name <span style="color:#ef4444;">*</span></label>
+            <input type="text" id="anchor-name-input" value="" placeholder="Enter your name" required>
+          </div>
+
+          <div style="margin-bottom:12px;">
+            <label style="font-size:13px;font-weight:600;">Select Script / Roleplay:</label>
+            <select id="anchor-script-select" class="form-select">
+              <option value="" disabled selected>-- Select Script / Roleplay (Mandatory) --</option>
+              <optgroup label="🎙️ MEDIA, BROADCASTING & PUBLIC LIFE">
+                <option value="breaking">📰 Breaking News Bulletin (Media Anchor)</option>
+                <option value="cricket">🏏 Cricket World Cup Final Over (Live Sports Broadcaster)</option>
+                <option value="diplomat">🌐 UN General Assembly Climate Address (Chief Diplomat)</option>
+                <option value="pr">📢 Corporate Crisis Press Briefing (PR Spokesperson)</option>
+              </optgroup>
+              <optgroup label="🚀 STEM, AVIATION & SPACE MISSION">
+                <option value="pilot">✈️ Aviation ATC Clearance (Commercial Airline Captain)</option>
+                <option value="rocket">🚀 ISRO / NASA Launch Countdown (Mission Flight Director)</option>
+                <option value="f1">🏎️ Formula 1 Rain Strategy Radio (F1 Race Engineer)</option>
+                <option value="ocean">🌊 Deep-Sea Mariana Trench Exploration (Marine Geologist)</option>
+                <option value="wildlife">🐅 Sundarbans Delta Wildlife Tracking (Nat Geo Biologist)</option>
+              </optgroup>
+              <optgroup label="💻 TECH, CYBER & VENTURE CAPITAL">
+                <option value="tech">⚙️ Distributed Systems Architecture (Chief Technology Officer)</option>
+                <option value="ciso">🛡️ Cyber Incident Response SOC Standup (CISO)</option>
+                <option value="pitch">💡 Silicon Valley Series A Pitch (Startup Founder)</option>
+                <option value="banker">💼 Cross-Border $12B M&A Briefing (Wall Street Banker)</option>
+              </optgroup>
+              <optgroup label="⚖️ LAW, HEALTHCARE & GASTRONOMY">
+                <option value="lawyer">⚖️ Supreme Court Constitutional Argument (Senior Advocate)</option>
+                <option value="doctor">🩺 Emergency Medical Briefing (Chief Trauma Surgeon)</option>
+                <option value="chef">🍳 Three-Star Michelin Kitchen Service (Executive Chef)</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <!-- Video Input / OBS Studio Source Selection -->
+          <div style="margin-bottom:12px;" id="camera-device-container">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+              <label for="anchor-camera-select" style="font-size:13px;font-weight:600;">Video Input Source:</label>
+              
+            </div>
+            <select id="anchor-camera-select">
+              <option value="default">Default Camera / Auto</option>
+            </select>
+          </div>
+
+          <div style="margin-bottom:16px;">
+            <label style="font-size:13px;font-weight:600;">Teleprompter Scroll Speed:</label>
+            <div style="display:flex;gap:8px;margin-top:4px;">
+              <button class="filter-chip" id="speed-slow">Slow</button>
+              <button class="filter-chip active" id="speed-normal">Normal</button>
+              <button class="filter-chip" id="speed-fast">Fast</button>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <button class="btn btn-primary" id="btn-start-camera" type="button">
+              <span>📹</span> <span id="camera-btn-text">Launch Camera / OBS Feed</span>
+            </button>
+            <button class="btn btn-accent" id="btn-record-anchor" type="button">
+              <span>⏺️</span> <span id="record-btn-text">Record Broadcast Clip</span>
+            </button>
+            <button class="btn btn-secondary" id="btn-download-clip" type="button" style="display:none;">
+              <span>💾</span> <span>Download Video Clip</span>
+            </button>
+            <button class="btn btn-secondary" id="btn-scroll-teleprompter" type="button">
+              <span>▶️</span> <span id="prompter-scroll-btn-text">Start Teleprompter</span>
+            </button>
+
+            
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ── SECTION: ARCADE GAMES SUITE ── -->
+    <section class="section-shell" id="sec-games" hidden>
+      <div class="section-head">
+        <div>
+          <div class="section-label">INTERACTIVE LANGUAGE GAMIFICATION</div>
+          <h2 class="section-title">Career Language Arcade</h2>
+        </div>
+        <p class="section-desc">
+          Interactive arcade games: Wordle 6-guess vocabulary, Flash Cards studio, Live Dictionary, Spelling Bee challenge, and Career Hangman.
+        </p>
+      </div>
+
+      <!-- Game Picker Shelf with Interactive Scroll Device -->
+      <div class="shelf-scroll-wrapper">
+        <button type="button" class="shelf-scroll-arrow shelf-scroll-prev" id="btn-game-scroll-left" aria-label="Scroll arcade games left" title="Scroll arcade games left">
+          <span>‹</span>
+        </button>
+
+        <div class="filter-row shelf-scroll-track" id="game-picker-tabs">
+          <button class="filter-chip active" data-game="quest-scribe">📜 The Scribe</button>
+                    <button class="filter-chip" data-game="quest-bard">🪞 The Bard's Mirror</button>
+                    <button class="filter-chip" data-game="quest-cipher">🔍 The Ink Cipher</button>
+          <button class="filter-chip" data-game="wordle">🟩 Wordle</button>
+          <button class="filter-chip" data-game="flashcards">🃏 Flash Cards Studio</button>
+          <button class="filter-chip" data-game="dict">📖 Word Check</button>
+          <button class="filter-chip" data-game="spelling">🐝 Spelling Bee Challenge</button>
+          <button class="filter-chip" data-game="hangman">🪢 English Word Hangman</button>
+        </div>
+
+        <button type="button" class="shelf-scroll-arrow shelf-scroll-next" id="btn-game-scroll-right" aria-label="Scroll arcade games right" title="Scroll arcade games right">
+          <span>›</span>
+        </button>
+      </div>
+
+      <!-- Dynamic Game Arena Container -->
+      <div id="game-arena-mount" class="card" style="box-shadow:var(--card-shadow);margin-top:16px;min-height:440px;"></div>
+    </section>
+
+    <!-- ── SECTION: MY PLAN & QUIZ ── -->
+    <section class="section-shell" id="sec-roadmap" hidden>
+      <div class="section-head">
+        <div>
+          <div class="section-label">PERSONALIZED CAREER BLUEPRINT</div>
+          <h2 class="section-title">"My Plan" Roadmap &amp; Discovery Quiz</h2>
+        </div>
+        <p class="section-desc">
+          Generate an actionable timeline tailored to your current class (Class 8 &amp; below up to Class 12+), take the 5-Question Career Discovery Quiz, and create a shareable Future Business Card with QR code.
+        </p>
+      </div>
+
+      <!-- Tool Switcher -->
+      <div class="filter-row" id="plan-tools-tabs">
+        <button class="filter-chip active" data-tool="bizcard">🪪 Future Business Card Generator</button>
+        <button class="filter-chip" data-tool="myplan">🗺️ My Plan Roadmap Generator</button>
+        <button class="filter-chip" data-tool="quiz">🧭 5-Question Career Quiz</button>
+      </div>
+
+      <div id="plan-tool-arena" class="card" style="margin-top:16px;"></div>
+    </section>
+
+    <!-- ── SECTION: LEADERBOARD ── -->
+    <section class="section-shell" id="sec-leaderboard" hidden>
+      <div class="section-head">
+        <div>
+          <div class="section-label">REAL-TIME FAIR RANKINGS</div>
+          <h2 class="section-title">Exhibition Speaking Leaderboard</h2>
+        </div>
+        <p class="section-desc">
+          Live scores from student speech evaluations and games across Speaking Packs. Top performers earn commendation badges!
+        </p>
+      </div>
+
+      <!-- Filter Controls -->
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+        <div class="filter-row" id="leaderboard-pack-filters" style="margin-bottom:0;">
+          <button class="filter-chip active" data-board-pack="All">All Packs</button>
+          <button class="filter-chip" data-board-pack="Everyday">Everyday</button>
+          <button class="filter-chip" data-board-pack="Journalism">Journalism</button>
+          <button class="filter-chip" data-board-pack="Law">Law</button>
+          <button class="filter-chip" data-board-pack="Academic">Academic</button>
+          <button class="filter-chip" data-board-pack="Speech Lab">AI Speech Lab</button>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span class="badge-pill" id="leaderboard-count-badge" style="background:rgba(16,185,129,0.15);color:var(--accent-green, #10b981);border:1px solid rgba(16,185,129,0.3);font-size:12px;font-weight:700;">Live Top 10</span>
+          <button class="btn btn-secondary btn-sm" id="btn-refresh-leaderboard" type="button" style="font-size:12px;padding:4px 10px;">
+            <span>🔄</span> <span>Refresh Scores</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:60px;">Rank</th>
+              <th>Student Name</th>
+              <th>Speaking Pack</th>
+              <th>Accuracy</th>
+              <th>Fluency</th>
+              <th>WPM</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboard-table-body">
+            <tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-dim);">Loading leaderboard rankings...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── SECTION: FEEDBACK & TESTIMONIALS ── -->
+    <section class="section-shell" id="sec-feedback" hidden>
+      <div class="section-head feedback-section-head">
+        <div class="feedback-head-text">
+          <div class="section-label">VISITOR THOUGHTS &amp; COMMUNITY VOICES</div>
+          <h2 class="section-title">Fair Feedback &amp; Review Wall</h2>
+          <p class="section-desc" style="margin:6px 0 0 0;">
+            Share your reflections on the Career Fair exhibits. Your ratings and feedback help shape future student learning initiatives!
+          </p>
+        </div>
+        <!-- Moved Feedback QR Code directly to section header as requested -->
+        <div id="feedback-qr-mount" class="feedback-qr-pill" title="Scan QR Code to open Feedback on phone">
+          <div id="fb-qr-code-box"></div>
+          <div class="feedback-qr-copy">
+            <strong>📱 Scan &amp; Review</strong>
+            <span>Open directly on phone</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feedback-container">
+        <!-- 1. Leave Your Feedback (Entry Box on Top) -->
+        <div class="card feedback-form-card">
+          <div class="feedback-card-header" style="display:flex;align-items:center;gap:14px;">
+            <div class="feedback-header-icon" style="font-size:24px;">✍️</div>
+            <div>
+              <h3 style="font-size:19px;font-weight:800;margin:0 0 4px 0;">Leave Your Feedback</h3>
+              <p style="font-size:13px;color:var(--text-muted);margin:0;">Share your experience and thoughts about the exhibits, games, and career guidance.</p>
+            </div>
+          </div>
+
+          <form id="feedback-form" novalidate style="margin-top:16px;">
+            <div class="form-group" style="margin-bottom:14px;">
+              <label for="fb-name" style="font-size:13px;font-weight:700;display:block;margin-bottom:6px;">
+                Your Name <span style="color:#ef4444;">*</span>
+              </label>
+              <input type="text" id="fb-name" required placeholder="Enter your name" autocomplete="name">
+            </div>
+
+            <div class="feedback-controls-row">
+              <div class="form-group">
+                <label for="fb-role" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">Your Role:</label>
+                <select id="fb-role">
+                  <option value="" disabled selected>-- Select Your Role (Mandatory) --</option>
+                  <option value="Student">Student</option>
+                  <option value="Parent">Parent</option>
+                  <option value="Teacher">Teacher</option>
+                  <option value="Fair Guest">Fair Guest</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="fb-class" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">Class / Section / Affiliation:</label>
+                <select id="fb-class">
+                  <option value="" disabled selected>-- Select Class / Affiliation (Mandatory) --</option>
+                  <option value="Class 8 & below">Class 8 &amp; below</option>
+                  <option value="Class 9">Class 9</option>
+                  <option value="Class 10">Class 10</option>
+                  <option value="Class 11">Class 11</option>
+                  <option value="Class 12">Class 12</option>
+                  <option value="Parent / Guest">Parent / Guest</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom:14px;">
+              <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
+                How useful was the Career Fair for your aspirations? (1 to 5 Stars):
+              </label>
+              <div class="star-rating-group" id="star-selector-useful">
+                <button type="button" class="btn btn-secondary btn-sm star-btn" data-val="1">⭐ 1 (Fair)</button>
+                <button type="button" class="btn btn-secondary btn-sm star-btn" data-val="2">⭐ 2 (Good)</button>
+                <button type="button" class="btn btn-secondary btn-sm star-btn" data-val="3">⭐ 3 (Great)</button>
+                <button type="button" class="btn btn-secondary btn-sm star-btn" data-val="4">⭐ 4 (Inspiring)</button>
+                <button type="button" class="btn btn-secondary btn-sm star-btn active" data-val="5">⭐ 5 (Exceptional)</button>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom:16px;">
+              <label for="fb-comment" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
+                What was the most memorable insight or game today? <span style="color:#ef4444;">*</span>
+              </label>
+              <textarea id="fb-comment" required placeholder="Write your feedback..." rows="3"></textarea>
+            </div>
+
+            <button class="btn btn-primary" type="submit" id="btn-submit-feedback">
+              <span>🚀</span> <span>Submit Feedback</span>
+            </button>
+          </form>
+        </div>
+
+        <!-- 2. Recent Visitor Reflections (Side-by-side on laptop, stacked on mobile) -->
+        <div class="card feedback-reflections-card">
+          <div class="feedback-reflections-header">
+            <div>
+              <h3 style="font-size:18px;font-weight:800;margin:0 0 4px 0;">Recent Visitor Reflections</h3>
+              <p style="font-size:13px;color:var(--text-muted);margin:0;">Reflections and thoughts submitted by students, parents, and guests.</p>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span class="badge-pill" id="feedback-avg-badge" style="background:rgba(245,158,11,0.15);color:var(--accent-gold, #f59e0b);border:1px solid rgba(245,158,11,0.3);font-size:12px;font-weight:700;">⭐ 5.0 Avg</span>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh-feedback" style="font-size:12px;padding:4px 10px;">
+                <span>🔄</span> <span>Refresh Reviews</span>
+              </button>
+              <span class="badge-pill" id="feedback-count-badge" style="background:var(--bg-subtle);border:1px solid var(--border);font-size:12px;font-weight:700;">0 Reviews</span>
+            </div>
+          </div>
+          <div id="feedback-wall-list" style="margin-top:16px;display:flex;flex-direction:column;gap:12px;"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── SECTION: ADMIN CONTROL ROOM ── -->
+    
+    <!-- ── SECTION: VOICE LAB (AI VOICE CLONING EXPERIENCE) ── -->
+    
+
+
+    <section class="section-shell" id="sec-admin" hidden>
+      <div class="section-head">
+        <div>
+          <div class="section-label">PROJECT MANAGEMENT &amp; OPERATIONAL CONTROLS</div>
+          <h2 class="section-title">Admin Control Room</h2>
+        </div>
+        <p class="section-desc">
+          Operational console for feature toggles, visual styles, live broadcast announcements, and data exports.
+        </p>
+      </div>
+
+      <!-- Screen 1: Password Gate -->
+      <div id="admin-gate-screen" class="card">
+        <div class="admin-lock-icon">🔒</div>
+        <h3 style="font-size:22px;margin-bottom:6px;font-weight:800;">Admin Control Room</h3>
+        <p style="font-size:14px;color:var(--text-muted);margin-bottom:20px;max-width:380px;margin-left:auto;margin-right:auto;">
+          Enter administrator password to access live feature toggles, broadcast alerts, and data exports.
+        </p>
+
+        <form id="admin-login-form" style="max-width:380px;margin:0 auto;text-align:left;">
+          <label style="font-size:12.5px;font-weight:700;color:var(--text-muted);letter-spacing:0.04em;text-transform:uppercase;">
+            Administrator Password
+          </label>
+          <div class="admin-pwd-wrapper">
+            <input type="password" id="admin-pwd-input" placeholder="Enter password" required autocomplete="current-password">
+            <button type="button" class="btn-toggle-pwd" id="btn-toggle-pwd-vis" title="Toggle password visibility" aria-label="Toggle password visibility">👁️</button>
+          </div>
+          <button class="btn btn-primary" type="submit" style="width:100%;padding:12px;font-size:15px;font-weight:700;justify-content:center;">
+            Unlock Control Room 🔓
+          </button>
+        </form>
+      </div>
+
+      <!-- Screen 2: Admin Dashboard Workspace -->
+      <div id="admin-workspace-screen" class="card" hidden>
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:18px;flex-wrap:wrap;gap:10px;">
+          <div>
+            <h3 style="font-size:20px;font-weight:800;color:var(--text-main);">Admin Console Active</h3>
+            <span style="font-size:12px;color:var(--accent-emerald);font-weight:600;">● Authenticated Session Active</span>
+            <div id="admin-db-status-pill" style="margin-top:6px;"></div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary btn-sm" id="btn-admin-lock" type="button" title="Lock and show password screen">🔒 Lock Console</button>
+            <button class="btn btn-secondary btn-sm" id="btn-admin-logout" type="button">Log Out</button>
+          </div>
+        </div>
+
+        <!-- Admin Tabs -->
+        <div class="filter-row" id="admin-tab-row">
+          <button class="filter-chip active" data-admin-view="stream">🔴 Live Stream</button>
+          <button class="filter-chip" data-admin-view="features">Feature Flags</button>
+          <button class="filter-chip" data-admin-view="broadcast">Announcement &amp; Timer</button>
+          <button class="filter-chip" data-admin-view="branding">Branding &amp; Theme</button>
+          <button class="filter-chip" data-admin-view="ai">AI &amp; Speech Router</button>
+          <button class="filter-chip" data-admin-view="data">Moderation &amp; Exports</button>
+          <button class="filter-chip" data-admin-view="security">🔐 Admin Password &amp; Devices</button>
+        </div>
+
+        <!-- View 0: YouTube Live Stream & Broadcast Setup -->
+        <div id="admin-view-stream" class="admin-view-panel">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+            <div>
+              <h4 style="font-size:16px;font-weight:800;color:var(--text-main);margin-bottom:2px;">YouTube Live Stream &amp; Broadcast Setup</h4>
+              <p style="font-size:13px;color:var(--text-muted);margin:0;">
+                Embed the auditorium live feed or YouTube video directly onto the homepage hero section.
+              </p>
+            </div>
+            <span class="badge-pill" id="admin-stream-status-pill" style="font-size:11.5px;background:rgba(0,240,255,0.1);color:var(--accent-cyan);border:1px solid rgba(0,240,255,0.3);">Live Stream Ready</span>
+          </div>
+
+          <div class="card" style="background:var(--bg-subtle);border:1px solid var(--border);padding:18px;margin-bottom:16px;">
+            <!-- Stream Enable Switch -->
+            <div class="toggle-switch-row" style="margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:14px;">
+              <div>
+                <strong style="color:var(--text-main);font-size:14px;">Broadcast Live Stream on Homepage</strong>
+                <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">When enabled, the video will stream continuously in the hero showcase. When disabled, an elegant standby card is shown.</div>
+              </div>
+              <input type="checkbox" id="admin-stream-active-toggle" checked style="width:22px;height:22px;accent-color:var(--accent-cyan);">
+            </div>
+
+            <!-- YouTube URL or Video ID -->
+            <div style="margin-bottom:16px;">
+              <label style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;color:var(--text-main);">
+                YouTube Stream URL or 11-Character Video ID:
+              </label>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <input
+                  type="text"
+                  id="admin-stream-url-input"
+                  placeholder="Paste YouTube stream link or video ID"
+                  style="flex:1;min-width:260px;font-family:var(--font-mono);font-size:13px;"
+                >
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-admin-preview-stream">
+                  🔍 Preview Video
+                </button>
+              </div>
+              <div id="admin-stream-url-status" style="font-size:12px;margin-top:6px;color:var(--text-muted);">
+                Accepts: Standard watch URLs, shortened links (<code>youtu.be</code>), Live streams (<code>youtube.com/live</code>), or raw 11-character video IDs.
+              </div>
+            </div>
+
+            <!-- Stream Display Title -->
+            <div style="margin-bottom:16px;">
+              <label style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;color:var(--text-main);">
+                Broadcast Title / Headline:
+              </label>
+              <input
+                type="text"
+                id="admin-stream-title-input"
+                placeholder="Enter broadcast title or headline"
+                value="Career Fair 2026 · Live Stage Broadcast"
+              >
+            </div>
+
+            <!-- Continuous Autoplay Toggle -->
+            <div class="toggle-switch-row" style="margin-bottom:18px;background:rgba(0,0,0,0.2);padding:10px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);">
+              <div>
+                <strong style="font-size:13px;">Continuous Autoplay</strong>
+                <div style="font-size:11.5px;color:var(--text-dim);">Plays automatically on page load (starts muted to satisfy browser autoplay security policies; viewers can unmute with one tap).</div>
+              </div>
+              <input type="checkbox" id="admin-stream-autoplay-toggle" checked style="width:20px;height:20px;accent-color:var(--accent-cyan);">
+            </div>
+
+            <!-- Admin Live Preview Window -->
+            <div style="margin-bottom:18px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;">
+                  Admin Live Feed Preview:
+                </span>
+                <span id="admin-preview-indicator" style="font-size:11px;color:var(--text-dim);">Awaiting link</span>
+              </div>
+              <div style="max-width:520px;aspect-ratio:16/9;background:#050811;border-radius:var(--radius-md);overflow:hidden;border:1px solid rgba(0,240,255,0.25);position:relative;">
+                <iframe
+                  id="admin-stream-preview-frame"
+                  src=""
+                  title="Admin Stream Preview"
+                  style="width:100%;height:100%;border:0;"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                  referrerpolicy="strict-origin-when-cross-origin"
+                  allowfullscreen
+                  hidden>
+                </iframe>
+                <div id="admin-stream-preview-placeholder" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-dim);font-size:12.5px;padding:16px;text-align:center;">
+                  <span style="font-size:26px;margin-bottom:6px;">📺</span>
+                  <span>Enter a YouTube link above and click "Preview Video" to verify playback.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Action Controls -->
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+              <button class="btn btn-primary" id="btn-save-stream" type="button" style="padding:10px 22px;font-weight:700;">
+                💾 Save &amp; Publish Stream
+              </button>
+              <button class="btn btn-secondary btn-sm" id="btn-load-sample-stream" type="button" title="Load sample live presentation">
+                ⚡ Load Sample Stream Link
+              </button>
+              <button class="btn btn-secondary btn-sm" id="btn-turn-off-stream" type="button" style="color:#ef4444;" title="Set hero embed to standby mode">
+                ✕ Set to Standby Mode
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- View 1: Feature Flags Toggles -->
+        <div id="admin-view-features" class="admin-view-panel" hidden>
+          <p style="font-size:13.5px;color:var(--text-muted);margin-bottom:14px;">Toggle modules on or off in real-time. Toggled-off features cleanly disappear with dynamic reflow.</p>
+          <div id="admin-flags-container"></div>
+        </div>
+
+        <!-- View 2: Broadcast Alert & Synchronized Timer -->
+        <div id="admin-view-broadcast" class="admin-view-panel" hidden>
+          <div style="margin-bottom:16px;">
+            <label style="font-size:13px;font-weight:600;">Live Banner Announcement:</label>
+            <input type="text" id="admin-banner-input" placeholder="Enter live announcement text">
+          </div>
+
+          <div style="margin-bottom:16px;">
+            <label style="font-size:13px;font-weight:600;">Set Synchronized Exam/Practice Timer (Minutes):</label>
+            <input type="number" id="admin-timer-input" min="0" max="180" placeholder="Minutes (0 to disable)">
+          </div>
+
+          <button class="btn btn-primary btn-sm" id="btn-save-broadcast" type="button">Save Broadcast Changes</button>
+        </div>
+
+        <!-- View 3: Branding & Visual Theme -->
+        <div id="admin-view-branding" class="admin-view-panel" hidden>
+          <div class="toggle-switch-row">
+            <div>
+              <strong>Show School Branding</strong>
+              <div style="font-size:12px;color:var(--text-dim);">Displays school name in top bar and cards</div>
+            </div>
+            <input type="checkbox" id="admin-branding-toggle" style="width:20px;height:20px;">
+          </div>
+
+          <div style="margin:16px 0;">
+            <label style="font-size:13px;font-weight:600;">School Name Label:</label>
+            <input type="text" id="admin-school-name-input" value="Kanakia International School Mira Road">
+          </div>
+
+          <button class="btn btn-primary btn-sm" id="btn-save-branding" type="button">Save Branding</button>
+        </div>
+
+        <!-- View 4: AI & Speech Router -->
+        <div id="admin-view-ai" class="admin-view-panel" hidden>
+          <p style="font-size:13.5px;color:var(--text-muted);margin-bottom:14px;">
+            Configure AI LLM &amp; STT failover parameters. If keys are not set, platform automatically uses on-device deterministic heuristics.
+          </p>
+
+          <!-- Google Gemini API Keys Pool with Infinite Backup Boxes -->
+          <div style="margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+              <label style="font-size:13px;font-weight:700;margin:0;">
+                Google Gemini API Keys Pool (Main &amp; Backups):
+              </label>
+              <button type="button" class="btn-add-api-row" id="btn-add-gemini-key">
+                <span>➕</span> <span>Add Backup Key</span>
+              </button>
+            </div>
+            <p style="font-size:12px;color:var(--text-muted);margin:0 0 8px 0;">
+              Separate textboxes for Main and Backup keys. When any key's quota is exhausted (429/ResourceExhausted), it is automatically removed and the next backup becomes the new Main key.
+            </p>
+            <div id="gemini-keys-container"></div>
+            <div id="admin-gemini-key-status" style="font-size:11.5px;color:var(--accent-cyan);margin-top:4px;"></div>
+          </div>
+
+          <!-- ElevenLabs API Keys Pool with Infinite Backup Boxes -->
+          <div style="margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:6px;">
+              <label style="font-size:13px;font-weight:700;margin:0;">
+                ElevenLabs Voice API Keys Pool (Main &amp; Backups):
+              </label>
+              <div style="display:flex;gap:6px;">
+                <button type="button" class="btn-add-api-row" id="btn-add-eleven-key">
+                  <span>➕</span> <span>Add Backup Key</span>
+                </button>
+                <button class="btn btn-secondary btn-xs" id="btn-verify-eleven" type="button" style="font-size:11px;padding:3px 8px;">Verify &amp; Load Voices 🔄</button>
+              </div>
+            </div>
+            <p style="font-size:12px;color:var(--text-muted);margin:0 0 8px 0;">
+              Separate textboxes for ElevenLabs API keys. When an API key hits quota/credit expiration, it is purged and the next backup becomes Main. The selected voice model remains preserved across all key rotations!
+            </p>
+            <div id="eleven-keys-container"></div>
+            <div id="admin-eleven-status" style="font-size:11.5px;color:var(--text-dim);margin-top:4px;"></div>
+            <div style="font-size:12px;color:var(--text-dim);margin-top:4px;">
+              Powers studio-grade Indian accent text-to-speech across the entire website. <strong style="color:var(--accent-cyan);">Note:</strong> In ElevenLabs (Settings → API Keys), please copy the secret key (do not copy the Key ID column). On the ElevenLabs Free Plan, community voices (e.g. Aditi) are restricted by ElevenLabs via API; our platform smoothly runs our high-fidelity Indian English (en-IN) neural voice!
+            </div>
+          </div>
+
+          <div style="margin-bottom:14px;">
+            <label style="font-size:13px;font-weight:700;display:block;margin-bottom:4px;">Select Account Voice (Indian Accent):</label>
+            <select id="admin-eleven-voice-select" style="width:100%;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px;margin-bottom:6px;">
+              <option value="SAz9YHcvj6GT2YYXdXww">🌟 River - Relaxed, Neutral, Informative</option>
+              <option value="JBFqnCBsd6RMkjVDRZzb">🎙️ George - Warm, Captivating Storyteller</option>
+              <option value="EXAVITQu4vr4xnSDxMaL">🎙️ Sarah - Mature, Reassuring, Confident</option>
+              <option value="Xb7hH8MSUJpSbSDYk0k2">🎙️ Alice - Clear, Engaging Educator</option>
+              <option value="IKne3meq5aSn9XLyUdCD">🎙️ Charlie - Deep, Confident, Energetic</option>
+              <option value="">🇮🇳 Authentic Indian Neural Voice (en-IN · Free &amp; Unlimited)</option>
+              <option value="voiceforge-local">⚡ VoiceForge Local Studio Engine (Offline-First 127.0.0.1:8765)</option>
+            </select>
+            <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-secondary btn-xs" id="btn-quick-select-free-voice" style="font-size:11px;padding:4px 10px;border-radius:var(--radius-full);background:rgba(56,189,248,0.12);border-color:var(--accent-cyan);color:var(--accent-cyan);">⚡ Auto-Select Free-Tier Studio Voice</button>
+            </div>
+            <div id="admin-eleven-voice-hint" style="font-size:12px;color:var(--accent-cyan);margin-bottom:6px;display:none;background:var(--bg-subtle);padding:8px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);"></div>
+            <details style="font-size:12px;color:var(--text-dim);margin-top:6px;">
+              <summary style="cursor:pointer;color:var(--text-muted);font-weight:600;">Custom Voice ID Override &amp; Plan Guide</summary>
+              <div style="margin-top:6px;">
+                <input type="text" id="admin-eleven-voice" placeholder="e.g. JBFqnCBsd6RMkjVDRZzb (George - Free) or VoiceLab ID">
+                <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;line-height:1.45;">
+                  <strong>💡 ElevenLabs Free Plan Notice:</strong> ElevenLabs restricts Community VoiceLab voices (like <em>Aditi</em> or custom shared IDs) to Paid Starter plans. On the Free tier, our server automatically auto-heals to an authentic pre-made studio voice (e.g. <em>George, Alice, Charlie</em>), or you can use high-fidelity on-device Indian English (en-IN).
+                </div>
+              </div>
+            </details>
+          </div>
+
+          
+
+          <div style="display:flex;gap:10px;margin-top:14px;align-items:center;flex-wrap:wrap;">
+            <button class="btn btn-primary btn-sm" id="btn-save-ai" type="button">Save AI &amp; Cloud Credentials</button>
+            <button class="btn btn-secondary btn-sm" id="btn-test-tts-voice" type="button">Test Humanoid Voice 🔊</button>
+            <span id="admin-tts-test-status" style="font-size:12px;font-weight:600;margin-left:4px;"></span>
+          </div>
+        </div>
+
+        <!-- View 5: Moderation & Content Management -->
+        <div id="admin-view-data" class="admin-view-panel" hidden>
+          
+                    <!-- 3. Global Exhibition Data Archive & Download -->
+          <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;margin-bottom:20px;box-shadow:var(--card-shadow);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+              <div>
+                <h4 style="font-size:16px;margin:0 0 4px 0;display:flex;align-items:center;gap:8px;">
+                  <span>💾</span> <span>Global Dated Data Archive (Cloudflare D1 careerfair-db)</span>
+                  <span class="badge-pill" style="background:rgba(16,185,129,0.15);color:var(--accent-green, #10b981);border:1px solid rgba(16,185,129,0.3);font-size:11px;">Permanent Storage</span>
+                </h4>
+                <p style="font-size:12.5px;color:var(--text-muted);margin:0;">
+                  All leaderboard scores, visitor reviews, speech metrics, and timestamps are globally stored forever. Download full exhibition archives anytime.
+                </p>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-primary btn-sm" id="btn-download-d1-json" type="button">⬇ Download Global JSON</button>
+                <button class="btn btn-secondary btn-sm" id="btn-download-d1-csv" type="button">⬇ Download Global CSV</button>
+              </div>
+            </div>
+          </div>
+
+                    <!-- 3.5 Global Exhibition Data Importer (JSON / CSV) -->
+          <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;margin-bottom:20px;box-shadow:var(--card-shadow);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+              <div>
+                <h4 style="font-size:16px;margin:0 0 4px 0;display:flex;align-items:center;gap:8px;">
+                  <span>📥</span> <span>Import Exhibition Data (JSON / CSV)</span>
+                  <span class="badge-pill" style="background:rgba(0,240,255,0.12);color:var(--accent-cyan);border:1px solid rgba(0,240,255,0.3);font-size:11px;">Connected &amp; Separated</span>
+                </h4>
+                <p style="font-size:12.5px;color:var(--text-muted);margin:0;">
+                  Import feedback reflections, leaderboard scores, or unified exhibition backups via JSON or CSV files. Automatically updates live database and platform displays.
+                </p>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input type="file" id="admin-import-file-input" accept=".json,.csv,application/json,text/csv" style="display:none;">
+                <button class="btn btn-primary btn-sm" id="btn-admin-choose-import" type="button" onclick="(function(){ var el = document.getElementById('admin-import-file-input'); if (el) { el.value = ''; el.click(); } })()">
+                  <span>📂</span> <span>Select JSON / CSV File</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Import Preview Box -->
+            <div id="admin-import-preview-box" style="display:none;margin-top:12px;padding:12px 14px;border:1px dashed var(--accent-cyan);border-radius:var(--radius-sm);background:rgba(0,240,255,0.04);">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                <div>
+                  <div style="font-size:13px;font-weight:700;color:var(--text-main);" id="admin-import-filename">filename.json</div>
+                  <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="admin-import-summary">Detected: 0 Scores, 0 Feedback reviews</div>
+                </div>
+                <div style="display:flex;gap:8px;">
+                  <button class="btn btn-secondary btn-sm" id="btn-admin-cancel-import" type="button">Cancel</button>
+                  <button class="btn btn-accent btn-sm" id="btn-admin-execute-import" type="button">
+                    <span>⚡</span> <span>Confirm &amp; Import Data</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- User Inquiries & Glitch Rectification Section -->
+          <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;margin-bottom:20px;box-shadow:var(--card-shadow);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:10px;">
+              <div>
+                <h4 style="font-size:16px;margin:0 0 4px 0;display:flex;align-items:center;gap:8px;">
+                  <span>🛠️</span> <span>User Inquiries &amp; Error Rectifications</span>
+                  <span class="badge-pill badge-reg" id="admin-issues-count" style="font-size:11px;">0 Inquiries</span>
+                </h4>
+                <p style="font-size:12.5px;color:var(--text-muted);margin:0;">
+                  Review and rectify student and visitor reports submitted directly from the platform error modal.
+                </p>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-secondary btn-sm" id="btn-refresh-issues" type="button">🔄 Refresh Inquiries</button>
+              </div>
+            </div>
+
+            <div id="admin-issues-container" style="display:flex;flex-direction:column;gap:8px;max-height:360px;overflow-y:auto;background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;">
+              <div style="text-align:center;padding:24px;color:var(--text-muted);">Loading user inquiries...</div>
+            </div>
+          </div>
+
+          <!-- 1. Visitor Reflections Moderation -->
+          <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;margin-bottom:20px;box-shadow:var(--card-shadow);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+              <div>
+                <h4 style="font-size:16px;margin:0 0 4px 0;display:flex;align-items:center;gap:8px;">
+                  <span>💬</span> <span>Visitor Reflections Moderation</span>
+                  <span class="badge-pill badge-reg" id="admin-feedback-count" style="font-size:11px;">0 Reviews</span>
+                </h4>
+                <p style="font-size:12.5px;color:var(--text-muted);margin:0;">
+                  Manage and delete visitor feedback reflections submitted across the platform.
+                </p>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-secondary btn-sm" id="btn-refresh-admin-feedback" type="button">🔄 Refresh</button>
+                <button class="btn btn-accent btn-sm" id="btn-clear-all-feedback" type="button" style="background:rgba(239,68,68,0.12);color:#ef4444;border-color:rgba(239,68,68,0.3);">🗑️ Delete All Reflections</button>
+              </div>
+            </div>
+
+            <div id="admin-feedback-list" style="max-height:360px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-subtle);padding:10px;display:flex;flex-direction:column;gap:8px;">
+              <div style="text-align:center;padding:24px;color:var(--text-muted);">Loading visitor reflections...</div>
+            </div>
+          </div>
+
+          <!-- 2. Leaderboard Scores Moderation -->
+          <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;margin-bottom:20px;box-shadow:var(--card-shadow);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+              <div>
+                <h4 style="font-size:16px;margin:0 0 4px 0;display:flex;align-items:center;gap:8px;">
+                  <span>🏆</span> <span>Leaderboard Scores Moderation</span>
+                  <span class="badge-pill badge-nirf" id="admin-scores-count" style="font-size:11px;">0 Attempts</span>
+                </h4>
+                <p style="font-size:12.5px;color:var(--text-muted);margin:0;">
+                  Delete specific student score attempts or reset all leaderboard rankings.
+                </p>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-secondary btn-sm" id="btn-refresh-admin-scores" type="button">🔄 Refresh</button>
+                <button class="btn btn-accent btn-sm" id="btn-reset-scores" type="button">⚠️ Reset All Leaderboard Scores</button>
+              </div>
+            </div>
+
+            <div class="table-wrapper" style="max-height:360px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);">
+              <table style="width:100%;font-size:13px;">
+                <thead>
+                  <tr>
+                    <th style="width:50px;">#</th>
+                    <th>Student Name</th>
+                    <th>Speaking Pack</th>
+                    <th>Accuracy</th>
+                    <th>Fluency</th>
+                    <th>WPM</th>
+                    <th>Time</th>
+                    <th style="width:90px;text-align:center;">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-scores-table-body">
+                  <tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text-muted);">Loading scores...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 2.5 IP Ban & Firewall Management -->
+          <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;margin-bottom:20px;box-shadow:var(--card-shadow);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+              <div>
+                <h4 style="font-size:16px;margin:0 0 4px 0;display:flex;align-items:center;gap:8px;">
+                  <span>🚫</span> <span>IP Ban &amp; Fair Firewall</span>
+                  <span class="badge-pill" id="admin-banned-ips-count" style="font-size:11px;background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);">0 Banned IPs</span>
+                </h4>
+                <p style="font-size:12.5px;color:var(--text-muted);margin:0;">
+                  Ban malicious or disruptive visitors by IP address. Banned IPs are blocked from submitting scores, feedback, or accessing exhibition tests.
+                </p>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+              <input type="text" id="admin-ban-ip-input" placeholder="Enter IP address (e.g. 192.168.1.45 or 203.0.113.19)..." style="flex:1;min-width:240px;font-family:var(--font-mono);font-size:13px;">
+              <button class="btn btn-primary btn-sm" id="btn-admin-ban-ip" type="button" style="background:#ef4444;border-color:#dc2626;">
+                <span>🚫</span> <span>Ban IP Address</span>
+              </button>
+            </div>
+
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Currently Banned IPs:</div>
+            <div id="admin-banned-ips-list" style="display:flex;flex-wrap:wrap;gap:8px;min-height:36px;padding:8px;background:var(--bg-subtle);border-radius:var(--radius-sm);border:1px solid var(--border);">
+              <span style="font-size:12px;color:var(--text-muted);align-self:center;">No IP addresses currently banned.</span>
+            </div>
+          </div>
+
+          <!-- 3. Data Exports (.CSV) -->
+          <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;box-shadow:var(--card-shadow);">
+            <h4 style="font-size:15px;margin-bottom:8px;">📥 Data Exports (.CSV)</h4>
+            <p style="font-size:12.5px;color:var(--text-muted);margin:0 0 12px 0;">
+              Download statutory and offline CSV records of all scores and student feedback.
+            </p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <button class="btn btn-secondary btn-sm" id="btn-export-scores-csv" type="button">📥 Export Scores (.CSV)</button>
+              <button class="btn btn-secondary btn-sm" id="btn-export-feedback-csv" type="button">📥 Export Feedback (.CSV)</button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- View: Security & Master Password Management -->
+        <div id="admin-view-security" class="admin-view-panel" hidden>
+          <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:22px 24px;box-shadow:var(--card-shadow);max-width:580px;margin:20px auto;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+              <span style="font-size:24px;">🔐</span>
+              <div>
+                <h4 style="font-size:16px;font-weight:700;color:var(--text-main);margin:0;">Change Master Admin Password</h4>
+                <div style="font-size:11.5px;color:var(--text-dim);margin-top:2px;">Cloudflare D1 Persistent Authentication Credential</div>
+              </div>
+            </div>
+            <p style="font-size:13px;color:var(--text-muted);margin:10px 0 18px 0;line-height:1.5;">
+              Update the administrator password protecting the live Fair control room. The updated password takes effect immediately and persists across server restarts and browser reloads.
+            </p>
+
+            <form id="form-change-admin-password" style="display:flex;flex-direction:column;gap:14px;">
+              <div>
+                <label for="input-current-admin-pwd" style="font-size:11.5px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:6px;">Current Password</label>
+                <input type="password" id="input-current-admin-pwd" placeholder="Enter current admin password" required autocomplete="current-password" style="width:100%;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-input);color:var(--text-main);font-family:var(--font-mono);box-sizing:border-box;">
+              </div>
+
+              <div>
+                <label for="input-new-admin-pwd" style="font-size:11.5px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:6px;">New Admin Password</label>
+                <input type="password" id="input-new-admin-pwd" placeholder="Enter new password (minimum 4 characters)" minlength="4" required autocomplete="new-password" style="width:100%;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-input);color:var(--text-main);font-family:var(--font-mono);box-sizing:border-box;">
+              </div>
+
+              <div>
+                <label for="input-confirm-admin-pwd" style="font-size:11.5px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:6px;">Confirm New Password</label>
+                <input type="password" id="input-confirm-admin-pwd" placeholder="Re-type new password to verify" minlength="4" required autocomplete="new-password" style="width:100%;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-input);color:var(--text-main);font-family:var(--font-mono);box-sizing:border-box;">
+              </div>
+
+              <div style="display:flex;align-items:center;gap:12px;margin-top:6px;flex-wrap:wrap;">
+                <button type="submit" class="btn btn-primary btn-sm" id="btn-save-admin-pwd">Update Admin Password 💾</button>
+                <span id="status-change-admin-pwd" style="font-size:12.5px;font-weight:600;"></span>
+              </div>
+            </form>
+          </div>
+
+          <!-- Device IP Admin Access Control -->
+          <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:22px 24px;box-shadow:var(--card-shadow);max-width:780px;margin:20px auto;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="font-size:24px;">🖥️</span>
+                <div>
+                  <h4 style="font-size:16px;font-weight:700;color:var(--text-main);margin:0;">Admin Devices &amp; IP Access Control</h4>
+                  <div style="font-size:11.5px;color:var(--text-dim);margin-top:2px;">Block specific device IP addresses across the entire website (both Admin Panel &amp; all Fair pages)</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <span class="badge-pill" id="admin-current-ip-badge" style="font-size:11.5px;font-family:var(--font-mono);background:rgba(0,240,255,0.1);color:var(--accent-cyan);border:1px solid rgba(0,240,255,0.3);">Your IP: Detecting...</span>
+                <button type="button" class="btn btn-secondary btn-xs" id="btn-admin-refresh-devices">🔄 Refresh</button>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:10px;margin:14px 0;flex-wrap:wrap;">
+              <input type="text" id="admin-revoke-ip-input" placeholder="Enter device IP address to block across site (e.g. 203.0.113.42)..." style="flex:1;min-width:240px;padding:9px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-input);color:var(--text-main);font-family:var(--font-mono);font-size:13px;">
+              <button type="button" class="btn btn-primary btn-sm" id="btn-admin-revoke-ip" style="background:#ef4444;border-color:#dc2626;">🚫 Block IP Across Site</button>
+            </div>
+
+            <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Devices With Admin Access History:</div>
+            <div id="admin-devices-list" style="overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-subtle);padding:10px;">
+              <div style="font-size:12.5px;color:var(--text-muted);text-align:center;padding:14px;">Loading connected admin devices...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- View 6: Granular Scoped API Key Manager -->
+        
+
+        <!-- View 7: Google Drive rclone Telemetry & Issue Rectifier -->
+        
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── 6. SITE FOOTER ── -->
+  <footer class="site-footer">
+    <div class="footer-container">
+      <!-- Upper Section: Brand & Navigation Columns -->
+      <div class="footer-main-grid">
+        <!-- Brand & School Col -->
+        <div class="footer-col-brand">
+          <div class="site-brand" onclick="switchTab('hero')" role="button" tabindex="0" style="margin-bottom:12px;display:inline-flex;">
+            <div class="brand-icon" style="width:40px;height:40px;" aria-hidden="true">
+              <img src="logo.png" alt="Career Fair Logo" class="brand-logo-img">
+            </div>
+            <div class="brand-copy">
+              <div class="brand-name" style="font-size:16px;">Career Fair <span style="color:var(--accent-cyan);font-weight:700;">2026</span></div>
+              <div class="brand-subtitle">KANAKIA INTERNATIONAL SCHOOL · MIRA ROAD</div>
+            </div>
+          </div>
+          <p class="footer-tagline">
+            Bridging high-school academic preparation with international career articulation. Every modern profession speaks English.
+          </p>
+          <div class="footer-school-pill">
+            <span>🏫</span> Guided by Directorate of Career Guidance · Kanakia International School Mira Road
+          </div>
+        </div>
+
+        <!-- Col 2: Navigation Pathways -->
+        <div class="footer-col-nav">
+          <h4 class="footer-heading">Platform Modules</h4>
+          <ul class="footer-links-list">
+            <li><a href="javascript:void(0)" onclick="switchTab('careers')">🎯 32+ Global Careers</a></li>
+            <li><a href="javascript:void(0)" onclick="switchTab('colleges')">🏛️ Verified Colleges</a></li>
+            <li><a href="javascript:void(0)" onclick="switchTab('speak')">🗣️ Speech Ladder &amp; Pronunciation</a></li>
+            <li><a href="javascript:void(0)" onclick="switchTab('speechLab')">🎙️ 6D AI Speech Evaluation Coach</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 3: Interactive Studio -->
+        <div class="footer-col-nav">
+          <h4 class="footer-heading">Interactive Studio</h4>
+          <ul class="footer-links-list">
+            <li><a href="javascript:void(0)" onclick="switchTab('games')">🎮 Language Arcade &amp; AI Quests</a></li>
+            <li><a href="javascript:void(0)" onclick="switchTab('roadmap')">🗺️ "My Plan" Roadmap &amp; Quiz</a></li>
+            <li><a href="javascript:void(0)" onclick="switchTab('leaderboard')">🏆 Exhibition Leaderboard</a></li>
+            <li><a href="javascript:void(0)" onclick="switchTab('admin')">⚙️ Administrator Control Console</a></li>
+          </ul>
+        </div>
+      </div>
+
+
+
+      <!-- Bottom Row: Copyright & Legal Meta -->
+      <div class="footer-bottom-bar">
+        <div>
+          &copy; 2026 Career Fair · Kanakia International School Mira Road. All rights reserved.
+        </div>
+        <div class="footer-bottom-meta">
+          <span>Student Career Intelligence &amp; Spoken English Platform</span>
+          <span>·</span>
+          <span>Cross-Platform Responsive PWA</span>
+        </div>
+      </div>
+
+      <!-- Statutory Interaction Archive Legal Notice (Terms of Service & Privacy Policy) -->
+      <div class="footer-statutory-notice" style="margin-top:16px;padding:12px 16px;background:rgba(0,0,0,0.25);border-radius:var(--radius-sm);border:1px solid var(--border);font-size:11.5px;color:var(--text-dim);line-height:1.5;text-align:left;">
+        <strong style="color:var(--text-muted);display:block;margin-bottom:4px;">📜 Statutory Data &amp; Telemetry Retention Notice (TOS &amp; Privacy Policy):</strong>
+        In accordance with institutional exhibition policies, all attendee interactions—including spoken speech evaluation audio, camera presence telemetry, digital guide sessions, screen state transitions, and game score attempts—are securely archived indefinitely to the exhibition's Google Drive archive until administrative deletion. By exploring this platform, attendees consent to this indefinite telemetry capture. <a href="javascript:void(0)" id="link-open-tos" style="color:var(--accent-cyan);text-decoration:underline;">Read Full Terms of Service &amp; Privacy Policy</a>. <a href="javascript:void(0)" id="link-report-issue" style="color:#10b981;font-weight:700;margin-left:10px;text-decoration:underline;">🛠️ Report Error / Request Rectification</a>.
+      </div>
+    </div>
+  </footer>
+
+  <!-- Modal: Terms of Service & Privacy Policy -->
+  <div id="tos-pp-modal" class="mystery-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="tos-modal-title">
+    <div class="card" style="max-width:580px;width:100%;max-height:85vh;overflow-y:auto;background:var(--surface-card);border:2px solid var(--accent-cyan);border-radius:var(--radius-lg);padding:24px;position:relative;text-align:left;">
+      <button class="mystery-modal-close" id="btn-close-tos" aria-label="Close Terms modal">✕</button>
+      <h3 id="tos-modal-title" style="font-size:18px;font-weight:800;color:var(--text-main);margin-bottom:8px;">Statutory Terms of Service &amp; Privacy Policy</h3>
+      <div style="font-size:11px;color:var(--accent-cyan);margin-bottom:14px;font-weight:600;">CAREER FAIR 2026 · KANAKIA INTERNATIONAL SCHOOL MIRA ROAD</div>
+      <div style="font-size:12.5px;color:var(--text-muted);line-height:1.55;display:flex;flex-direction:column;gap:12px;">
+        <p><strong>1. Student Audio, Camera &amp; Personal Data Protection:</strong> We adhere to strict educational data privacy principles. Live camera feeds, teleprompter video streams, and audio speech practice occur exclusively within your local browser sandbox. Video recordings created in the News Anchor Studio are composited entirely client-side and saved directly to the user's personal device; no student video, webcam feed, or raw microphone stream is uploaded to remote storage or persistent public archives.</p>
+        <p><strong>2. Academic Evaluation &amp; Speech Scoring:</strong> Spoken audio attempts submitted for Speech Lab phonetics analysis are processed transiently in memory to calculate articulation, fluency, clarity, and words-per-minute metrics. Only verified numerical scores, chosen career milestones, and optional student display names are recorded on the secure Cloudflare D1 exhibition leaderboard.</p>
+        <p><strong>3. Transparency, Local Control &amp; Data Retention:</strong> Student career blueprints and aptitude quiz profiles are stored within browser local storage (localStorage) for the student's convenience and can be cleared at any time by refreshing browser cache or clicking reset. Telemetry sessions are strictly limited to anonymous interaction counts and diagnostics for fair operations.</p>
+        <p><strong>4. Data Rectification &amp; Error Reporting:</strong> Any student, teacher, or parent who notices an inaccurate score, display discrepancy, or wishes to request record rectification or removal may submit an issue via the platform error reporting tool for immediate administrator action.</p>
+        <p><strong>5. Zero Unauthorized Disclosure:</strong> All administrative endpoints and database queries are strictly authenticated through secure bearer authorization, ensuring full confidentiality and protection against unauthorized access.</p>
+      </div>
+      <div id="tos-agree-container" style="margin-top:18px;text-align:right;">
+        <button class="btn btn-primary btn-sm" id="btn-agree-tos">I Understand &amp; Agree</button>
+      </div>
+      <div id="tos-agreed-badge" style="display:none;margin-top:18px;align-items:center;justify-content:flex-end;gap:6px;font-size:12.5px;color:#10b981;font-weight:700;">
+        <svg style="width:15px;height:15px;color:#10b981;display:inline-block;flex-shrink:0;vertical-align:middle;" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+        <span>Agreed &amp; Verified</span>
+      </div>
+      <script>
+        try {
+          if (localStorage.getItem('cf_tos_agreed') === 'true') {
+            var _tc = document.getElementById('tos-agree-container');
+            if (_tc) _tc.remove();
+            var _tb = document.getElementById('tos-agreed-badge');
+            if (_tb) _tb.style.display = 'inline-flex';
+          }
+        } catch(e) {}
+      </script>
+    </div>
+  </div>
+
+  <!-- Modal: Report Platform Issue / Error Rectification -->
+  <div id="user-issue-modal" class="mystery-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="issue-modal-title">
+    <div class="card" style="max-width:520px;width:100%;background:var(--surface-card);border:2px solid var(--accent-cyan);border-radius:var(--radius-lg);padding:24px;position:relative;text-align:left;">
+      <button class="mystery-modal-close" id="btn-close-issue-modal" aria-label="Close Issue Modal">✕</button>
+      <h3 id="issue-modal-title" style="font-size:18px;font-weight:800;color:var(--text-main);margin-bottom:6px;">🛠️ Report Error or Request Rectification</h3>
+      <p style="font-size:12.5px;color:var(--text-muted);margin-bottom:14px;">Found an issue with speech recording, camera detection, or game scores? Send your report directly to the platform administrator.</p>
+
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div>
+          <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Your Name / Student ID:</label>
+          <input type="text" id="issue-user-name" placeholder="e.g. Aarav Sharma" style="width:100%;font-size:13px;">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Issue Category:</label>
+          <select id="issue-category" style="width:100%;font-size:13px;padding:8px 12px;background:var(--bg-subtle);color:var(--text-main);border:1px solid var(--border);border-radius:var(--radius-sm);">
+            <option value="" disabled selected>-- Select Issue Category (Mandatory) --</option>
+            <option value="Audio / Speech Recognition">🎙️ Audio / Speech Recognition</option>
+            <option value="Camera / Presence Detection">📷 Camera / Presence Detection</option>
+            <option value="Game Completion OCR">🎮 Game Scoring &amp; OCR</option>
+            <option value="General Question / Error">❓ General Platform Error</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Describe the Error / Rectification Needed:</label>
+          <textarea id="issue-description" rows="3" placeholder="Please describe what happened..." style="width:100%;font-size:13px;padding:8px 12px;background:var(--bg-subtle);color:var(--text-main);border:1px solid var(--border);border-radius:var(--radius-sm);resize:vertical;"></textarea>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:6px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-user-issue">Cancel</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btn-submit-user-issue">Submit Inquiry 🚀</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Admin Session Files & Interaction Details Viewer -->
+  <div id="admin-session-details-modal" class="mystery-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="admin-session-modal-title">
+    <div class="card" style="max-width:640px;width:100%;max-height:85vh;overflow-y:auto;background:var(--surface-card);border:2px solid #10b981;border-radius:var(--radius-lg);padding:24px;position:relative;text-align:left;">
+      <button class="mystery-modal-close" id="btn-close-session-modal" aria-label="Close details">✕</button>
+      <h3 id="admin-session-modal-title" style="font-size:18px;font-weight:800;color:var(--text-main);margin-bottom:4px;">📂 Google Drive Interaction Archive</h3>
+      <div id="admin-session-modal-subtitle" style="font-size:12px;color:var(--text-dim);margin-bottom:14px;"></div>
+      <div id="admin-session-modal-body"></div>
+    </div>
+  </div>
+
+    
+
+  <!-- Toast Container -->
+  <div id="toast-container" aria-live="polite"></div>
+
+  <!-- Dynamic Glowing Cursor & Particle Trail (Mode-Adaptive) -->
+  <script>
+  (() => {
+    // ===== SETTINGS =====
+    const CONFIG = {
+      colors: ['#e8a04a', '#d4af37', '#f0b45a'],
+      count: 90,
+      minSize: 2,
+      maxSize: 9,
+      speed: 0.25,
+      shards: true,
+      shardCount: 7,
+      shardColor: '255,225,170',
+      shardOpacity: 0.07,
+      zIndex: 0,
+
+      // cursor reaction
+      mouse: 'repel',     // 'repel' | 'attract' | 'none'
+      radius: 160,        // how far the cursor reaches, in px
+      strength: 1.6,      // how hard particles get pushed or pulled
+      parallax: 0.02      // shards drift slightly with the cursor (0 = off)
+    };
+
+    // Mode-adaptive color themes: Gold/Amber in Dark, Deep warm Amber/Bronze in Light
+    const syncThemeColors = () => {
+      const isDark = (document.documentElement.getAttribute('data-theme') || 'light') === 'dark';
+      if (isDark) {
+        CONFIG.colors = ['#e8a04a', '#d4af37', '#f0b45a'];
+        CONFIG.shardColor = '255,225,170';
+        CONFIG.shardOpacity = 0.07;
+      } else {
+        CONFIG.colors = ['#b45309', '#c27803', '#d97706', '#92400e'];
+        CONFIG.shardColor = '180,83,9';
+        CONFIG.shardOpacity = 0.045;
+      }
+      if (particles && particles.length) {
+        particles.forEach(p => {
+          p.c = CONFIG.colors[Math.floor(Math.random() * CONFIG.colors.length)];
+        });
+      }
+    };
+
+    // ===== SETUP =====
+    const cv = document.createElement('canvas');
+    cv.style.cssText = `position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:${CONFIG.zIndex};`;
+    document.body.prepend(cv);
+    const cx = cv.getContext('2d');
+    let W, H, dpr;
+    const rand = (a, b) => a + Math.random() * (b - a);
+
+    function resize() {
+      dpr = Math.min(devicePixelRatio || 1, 2);
+      W = innerWidth; H = innerHeight;
+      cv.width = W * dpr; cv.height = H * dpr;
+      cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resize(); addEventListener('resize', resize, { passive: true });
+
+    // ===== CURSOR =====
+    const M = { x: -9999, y: -9999, px: 0, py: 0 };
+    addEventListener('pointermove', e => {
+      M.x = e.clientX; M.y = e.clientY;
+      M.px = e.clientX / (innerWidth || 1) - 0.5;
+      M.py = e.clientY / (innerHeight || 1) - 0.5;
+    }, { passive: true });
+    addEventListener('pointerleave', () => { M.x = M.y = -9999; });
+    document.addEventListener('mouseleave', () => { M.x = M.y = -9999; });
+
+    // ===== PARTICLES =====
+    let particles = [];
+    function makeParticle(anywhere) {
+      const big = Math.random() < 0.12;
+      return {
+        x: rand(0, W || innerWidth),
+        y: anywhere ? rand(0, H || innerHeight) : (H || innerHeight) + 20,
+        s: big ? rand(CONFIG.maxSize * 0.6, CONFIG.maxSize) : rand(CONFIG.minSize, CONFIG.maxSize * 0.5),
+        vx: rand(-0.15, 0.15) * CONFIG.speed * 4,
+        vy: -rand(0.2, 1) * CONFIG.speed,
+        kx: 0, ky: 0,
+        a: rand(0.5, 0.95),
+        ph: rand(0, 6.28),
+        c: CONFIG.colors[Math.floor(Math.random() * CONFIG.colors.length)]
+      };
+    }
+    const initParticles = () => { particles = Array.from({ length: CONFIG.count }, () => makeParticle(true)); };
+
+    // ===== SHARDS =====
+    let shards = [];
+    function makeShard() {
+      const r = rand(70, 190);
+      return {
+        x: rand(-0.05, 1.05) * (W || innerWidth), y: rand(-0.05, 1.05) * (H || innerHeight),
+        rot: rand(0, 6.28), vr: rand(-0.0015, 0.0015),
+        vx: rand(-0.12, 0.12) * CONFIG.speed * 2, vy: rand(-0.12, 0.12) * CONFIG.speed * 2,
+        depth: rand(0.5, 1.5),
+        pts: [0, 1, 2, 3].map(i => ({ a: i * Math.PI / 2 + rand(-0.5, 0.5), r: r * rand(0.55, 1.2) }))
+      };
+    }
+    const initShards = () => { shards = CONFIG.shards ? Array.from({ length: CONFIG.shardCount }, makeShard) : []; };
+
+    // Initial theme sync & initialization
+    syncThemeColors();
+    initParticles();
+    initShards();
+
+    // Listen to theme changes automatically via MutationObserver on data-theme
+    const themeObserver = new MutationObserver(muts => {
+      for (const m of muts) {
+        if (m.type === 'attributes' && m.attributeName === 'data-theme') {
+          syncThemeColors();
+        }
+      }
+    });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    window.syncBackgroundParticlesTheme = syncThemeColors;
+
+    // ===== ANIMATION LOOP =====
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let t = 0, ox = 0, oy = 0;
+    function frame() {
+      t += 0.016;
+      cx.clearRect(0, 0, W, H);
+
+      // smooth parallax offset
+      ox += (M.px * W * CONFIG.parallax - ox) * 0.05;
+      oy += (M.py * H * CONFIG.parallax - oy) * 0.05;
+
+      for (const s of shards) {
+        if (!still) { s.x += s.vx; s.y += s.vy; s.rot += s.vr; }
+        if (s.x < -250) s.x = W + 250; if (s.x > W + 250) s.x = -250;
+        if (s.y < -250) s.y = H + 250; if (s.y > H + 250) s.y = -250;
+        const sx = s.x + ox * s.depth * -1, sy = s.y + oy * s.depth * -1;
+        cx.beginPath();
+        s.pts.forEach((p, i) => {
+          const px = sx + Math.cos(p.a + s.rot) * p.r, py = sy + Math.sin(p.a + s.rot) * p.r;
+          i ? cx.lineTo(px, py) : cx.moveTo(px, py);
+        });
+        cx.closePath();
+        cx.fillStyle = `rgba(${CONFIG.shardColor},${CONFIG.shardOpacity})`;
+        cx.fill();
+      }
+
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+
+        if (CONFIG.mouse !== 'none' && !still) {
+          const dx = p.x - M.x, dy = p.y - M.y, d = Math.hypot(dx, dy);
+          if (d < CONFIG.radius && d > 0.01) {
+            const f = (1 - d / CONFIG.radius) * CONFIG.strength * (CONFIG.mouse === 'repel' ? 1 : -1);
+            p.kx += (dx / d) * f;
+            p.ky += (dy / d) * f;
+          }
+        }
+        p.kx *= 0.92; p.ky *= 0.92;
+
+        if (!still) {
+          p.x += p.vx + Math.sin(t + p.ph) * 0.1 + p.kx;
+          p.y += p.vy + p.ky;
+        }
+        if (p.y < -20) particles[i] = makeParticle(false);
+        if (p.y > H + 40) p.y = -20;
+        if (p.x < -20) p.x = W + 20; if (p.x > W + 20) p.x = -20;
+
+        cx.globalAlpha = p.a * (0.6 + 0.4 * Math.sin(t * 2 + p.ph));
+        cx.fillStyle = p.c;
+        cx.fillRect(p.x, p.y, p.s, p.s);
+      }
+      cx.globalAlpha = 1;
+      requestAnimationFrame(frame);
+    }
+    frame();
+
+    // ===== CHANGE COLORS =====
+    // setParticleColors('#00e5ff')  or  setParticleColors('#ff0066', '#ffd400')
+    window.setParticleColors = (...c) => {
+      CONFIG.colors = c.flat();
+      particles.forEach(p => p.c = CONFIG.colors[Math.floor(Math.random() * CONFIG.colors.length)]);
+    };
+    window.setParticleColor = window.setParticleColors;
+  })();
+  </script>
+
+    <!-- ── 14.5. INTERACTIVE TUTORIAL MODE SELECTION MODAL ── -->
+  <div id="tutorial-choice-modal" class="mystery-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="tutorial-choice-title">
+    <div class="mystery-modal-card tutorial-choice-modal-card">
+      <button class="mystery-modal-close tutorial-choice-close-btn" id="btn-close-tutorial-choice" aria-label="Close tutorial mode selection" title="Close (Esc)">✕</button>
+      
+      <div class="tutorial-choice-header">
+        <div class="tutorial-choice-pill">
+          🎙️ Voice Guided Exhibition Tour
+        </div>
+        <h3 id="tutorial-choice-title" class="tutorial-choice-title">
+          Choose Your Exhibition Tutorial
+        </h3>
+        <p class="tutorial-choice-desc">
+          Select how you would like to explore Career Fair 2026. Both options feature interactive voice guidance, hands-on participation, and personal booklet customization!
+        </p>
+      </div>
+
+      <!-- Personalized Student Name Input at Tutorial Start -->
+      <div class="tutorial-name-input-wrap" style="margin-bottom:16px;background:rgba(0,240,255,0.06);border:1px solid rgba(0,240,255,0.25);border-radius:12px;padding:12px 14px;">
+        <label for="tutorial-student-name-input" style="display:block;font-size:13px;font-weight:700;color:var(--accent-cyan);margin-bottom:6px;">
+          👤 Enter Your Name to Personalize Your Booklet &amp; Pass: <span style="color:#ef4444;">*</span>
+        </label>
+        <input type="text" id="tutorial-student-name-input" class="form-input" placeholder="Enter Your Full Name (Mandatory *)" autocomplete="name" style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;font-size:14px;font-weight:600;background:rgba(15,23,42,0.7);border:1px solid var(--border-strong);color:#ffffff;" />
+      </div>
+
+      <div class="tutorial-choice-grid">
+        <!-- Option 1: Short Tutorial (Quick Booklet Tour) -->
+        <div class="tutorial-option-card short-tour" id="card-tutorial-short" role="button" tabindex="0">
+          <div class="tutorial-card-top">
+            <span class="tutorial-card-icon">📖</span>
+            <span class="tutorial-card-badge short-badge">⚡ 5 STEPS</span>
+          </div>
+          <h4 class="tutorial-card-title">Quick Booklet Tour</h4>
+          <p class="tutorial-card-desc">
+            Focuses strictly on essential highlights: <strong>Live Stream</strong>, target career pinning, speech lab, fair reflection, and official booklet download.
+          </p>
+          <ul class="tutorial-card-features">
+            <li>🎯 Pick &amp; Pin Your Career Pathway</li>
+            <li>🎙️ Spoken English AI Diagnostic</li>
+            <li>🎮 Vocabulary Challenge (Wordle)</li>
+            <li>🪪 Student Ambassador Business Card &amp; QR</li>
+            <li>⭐ Student Reflection &amp; Fair Feedback</li>
+          </ul>
+          <button type="button" class="btn btn-primary btn-start-tutorial-tour" id="btn-start-short-tutorial">
+            Start Short Tour ⚡
+          </button>
+        </div>
+
+        <!-- Option 2: Expanded Tutorial (Complete Platform Experience) -->
+        <div class="tutorial-option-card expanded-tour" id="card-tutorial-expanded" role="button" tabindex="0">
+          <div class="tutorial-card-top">
+            <span class="tutorial-card-icon">🌟</span>
+            <span class="tutorial-card-badge expanded-badge">🚀 21 STEPS</span>
+          </div>
+          <h4 class="tutorial-card-title">Complete Exhibition Tour</h4>
+          <p class="tutorial-card-desc">
+            Comprehensive hands-on walkthrough showcasing <strong>every feature &amp; all 10 arcade games</strong>: Overview, Careers, Colleges, Exams, Pronunciation, Speech Lab, Teleprompter, All 10 Games, My Plan, Leaderboard &amp; Feedback.
+          </p>
+          <ul class="tutorial-card-features">
+            <li>⚡ Overview &amp; 32+ Global Careers Directory</li>
+            <li>🏛️ NAAC/NIRF Colleges &amp; Competitive Exam Guides</li>
+            <li>🗣️ Pronunciation Studio &amp; 6D AI Voice Coach</li>
+            <li>📺 Teleprompter Studio &amp; News Anchor Rehearsal</li>
+            <li>🎮 All 10 Arcade Games &amp; Gemini Quests Showcase</li>
+            <li>🗺️ My Plan Blueprint, Leaderboard &amp; Final Feedback</li>
+          </ul>
+          <button type="button" class="btn btn-primary btn-start-tutorial-tour" id="btn-start-expanded-tutorial">
+            Start Complete Tour 🌟
+          </button>
+        </div>
+      </div>
+
+      <div class="tutorial-choice-footer">
+        <span>💡 <em>You can switch or skip steps at any time.</em></span>
+        <span class="audio-badge">Interactive Voice Guidance</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 15. IN-WEBSITE INTERACTIVE TUTORIAL CONTROLLER HUD ── -->
+  <div class="in-site-tutorial-hud" id="tutorial-hud" role="region" aria-label="Interactive Platform Tutorial Controller" title="Click to expand tutorial instructions">
+    <!-- Expanded view only: Header -->
+    <div class="tutorial-hud-header">
+      <div class="tutorial-hud-top-meta">
+        <span class="tutorial-hud-badge" id="tutorial-hud-badge">STEP 1 OF 5</span>
+        <div class="tutorial-hud-status-wrap">
+          <div class="tutorial-hud-status" id="tutorial-hud-status">
+            <span class="tutorial-equalizer" id="tutorial-equalizer" aria-hidden="true">
+              <span></span><span></span><span></span><span></span>
+            </span>
+            <span class="tutorial-voice-label" id="tutorial-voice-label">River</span>
+          </div>
+          <button type="button" class="btn-tutorial-hud-collapse" id="btn-tutorial-hud-collapse" title="Minimize to corner box" aria-label="Minimize tutorial">🗕</button>
+          <button type="button" class="btn-tutorial-hud-close" id="btn-tutorial-hud-close" title="Stop and Close Tutorial" aria-label="Close tutorial">✕</button>
+        </div>
+      </div>
+      <h4 class="tutorial-hud-title" id="tutorial-hud-title">Live Stage Broadcast &amp; Overview</h4>
+    </div>
+
+    <!-- Expanded view only: Body -->
+    <div class="tutorial-hud-body">
+      <div class="tutorial-hud-step-icon" id="tutorial-hud-icon" aria-hidden="true">🔴</div>
+      <div class="tutorial-hud-text-wrap">
+        <p class="tutorial-hud-instruction" id="tutorial-hud-instruction">
+          Welcome to Career Fair 2026! Watch our official Live Stream broadcasting keynotes and student presentations from the school auditorium.
+        </p>
+        <div class="tutorial-hud-reaction" id="tutorial-hud-reaction" style="display:none;"></div>
+      </div>
+    </div>
+
+    <!-- Footer / Action Row (Full footer when expanded, compact pill when minimized) -->
+    <div class="tutorial-hud-footer">
+      <div class="tutorial-hud-controls-left">
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-tutorial-pause" aria-label="Pause or resume tutorial speech">
+          <span id="tutorial-pause-icon">⏸️</span> <span id="tutorial-pause-text">Pause Voice</span>
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-tutorial-replay-audio" aria-label="Replay voice narration">
+          <span>🔊</span> <span>Replay</span>
+        </button>
+      </div>
+      <div class="tutorial-hud-controls-right">
+        <button type="button" class="btn-tutorial-hud-expand" id="btn-tutorial-hud-expand" title="Expand tutorial details" aria-label="Expand tutorial">
+          <span class="expand-hud-icon">⛶</span>
+        </button>
+        <button type="button" class="btn-compact-pause" id="btn-tutorial-compact-pause" title="Pause / Resume Voice" aria-label="Pause or resume voice narration">
+          <span id="tutorial-compact-pause-icon">⏸️</span>
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-tutorial-prev" aria-label="Previous step">
+          ◀ Previous
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-tutorial-skip" aria-label="Skip this tutorial step" title="Skip this step and omit from booklet">
+          Skip ⏭
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" id="btn-tutorial-next" aria-label="Next step">
+          Next Exhibit ▶
+        </button>
+        <button type="button" class="btn-tutorial-hud-close btn-compact-close" id="btn-tutorial-compact-close" title="Stop and Close Tutorial" aria-label="Close tutorial">✕</button>
+      </div>
+    </div>
+  </div>
+
+  </body>
+</html>
