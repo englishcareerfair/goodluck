@@ -201,8 +201,6 @@ const STATE = window.STATE = {
     gemini_key: localStorage.getItem('cf_gemini_keys') || localStorage.getItem('cf_gemini_key') || sessionStorage.getItem('cf_gemini_keys') || '',
     eleven_key: localStorage.getItem('cf_eleven_key') || '',
     eleven_voice: localStorage.getItem('cf_eleven_voice') || '',
-    rclone_remote: localStorage.getItem('cf_rclone_remote') || 'gdrive:careerfair_telemetry',
-    rclone_endpoint: localStorage.getItem('cf_rclone_endpoint') || '',
     flags: {
       guide_enabled: true,
       guide_presentation_mode: 'floating',
@@ -4281,10 +4279,6 @@ const AppRouter = {
         'speechlab': 'speechLab',
         'anchor': 'teleprompter',
         'news': 'teleprompter',
-        'voicelab': 'voicelab',
-        'voice-lab': 'voicelab',
-        'clone': 'voicelab',
-        'voice': 'voicelab',
         'plan': 'roadmap',
         'myplan': 'roadmap'
       };
@@ -4312,8 +4306,7 @@ const AppRouter = {
           games: 'games',
           roadmap: 'roadmap',
           leaderboard: 'leaderboard',
-          feedback: 'feedback',
-          voicelab: 'voiceLab'
+          feedback: 'feedback'
         };
         const flagKey = flagKeyMap[tab];
         if (flagKey && window.STATE.config.flags[flagKey] === false) {
@@ -4326,17 +4319,6 @@ const AppRouter = {
       this.current = { tab, subtab, part, path };
 
       // Dispatch Tab-Specific Sub-Routing
-      if (tab === 'voicelab') {
-        if (window.VoiceLab && typeof window.VoiceLab.init === 'function') {
-          window.VoiceLab.init();
-        }
-        if (subtab) {
-          const modeChip = $(`#sec-voicelab .filter-chip[data-vl-mode="${subtab}"]`);
-          if (modeChip) modeChip.click();
-        }
-        return;
-      }
-
       if (tab === 'careers') {
         this._routeCareers(subtab, part);
       } else if (tab === 'colleges') {
@@ -4793,7 +4775,6 @@ function switchTab(tabId, options = {}) {
   if (tabId === 'speak') initSpeakLadder();
   if (tabId === 'speechLab') initSpeechLab();
   if (tabId === 'teleprompter') initTeleprompter();
-  if (tabId === 'voicelab' && window.VoiceLab && typeof window.VoiceLab.init === 'function') window.VoiceLab.init();
   if (tabId === 'admin' && getActiveAdminToken() && typeof window.renderAdminVisitors === 'function') {
     window.renderAdminVisitors();
   }
@@ -13378,7 +13359,7 @@ async function renderAdminTelemetry() {
           s.has_screen_feed ? '🖥️ Screen' : ''
         ].filter(Boolean).join(' · ') || 'Web Telemetry';
 
-        const gdrivePath = s.gdrive_folder_id || `gdrive:careerfair_telemetry/${s.session_id}`;
+        const gdrivePath = s.gdrive_folder_id || `d1:${s.session_id || 'session'}`;
 
         return `
           <tr>
@@ -13416,12 +13397,12 @@ async function renderAdminTelemetry() {
               ? rawLogs.map(l => `<div style="font-size:11.5px;padding:4px 0;border-bottom:1px solid var(--border);"><span style="color:var(--accent-cyan);">${new Date(l.timestamp || Date.now()).toLocaleTimeString()}</span> · <strong>${escapeHtml(l.event || 'event')}</strong> ${l.text ? `: "${escapeHtml(l.text)}"` : ''}</div>`).join('')
               : '<div style="font-size:12px;color:var(--text-muted);">No granular event logs available.</div>';
 
-            const gdriveFolder = sessionObj.gdrive_folder_id || `gdrive:careerfair_telemetry/${sessionObj.session_id}`;
+            const archiveRef = sessionObj.gdrive_folder_id || sessionObj.session_id || 'D1';
 
             body.innerHTML = `
               <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:14px;">
-                <div style="font-size:12px;margin-bottom:4px;"><strong>Google Drive rclone Remote Path:</strong></div>
-                <code style="font-size:11.5px;color:#10b981;word-break:break-all;">${escapeHtml(gdriveFolder)}</code>
+                <div style="font-size:12px;margin-bottom:4px;"><strong>D1 Telemetry Archive Reference:</strong></div>
+                <code style="font-size:11.5px;color:#10b981;word-break:break-all;">${escapeHtml(archiveRef)}</code>
               </div>
 
               <div style="font-size:13px;font-weight:700;margin-bottom:8px;">Indefinite Storage Manifest &amp; Media Files:</div>
@@ -13999,16 +13980,6 @@ function initAdminWorkspace() {
   $('#btn-refresh-telemetry')?.addEventListener('click', renderAdminTelemetry);
   $('#btn-refresh-issues')?.addEventListener('click', window.renderAdminIssues);
 
-  // Load existing rclone settings
-  const rcloneRemoteInput = $('#admin-rclone-remote');
-  const rcloneEndpointInput = $('#admin-rclone-endpoint');
-  if (rcloneRemoteInput) {
-    rcloneRemoteInput.value = localStorage.getItem('cf_rclone_remote') || STATE.config.rclone_remote || 'gdrive:careerfair_telemetry';
-  }
-  if (rcloneEndpointInput) {
-    rcloneEndpointInput.value = localStorage.getItem('cf_rclone_endpoint') || STATE.config.rclone_endpoint || '';
-  }
-
 
   // Load existing AI Keys Pool
   const geminiInput = $('#admin-gemini-key');
@@ -14204,7 +14175,7 @@ function initAdminWorkspace() {
     showToast('⚡ Auto-selected George (Studio Free-Tier Voice)!');
   });
 
-  // Save AI Credentials, Backup Keys Pool & rclone Google Drive Settings
+  // Save AI Credentials & Backup Keys Pool
   $('#btn-save-ai')?.addEventListener('click', async () => {
     // 1. Gather Gemini keys from dynamic pool inputs, fallback to storage / config
     const geminiInputs = Array.from(document.querySelectorAll('#gemini-keys-container .gemini-key-field'));
@@ -14223,8 +14194,6 @@ function initAdminWorkspace() {
     const elevenKey = elevenKeys ? elevenKeys.split(/[\r\n,]+/)[0].trim() : '';
 
     const elevenVoice = ($('#admin-eleven-voice')?.value || $('#admin-eleven-voice-select')?.value || localStorage.getItem('cf_eleven_voice') || STATE.config.eleven_voice || '').trim();
-    const rcloneRemote = ($('#admin-rclone-remote')?.value || 'gdrive:careerfair_telemetry').trim();
-    const rcloneEndpoint = ($('#admin-rclone-endpoint')?.value || '').trim();
     
     // Persist ElevenLabs pool & primary key
     if (elevenKeys) {
@@ -14243,12 +14212,6 @@ function initAdminWorkspace() {
     }
     localStorage.setItem('cf_eleven_voice', elevenVoice);
     STATE.config.eleven_voice = elevenVoice;
-
-    // Persist Google Drive rclone settings
-    localStorage.setItem('cf_rclone_remote', rcloneRemote);
-    STATE.config.rclone_remote = rcloneRemote;
-    localStorage.setItem('cf_rclone_endpoint', rcloneEndpoint);
-    STATE.config.rclone_endpoint = rcloneEndpoint;
     
     // Persist Gemini keys
     if (geminiKeys) {
@@ -14292,16 +14255,14 @@ function initAdminWorkspace() {
       gemini_key: geminiKey,
       eleven_keys: elevenKeys,
       eleven_key: elevenKey,
-      eleven_voice: elevenVoice,
-      rclone_remote: rcloneRemote,
-      rclone_endpoint: rcloneEndpoint
+      eleven_voice: elevenVoice
     });
 
     // Ensure DOM input boxes visually reflect compacted keys pool immediately!
     if (typeof window.syncAdminElevenKeyBoxes === 'function') window.syncAdminElevenKeyBoxes();
     if (typeof window.syncAdminGeminiKeyBoxes === 'function') window.syncAdminGeminiKeyBoxes();
 
-    showToast('AI, Voice & Google Drive rclone settings saved successfully');
+    showToast('AI & Voice credentials saved successfully');
     if (elevenKey) {
       await verifyAndLoadElevenVoices(true);
     }

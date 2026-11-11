@@ -16,3 +16,8 @@ Thumbs.db
 # Secrets
 .dev.vars
 .env
+
+# Temp / Chrome debug profiles & generated docs
+tmp_chrome_*/
+tmp_*/
+docs/

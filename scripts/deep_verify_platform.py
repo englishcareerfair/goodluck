@@ -156,8 +156,6 @@ def verify_html_linkages():
         'admin-telemetry-table-body',
         'admin-issues-container',
         'btn-generate-api-key',
-        'admin-rclone-remote',
-        'admin-rclone-endpoint',
         'tos-pp-modal',
         'btn-agree-tos'
     ]

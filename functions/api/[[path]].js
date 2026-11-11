@@ -1773,8 +1773,7 @@ const GLOBAL_CACHE = {
     admin_auth_seed: 'pbkdf2-sha512-v3',
     stream_url: 'https://www.youtube.com/watch?v=jfKfPfyJRdk',
     stream_title: 'Career Fair 2026 — Live Stage Broadcast',
-    stream_active: '1',
-    rclone_remote: 'gdrive:careerfair_telemetry'
+    stream_active: '1'
   },
   scores: [],
   feedback: [
@@ -2362,14 +2361,6 @@ export async function onRequest(ctx) {
     if (body.school_branding !== undefined) await kvSet(db, 'school_branding', body.school_branding ? '1' : '0');
     if (body.school_name !== undefined) await kvSet(db, 'school_name', body.school_name);
     if (body.flags !== undefined) await kvSet(db, 'flags', JSON.stringify(body.flags));
-    if (body.rclone_remote !== undefined) {
-      await kvSet(db, 'rclone_remote', String(body.rclone_remote));
-      GLOBAL_CACHE.kv.rclone_remote = String(body.rclone_remote);
-    }
-    if (body.rclone_endpoint !== undefined) {
-      await kvSet(db, 'rclone_endpoint', String(body.rclone_endpoint));
-      GLOBAL_CACHE.kv.rclone_endpoint = String(body.rclone_endpoint);
-    }
     if (body.stream_url !== undefined && String(body.stream_url).trim() !== '') {
       const cleanUrl = String(body.stream_url).trim();
       await kvSet(db, 'stream_url', cleanUrl);
@@ -4684,13 +4675,13 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     if (existingIdx >= 0) GLOBAL_CACHE.telemetry[existingIdx] = sessionObj;
     else GLOBAL_CACHE.telemetry.unshift(sessionObj);
 
-    // Telemetry persisted to Cloudflare D1 & cache; outbound rclone relay disabled from unauthenticated visitor endpoint
+    // Telemetry persisted to Cloudflare D1 & cache
 
     return json({
       ok: true,
       sessionId,
       gdrive_folder: gdriveFolder,
-      message: 'Telemetry archived indefinitely to Google Drive'
+      message: 'Telemetry archived to Cloudflare D1'
     });
   }
 

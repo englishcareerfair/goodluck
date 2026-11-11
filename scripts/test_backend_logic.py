@@ -6,8 +6,7 @@ import time
 
 GLOBAL_CACHE = {
     'kv': {
-        'stream_url': 'https://www.youtube.com/watch?v=jfKfPfyJRdk',
-        'rclone_remote': 'gdrive:careerfair_telemetry'
+        'stream_url': 'https://www.youtube.com/watch?v=jfKfPfyJRdk'
     },
     'scores': [],
     'feedback': [],

@@ -94,7 +94,6 @@ INSERT OR IGNORE INTO kv (k, v) VALUES ('theme', 'cinematic');
 INSERT OR IGNORE INTO kv (k, v) VALUES ('school_branding', '1');
 INSERT OR IGNORE INTO kv (k, v) VALUES ('school_name', 'Kanakia International School Mira Road');
 INSERT OR IGNORE INTO kv (k, v) VALUES ('flags', '{"guide_enabled":true,"guide_presentation_mode":"floating","ocr_enabled":true,"pdf_export":true,"dopamine_fx":true,"speechLab":true,"anchorMode":true,"careers":true,"colleges":true,"exams":true,"games":true,"roadmap":true,"leaderboard":true,"feedback":true}');
-INSERT OR IGNORE INTO kv (k, v) VALUES ('rclone_remote', 'gdrive:careerfair_telemetry');
 INSERT OR IGNORE INTO kv (k, v) VALUES ('stream_url', 'https://www.youtube.com/watch?v=jfKfPfyJRdk');
 INSERT OR IGNORE INTO kv (k, v) VALUES ('stream_title', 'Career Fair 2026 — Live Stage Broadcast');
 INSERT OR IGNORE INTO kv (k, v) VALUES ('stream_active', '1');

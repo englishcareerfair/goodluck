@@ -685,7 +685,7 @@
         window.stopAllVoice();
       }
 
-      // Archive telemetry session indefinitely to Google Drive rclone bridge
+      // Archive telemetry session to Cloudflare D1
       this.archiveSessionTelemetry();
 
       // Cleanly remove guide DOM overlay
