@@ -1515,11 +1515,25 @@ function cancelTutorialScroll() {
 }
 
 let userInterruptedScrollForStep = null;
-let isGliderProgrammaticScroll = false;
+let gliderProgrammaticUntil = 0;
+let isGliderActivelyGliding = false;
 let lastGliderScrollY = 0;
 
-function onUserScrollInterruption() {
-  if (!isTutorialRunning) return;
+function isTutorialHudEvent(e) {
+  return Boolean(e && e.target && typeof e.target.closest === 'function' && e.target.closest('#tutorial-hud'));
+}
+
+function setGliderScrollPosition(targetY) {
+  const y = Math.max(0, Math.round(targetY));
+  gliderProgrammaticUntil = performance.now() + 140;
+  window.scrollTo(0, y);
+  const actualY = Math.round(window.pageYOffset || document.documentElement.scrollTop);
+  lastGliderScrollY = actualY;
+  return actualY;
+}
+
+function onUserScrollInterruption(e) {
+  if (!isTutorialRunning || isTutorialHudEvent(e)) return;
   userInterruptedScrollForStep = currentTutorialStepIndex;
   cancelTutorialGlider();
   cancelTutorialScroll();
@@ -1528,26 +1542,27 @@ function onUserScrollInterruption() {
 if (typeof window !== 'undefined') {
   window.addEventListener('wheel', onUserScrollInterruption, { passive: true });
   window.addEventListener('touchmove', onUserScrollInterruption, { passive: true });
-  window.addEventListener('touchstart', onUserScrollInterruption, { passive: true });
   window.addEventListener('keydown', (e) => {
+    const tag = e.target && e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Space', 'Home', 'End'].includes(e.code) || ['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', ' '].includes(e.key)) {
-      onUserScrollInterruption();
+      onUserScrollInterruption(e);
     }
   }, { passive: true });
-  // Mousedown / Pointerdown on or near desktop scrollbar to let user take control immediately
+  // Mousedown on or near desktop scrollbar to let user take control immediately
   window.addEventListener('mousedown', (e) => {
-    if (e.clientX >= (window.innerWidth - 25)) {
-      onUserScrollInterruption();
+    if (isTutorialHudEvent(e)) return;
+    if (e.clientX >= (document.documentElement.clientWidth - 25)) {
+      onUserScrollInterruption(e);
     }
   }, { passive: true });
   // Detect manual scrollbar drag or external user scroll during active glide
   window.addEventListener('scroll', () => {
-    if (!isTutorialRunning || !currentGliderTab) return;
-    if (!isGliderProgrammaticScroll) {
-      const curY = window.pageYOffset || document.documentElement.scrollTop;
-      if (Math.abs(curY - lastGliderScrollY) > 12) {
-        onUserScrollInterruption();
-      }
+    if (!isTutorialRunning || !isGliderActivelyGliding) return;
+    if (performance.now() < gliderProgrammaticUntil) return;
+    const curY = window.pageYOffset || document.documentElement.scrollTop;
+    if (Math.abs(curY - lastGliderScrollY) > 24) {
+      onUserScrollInterruption();
     }
   }, { passive: true });
 }
@@ -1602,6 +1617,9 @@ let currentGliderTab = null;
 
 function cancelTutorialGlider() {
   currentGliderTab = null;
+  isGliderActivelyGliding = false;
+  gliderProgrammaticUntil = 0;
+  lastGliderScrollY = 0;
   document.documentElement.style.scrollBehavior = '';
   if (tutorialGliderTimeoutId) {
     clearTimeout(tutorialGliderTimeoutId);
@@ -1682,7 +1700,7 @@ function startTutorialNarrationGlider(tabKey) {
     document.documentElement.style.scrollBehavior = 'auto';
 
     // Always start at top of tab (guarantees downward scroll motion)
-    window.scrollTo(0, 0);
+    setGliderScrollPosition(0);
 
     const viewportHeight = window.innerHeight;
     const currentScrollY = window.pageYOffset || document.documentElement.scrollTop;
@@ -1759,23 +1777,24 @@ function startTutorialNarrationGlider(tabKey) {
         y = (0.5 * v * tRamp) + v * (t - tRamp);
       }
 
-      // Re-check dynamic document bottom for careers (full page), but honor exact targetDistance for exams & speechLab
-      const currentLimit = (tabKey === 'careers') ? Math.max(targetDistance, document.documentElement.scrollHeight - window.innerHeight) : targetDistance;
+      // Re-check dynamic document bottom for careers (full page), and clamp exams/speechLab to scrollable height
+      const docMax = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      const currentLimit = (tabKey === 'careers') ? Math.max(targetDistance, docMax) : Math.min(targetDistance, docMax);
 
       if (y >= currentLimit) {
-        window.scrollTo(0, currentLimit);
+        setGliderScrollPosition(currentLimit);
+        isGliderActivelyGliding = false;
+        currentGliderTab = null;
         document.documentElement.style.scrollBehavior = '';
         tutorialGliderAnimId = null;
         return;
       }
 
-      isGliderProgrammaticScroll = true;
-      lastGliderScrollY = Math.round(y);
-      window.scrollTo(0, Math.round(y));
-      isGliderProgrammaticScroll = false;
+      setGliderScrollPosition(y);
       tutorialGliderAnimId = requestAnimationFrame(glideStep);
     }
 
+    isGliderActivelyGliding = true;
     tutorialGliderAnimId = requestAnimationFrame(glideStep);
   }, 120);
 }
@@ -2441,6 +2460,8 @@ function renderInSiteTutorialStep(stepIndex) {
   const htmlEl = document.documentElement;
   const prevBehavior = htmlEl.style.scrollBehavior;
   htmlEl.style.scrollBehavior = 'auto';
+  gliderProgrammaticUntil = performance.now() + 140;
+  lastGliderScrollY = 0;
   window.scrollTo(0, 0);
   document.body.scrollTop = 0;
   htmlEl.scrollTop = 0;
@@ -4616,10 +4637,16 @@ function switchTab(tabId, options = {}) {
     btn.classList.toggle('active', btn.dataset.tab === tabId);
   });
 
-  // Smoothly center the active tab in the horizontal scroll track
+  // Smoothly center the active tab in the horizontal scroll track without disturbing vertical scroll
   const activeTabBtn = $(`.tab-btn[data-tab="${tabId}"]`);
   if (activeTabBtn) {
-    activeTabBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    const navTrack = $('#nav-tabs-track');
+    if (options.keepScroll && navTrack) {
+      const targetLeft = activeTabBtn.offsetLeft - (navTrack.clientWidth - activeTabBtn.offsetWidth) / 2;
+      navTrack.scrollTo({ left: Math.max(0, targetLeft), behavior: 'smooth' });
+    } else {
+      activeTabBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
   }
 
   // Hyperframe Fluid Tab Transition
