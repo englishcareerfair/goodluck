@@ -12289,7 +12289,7 @@ async function loadLeaderboard(filterPack = 'All') {
   try {
     const isSpeechPack = filterPack && (filterPack.toLowerCase() === 'speech lab' || filterPack.toLowerCase() === 'ai speech lab');
     const queryPack = isSpeechPack ? 'Speech Lab' : filterPack;
-    const data = await fetchApi(`scores${queryPack && queryPack !== 'All' ? '?pack=' + encodeURIComponent(queryPack) : ''}`);
+    const data = await fetchApi(`scores${queryPack && queryPack !== 'All' ? '?pack=' + encodeURIComponent(queryPack) : ''}`, { cache: 'no-store' });
     if (Array.isArray(data)) {
       serverScores = data;
     }
@@ -12400,7 +12400,7 @@ async function loadLeaderboard(filterPack = 'All') {
       const storedTitles = localStorage.getItem('cf_user_titles');
       if (storedTitles) userTitlesMap = JSON.parse(storedTitles);
     } catch {}
-    const customTitle = userTitlesMap[sc.name] || '';
+    const customTitle = lookupUserTitle(userTitlesMap, sc.name) || sc.title || '';
     const titleBadgeHtml = customTitle
       ? `<span class="user-title-badge" title="Official Honor Title">👑 ${escapeHtml(customTitle)}</span>`
       : '';
@@ -12571,9 +12571,12 @@ async function loadFeedbackWall() {
 
   function getLocalFeedbacks() {
     try {
+      if (localStorage.getItem('cf_feedback_reset') === 'true') return [];
       const raw = localStorage.getItem('cf_user_feedbacks');
-      const parsed = raw ? JSON.parse(raw) : null;
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (raw !== null) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
       return DEFAULT_COMMUNITY_FEEDBACKS;
     } catch {
       return DEFAULT_COMMUNITY_FEEDBACKS;
@@ -12653,7 +12656,7 @@ async function loadFeedbackWall() {
       const roleBadge = escapeHtml(roleBadgeText);
 
       const isPinned = Number(f.pinned || 0) === 1;
-      const customTitle = userTitlesMap[f.name] || '';
+      const customTitle = lookupUserTitle(userTitlesMap, f.name) || f.title || '';
       const titleBadgeHtml = customTitle
         ? `<span class="user-title-badge" title="Official Honor Title">👑 ${escapeHtml(customTitle)}</span>`
         : '';
@@ -12705,17 +12708,22 @@ async function loadFeedbackWall() {
 
   // Authoritative global synchronization from Cloudflare D1
   try {
-    const res = await fetchApi('feedback');
+    const res = await fetchApi('feedback', { cache: 'no-store' });
     const serverItems = res?.results || res?.feedback;
-    if (Array.isArray(serverItems) && serverItems.length > 0) {
+    if (Array.isArray(serverItems)) {
       // The global database is the single source of truth:
-      // Overwrite local cache with authoritative server items so deleted reviews disappear everywhere!
+      // Overwrite local cache (including empty []) so deleted reviews — even titled/pinned ones — vanish everywhere!
       feedbacks = serverItems.map(item => ({
         id: item.id,
         name: item.name || 'Visitor',
         role: item.role || 'Student',
         class_info: item.class_info || '',
+        title: item.title || '',
+        badge: item.badge || '',
         useful: Math.max(1, Math.min(5, Number(item.r_useful || item.useful || 5))),
+        r_useful: Math.max(1, Math.min(5, Number(item.r_useful || item.useful || 5))),
+        r_games: Number(item.r_games ?? 5),
+        r_speaking: Number(item.r_speaking ?? 5),
         comment: String(item.comment || '').trim(),
         pinned: Number(item.pinned || 0),
         ts: Number(item.ts || Date.now())
@@ -12726,6 +12734,14 @@ async function loadFeedbackWall() {
         if (pinA !== pinB) return pinB - pinA;
         return (Number(b.ts) || 0) - (Number(a.ts) || 0);
       });
+      try {
+        if (feedbacks.length === 0) {
+          localStorage.setItem('cf_feedback_reset', 'true');
+        } else {
+          localStorage.removeItem('cf_feedback_reset');
+        }
+      } catch {}
+      STATE.feedback = feedbacks;
       saveLocalFeedbacks(feedbacks);
       renderFeedbacks(feedbacks);
     }
@@ -12807,6 +12823,8 @@ async function loadFeedbackWall() {
           timestamp: Date.now()
         }));
       } catch (_) {}
+
+      try { localStorage.removeItem('cf_feedback_reset'); } catch {}
 
       // Submit directly to global D1 backend and await persistence
       try {
@@ -13028,6 +13046,9 @@ window.adminDeleteFeedback = async function(id, comment) {
         return true;
       });
       localStorage.setItem('cf_user_feedbacks', JSON.stringify(items));
+      if (items.length === 0) {
+        localStorage.setItem('cf_feedback_reset', 'true');
+      }
     }
   } catch (e) {}
 
@@ -13242,7 +13263,7 @@ async function renderAdminModeration() {
   if (scoresTbody) {
     let scores = [];
     try {
-      const data = await fetchApi('scores');
+      const data = await fetchApi('scores', { cache: 'no-store' });
       if (Array.isArray(data)) scores = data;
     } catch {}
 
@@ -14371,12 +14392,20 @@ function initAdminWorkspace() {
   $('#btn-clear-all-feedback')?.addEventListener('click', async () => {
     if (!confirm('Are you sure you want to delete ALL visitor reflections? This action cannot be undone.')) return;
     try {
-      await fetchApi('admin/reset-feedback', 'POST', {});
+      localStorage.setItem('cf_feedback_reset', 'true');
+      localStorage.setItem('cf_user_feedbacks', '[]');
     } catch {}
-    localStorage.removeItem('cf_user_feedbacks');
-    showToast('All visitor reflections deleted');
-    loadFeedbackWall();
-    renderAdminModeration();
+    STATE.feedback = [];
+    let apiOk = false;
+    try {
+      const res = await fetchApi('admin/reset-feedback', 'POST', {});
+      apiOk = Boolean(res && res.ok);
+    } catch {}
+    showToast(apiOk ? 'All visitor reflections deleted globally' : 'All local visitor reflections deleted');
+    await loadFeedbackWall();
+    if (typeof renderAdminModeration === 'function') {
+      await renderAdminModeration();
+    }
   });
 
   $('#btn-refresh-admin-scores')?.addEventListener('click', () => {
@@ -16072,10 +16101,432 @@ function wireTeleprompterTutorialHighlights() {
 
 
 // ── Admin Exhibition Data Importer (JSON / CSV, Connected & Separated) ──────
+function lookupUserTitle(titlesMap, name) {
+  if (!titlesMap || typeof titlesMap !== 'object' || !name) return '';
+  if (titlesMap[name]) return String(titlesMap[name]).trim();
+  const target = String(name).trim().toLowerCase();
+  for (const [k, v] of Object.entries(titlesMap)) {
+    if (String(k).trim().toLowerCase() === target && v) {
+      return String(v).trim();
+    }
+  }
+  return '';
+}
+
+function normImportText(val) {
+  return String(val || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function normalizeClientBadgesStore(rawBadges) {
+  const out = { global: [], by_user: {} };
+  if (!rawBadges) return out;
+  if (Array.isArray(rawBadges)) {
+    out.global = [...new Set(rawBadges.map(b => String(b || '').trim()).filter(Boolean))];
+    return out;
+  }
+  if (typeof rawBadges === 'object') {
+    if (Array.isArray(rawBadges.global)) {
+      out.global = [...new Set(rawBadges.global.map(b => String(b || '').trim()).filter(Boolean))];
+    }
+    const byUserSrc = (rawBadges.by_user && typeof rawBadges.by_user === 'object') ? rawBadges.by_user : null;
+    if (byUserSrc) {
+      for (const [k, v] of Object.entries(byUserSrc)) {
+        const cleanK = String(k || '').trim();
+        if (!cleanK) continue;
+        const arr = Array.isArray(v) ? v : String(v || '').split('|').map(x => x.trim()).filter(Boolean);
+        if (arr.length) out.by_user[cleanK] = [...new Set(arr)];
+      }
+    } else {
+      for (const [k, v] of Object.entries(rawBadges)) {
+        if (k === 'global' || k === 'by_user') continue;
+        const cleanK = String(k || '').trim();
+        if (!cleanK) continue;
+        const arr = Array.isArray(v) ? v : String(v || '').split('|').map(x => x.trim()).filter(Boolean);
+        if (arr.length) out.by_user[cleanK] = [...new Set(arr)];
+      }
+    }
+  }
+  return out;
+}
+
+function mergeClientBadgesStores(baseRaw, incomingRaw) {
+  const a = normalizeClientBadgesStore(baseRaw);
+  const b = normalizeClientBadgesStore(incomingRaw);
+  const merged = {
+    global: [...new Set([...a.global, ...b.global])],
+    by_user: { ...a.by_user }
+  };
+  for (const [k, v] of Object.entries(b.by_user)) {
+    merged.by_user[k] = [...new Set([...(merged.by_user[k] || []), ...v])];
+  }
+  return merged;
+}
+
+function exportCsvCellClient(val) {
+  let s = val === null || val === undefined ? '' : String(val);
+  if (/^[\s]*[=+\-@\t\r]/.test(s)) {
+    s = "'" + s;
+  }
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+function makeClientFeedbackDedupKey(f) {
+  const nName = normImportText(f?.name || 'Visitor');
+  const nComment = normImportText(f?.comment || f?.detail || f?.review || '');
+  if (nComment) return `${nName}::${nComment}`;
+  const tsNum = Number(f?.ts || f?.timestamp || 0);
+  const tsSec = tsNum ? Math.floor((tsNum < 1e12 ? tsNum * 1000 : tsNum) / 1000) : 0;
+  const useful = Number(f?.r_useful ?? f?.useful ?? 5) || 5;
+  return `${nName}::empty::${tsSec}::${useful}`;
+}
+
+function getClientScoreDedupKeys(s) {
+  const name = normImportText(s?.name || s?.student_name || 'Anonymous Student');
+  const pack = normImportText(s?.pack || s?.speaking_pack || 'Everyday');
+  const level = Math.round(Number(s?.level || 1) || 1);
+  const acc = Math.round(Number(s?.acc ?? s?.accuracy ?? 50) || 0);
+  const rawTs = s?.ts ?? s?.timestamp;
+  const hasTs = rawTs !== undefined && rawTs !== null && String(rawTs).trim() !== '' && Number(rawTs) !== 0;
+  const nTs = Number(rawTs || 0);
+  const tsMs = hasTs && Number.isFinite(nTs) ? (nTs < 1e12 ? nTs * 1000 : nTs) : 0;
+  const tsSec = Math.floor(tsMs / 1000);
+  return {
+    core: `${name}|${pack}|${level}|${acc}|${tsSec}`,
+    noTs: `${name}|${pack}|${level}|${acc}`,
+    hasTs
+  };
+}
+
+function mergeScoresDeduplicated(incomingScores, existingScores) {
+  const out = Array.isArray(existingScores) ? [...existingScores] : [];
+  const coreSet = new Set();
+  const noTsSet = new Set();
+  for (const s of out) {
+    const k = getClientScoreDedupKeys(s);
+    coreSet.add(k.core);
+    noTsSet.add(k.noTs);
+  }
+  for (const s of (incomingScores || [])) {
+    const k = getClientScoreDedupKeys(s);
+    if (coreSet.has(k.core)) continue;
+    if (!k.hasTs && noTsSet.has(k.noTs)) continue;
+    coreSet.add(k.core);
+    noTsSet.add(k.noTs);
+    out.push(s);
+  }
+  return out;
+}
+
+function mergeFeedbacksDeduplicated(incomingFeedbacks, existingFeedbacks) {
+  const out = Array.isArray(existingFeedbacks) ? [...existingFeedbacks] : [];
+  const seen = new Set(out.map(makeClientFeedbackDedupKey));
+  for (const f of (incomingFeedbacks || [])) {
+    const k = makeClientFeedbackDedupKey(f);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(f);
+  }
+  return out;
+}
+
+window.initD1ExportButtons = function() {
+  const jsonBtn = $('#btn-download-d1-json');
+  const csvBtn = $('#btn-download-d1-csv');
+
+  async function buildCompleteExportPayload() {
+    const token = getActiveAdminToken();
+    if (!token) {
+      showToast('Admin authorization required to export.');
+      return null;
+    }
+    const res = await fetch(`${getApiUrl('api/export/data')}?format=json`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` },
+      cache: 'no-store'
+    });
+    if (!res.ok) {
+      throw new Error(`Export failed (HTTP ${res.status})`);
+    }
+    const data = await res.json();
+
+    // Merge local honor titles if server map omitted any
+    let localTitles = {};
+    try {
+      const rawT = localStorage.getItem('cf_user_titles');
+      if (rawT) localTitles = JSON.parse(rawT);
+    } catch {}
+    const mergedTitles = { ...localTitles, ...(data.user_titles || data.titles || {}) };
+
+    // Merge local achievement badges ('cf_user_badges') with backend badges
+    let localBadgesArr = [];
+    try {
+      const rawB = localStorage.getItem('cf_user_badges');
+      if (rawB) localBadgesArr = JSON.parse(rawB);
+    } catch {}
+    const mergedBadges = mergeClientBadgesStores(data.user_badges || data.badges, localBadgesArr);
+
+    const feedbackList = (Array.isArray(data.feedback) ? data.feedback : []).map(f => {
+      const title = f.title || lookupUserTitle(mergedTitles, f.name);
+      const isPinned = (Number(f.pinned || 0) === 1 || Boolean(f.is_pinned)) ? 1 : 0;
+      const userBadges = [];
+      for (const [u, list] of Object.entries(mergedBadges.by_user || {})) {
+        if (normImportText(u) === normImportText(f.name) && Array.isArray(list)) {
+          userBadges.push(...list);
+        }
+      }
+      const badgeParts = [
+        title ? `Title:${title}` : '',
+        f.role ? `Role:${f.role}` : '',
+        f.class_info || '',
+        isPinned ? 'Pinned' : '',
+        ...userBadges,
+        ...(f.badge ? String(f.badge).split('|').map(x => x.trim()) : [])
+      ].filter(Boolean);
+      return {
+        ...f,
+        title,
+        pinned: isPinned,
+        is_pinned: Boolean(isPinned),
+        badge: [...new Set(badgeParts)].join(' | ')
+      };
+    });
+
+    const scoresList = (Array.isArray(data.scores) ? data.scores : []).map(s => {
+      const title = s.title || lookupUserTitle(mergedTitles, s.name);
+      const userBadges = [];
+      for (const [u, list] of Object.entries(mergedBadges.by_user || {})) {
+        if (normImportText(u) === normImportText(s.name) && Array.isArray(list)) {
+          userBadges.push(...list);
+        }
+      }
+      const badgeParts = [
+        title ? `Title:${title}` : '',
+        s.target_career ? `Role:${s.target_career}` : '',
+        ...userBadges,
+        ...(s.badge ? String(s.badge).split('|').map(x => x.trim()) : [])
+      ].filter(Boolean);
+      return {
+        ...s,
+        title,
+        badge: [...new Set(badgeParts)].join(' | ')
+      };
+    });
+
+    return {
+      ...data,
+      total_titles: Object.keys(mergedTitles).length,
+      total_badges: (mergedBadges.global?.length || 0) + Object.keys(mergedBadges.by_user || {}).length,
+      user_titles: mergedTitles,
+      titles: mergedTitles,
+      user_badges: mergedBadges,
+      badges: mergedBadges,
+      feedback: feedbackList,
+      scores: scoresList
+    };
+  }
+
+  function triggerBlobDownload(blob, filename) {
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
+
+  if (jsonBtn && !jsonBtn.dataset.bound) {
+    jsonBtn.dataset.bound = 'true';
+    jsonBtn.addEventListener('click', async () => {
+      const origHtml = jsonBtn.innerHTML;
+      jsonBtn.disabled = true;
+      jsonBtn.textContent = 'Exporting JSON...';
+      try {
+        const payload = await buildCompleteExportPayload();
+        if (!payload) return;
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+        triggerBlobDownload(blob, `careerfair_global_data_${Date.now()}.json`);
+        showToast('Exported complete JSON archive (with titles & badges)');
+      } catch (e) {
+        console.error('JSON export error:', e);
+        showToast('JSON export failed: ' + e.message);
+      } finally {
+        jsonBtn.disabled = false;
+        jsonBtn.innerHTML = origHtml;
+      }
+    });
+  }
+
+  if (csvBtn && !csvBtn.dataset.bound) {
+    csvBtn.dataset.bound = 'true';
+    csvBtn.addEventListener('click', async () => {
+      const origHtml = csvBtn.innerHTML;
+      csvBtn.disabled = true;
+      csvBtn.textContent = 'Exporting CSV...';
+      try {
+        const payload = await buildCompleteExportPayload();
+        if (!payload) return;
+        const headers = [
+          'Record_Type', 'ID', 'Name', 'Title', 'Badge', 'Role', 'Class_Info',
+          'Pack', 'Level', 'Accuracy', 'Fluency', 'Clarity', 'WPM', 'Target_Career',
+          'Pinned', 'Games', 'Speaking', 'Detail', 'Metric', 'Timestamp', 'ISO_Date'
+        ];
+        const rows = [headers.join(',')];
+        const nowMs = Date.now();
+        const nowIso = new Date(nowMs).toISOString();
+
+        for (const [tName, tVal] of Object.entries(payload.user_titles || {})) {
+          if (tVal) {
+            rows.push([
+              'Title', exportCsvCellClient('title_' + encodeURIComponent(tName)), exportCsvCellClient(tName),
+              exportCsvCellClient(tVal), exportCsvCellClient('Title:' + tVal),
+              '', '', '', '', '', '', '', '', '',
+              0, 5, 5, exportCsvCellClient('Honor Title'), 0, nowMs, exportCsvCellClient(nowIso)
+            ].join(','));
+          }
+        }
+        const badgeStore = normalizeClientBadgesStore(payload.user_badges);
+        for (const bKey of (badgeStore.global || [])) {
+          if (bKey) {
+            rows.push([
+              'Badge', exportCsvCellClient('badge_global_' + encodeURIComponent(bKey)), '__global__', '', exportCsvCellClient(bKey),
+              '', '', '', '', '', '', '', '', '',
+              0, 5, 5, exportCsvCellClient('Unlocked Badge'), 1, nowMs, exportCsvCellClient(nowIso)
+            ].join(','));
+          }
+        }
+        for (const [bName, bList] of Object.entries(badgeStore.by_user || {})) {
+          for (const bKey of (bList || [])) {
+            rows.push([
+              'Badge', exportCsvCellClient('badge_' + encodeURIComponent(bName + '_' + bKey)), exportCsvCellClient(bName), '', exportCsvCellClient(bKey),
+              '', '', '', '', '', '', '', '', '',
+              0, 5, 5, exportCsvCellClient('User Badge'), 1, nowMs, exportCsvCellClient(nowIso)
+            ].join(','));
+          }
+        }
+        for (const f of (payload.feedback || [])) {
+          const tsNum = Number(f.ts || nowMs) || nowMs;
+          const iso = !isNaN(new Date(tsNum).getTime()) ? new Date(tsNum).toISOString() : nowIso;
+          rows.push([
+            'Feedback', exportCsvCellClient(f.id), exportCsvCellClient(f.name), exportCsvCellClient(f.title || ''), exportCsvCellClient(f.badge || ''),
+            exportCsvCellClient(f.role || 'Student'), exportCsvCellClient(f.class_info || ''),
+            '', '', '', '', '', '', '',
+            Number(f.pinned || 0), Number(f.r_games ?? 5), Number(f.r_speaking ?? 5),
+            exportCsvCellClient(f.comment || ''), Number(f.r_useful ?? f.useful ?? 5), tsNum, exportCsvCellClient(iso)
+          ].join(','));
+        }
+        for (const s of (payload.scores || [])) {
+          const tsNum = Number(s.ts || nowMs) || nowMs;
+          const iso = !isNaN(new Date(tsNum).getTime()) ? new Date(tsNum).toISOString() : nowIso;
+          rows.push([
+            'Score', exportCsvCellClient(s.id), exportCsvCellClient(s.name), exportCsvCellClient(s.title || ''), exportCsvCellClient(s.badge || ''),
+            '', exportCsvCellClient(s.class_name || 'General'),
+            exportCsvCellClient(s.pack || 'Everyday'), Number(s.level || 1), Number(s.acc ?? 0),
+            Number(s.fluency ?? 0), Number(s.clarity ?? 0), Number(s.wpm ?? 0), exportCsvCellClient(s.target_career || ''),
+            0, '', '',
+            exportCsvCellClient(`${s.pack || 'Everyday'} Level ${s.level || 1} (Accuracy ${s.acc ?? 0}%)`), Number(s.acc ?? 0), tsNum, exportCsvCellClient(iso)
+          ].join(','));
+        }
+        const blob = new Blob([rows.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' });
+        triggerBlobDownload(blob, `careerfair_global_data_${Date.now()}.csv`);
+        showToast('Exported complete CSV spreadsheet (with titles & badges)');
+      } catch (e) {
+        console.error('CSV export error:', e);
+        showToast('CSV export failed: ' + e.message);
+      } finally {
+        csvBtn.disabled = false;
+        csvBtn.innerHTML = origHtml;
+      }
+    });
+  }
+};
+
 function parseExhibitionImportData(rawText, fileName = '') {
-  const result = { scores: [], feedback: [], titles: {}, detectedFormat: 'unknown' };
-  const text = (rawText || '').trim();
+  const result = {
+    scores: [],
+    feedback: [],
+    titles: {},
+    user_badges: { global: [], by_user: {} },
+    pinned_feedbacks: [],
+    detectedFormat: 'unknown'
+  };
+  const text = (rawText || '').replace(/^\uFEFF/, '').trim();
   if (!text) return result;
+
+  const scoreCoreSeen = new Set();
+  const scoreNoTsSeen = new Set();
+  const feedbackSeen = new Set();
+
+  function parseImportTs(rawTs, rawIso) {
+    if (typeof rawTs === 'number' && Number.isFinite(rawTs) && rawTs > 0) {
+      return { ts: rawTs < 1e12 ? Math.round(rawTs * 1000) : Math.round(rawTs), explicit: true };
+    }
+    const tsStr = String(rawTs ?? '').trim();
+    if (tsStr) {
+      const asNum = Number(tsStr);
+      if (Number.isFinite(asNum) && asNum > 1000000000) {
+        return { ts: asNum < 1e12 ? Math.round(asNum * 1000) : Math.round(asNum), explicit: true };
+      }
+      const parsedTs = Date.parse(tsStr);
+      if (Number.isFinite(parsedTs) && parsedTs > 0) {
+        return { ts: parsedTs, explicit: true };
+      }
+    }
+    const isoStr = String(rawIso ?? '').trim();
+    if (isoStr) {
+      const parsedIso = Date.parse(isoStr);
+      if (Number.isFinite(parsedIso) && parsedIso > 0) {
+        return { ts: parsedIso, explicit: true };
+      }
+    }
+    return { ts: Date.now(), explicit: false };
+  }
+
+  function harvestBadgesAndTitles(name, titleVal, badgeRaw) {
+    const cleanName = String(name || '').trim();
+    const cleanTitle = String(titleVal || '').trim();
+    if (cleanName && cleanTitle && !result.titles[cleanName]) {
+      result.titles[cleanName] = cleanTitle;
+    }
+    const parts = Array.isArray(badgeRaw)
+      ? badgeRaw
+      : String(badgeRaw || '').split('|');
+    const extraBadges = [];
+    let hasPinnedBadge = false;
+    for (const rawPart of parts) {
+      const p = String(rawPart || '').trim();
+      if (!p) continue;
+      if (p.toLowerCase() === 'pinned') {
+        hasPinnedBadge = true;
+      } else if (p.startsWith('Title:')) {
+        const t = p.slice(6).trim();
+        if (cleanName && t && !result.titles[cleanName]) result.titles[cleanName] = t;
+      } else if (!p.startsWith('Role:')) {
+        extraBadges.push(p);
+      }
+    }
+    if (cleanName && extraBadges.length > 0) {
+      result.user_badges = mergeClientBadgesStores(result.user_badges, { by_user: { [cleanName]: extraBadges } });
+    }
+    return { cleanTitle, extraBadges, hasPinnedBadge };
+  }
+
+  function pushScore(item, hasExplicitTs) {
+    const keys = getClientScoreDedupKeys({ ...item, ts: hasExplicitTs ? item.ts : '' });
+    if (scoreCoreSeen.has(keys.core)) return;
+    if (!keys.hasTs && scoreNoTsSeen.has(keys.noTs)) return;
+    scoreCoreSeen.add(keys.core);
+    scoreNoTsSeen.add(keys.noTs);
+    result.scores.push(item);
+  }
+
+  function pushFeedback(item) {
+    const key = makeClientFeedbackDedupKey(item);
+    if (feedbackSeen.has(key)) return;
+    feedbackSeen.add(key);
+    result.feedback.push(item);
+  }
 
   // 1. Try JSON First
   if (text.startsWith('{') || text.startsWith('[')) {
@@ -16085,22 +16536,32 @@ function parseExhibitionImportData(rawText, fileName = '') {
         parsed.forEach((item, idx) => {
           if (!item || typeof item !== 'object') return;
           if (item.comment || item.r_useful !== undefined || item.role) {
-            result.feedback.push({
+            const { cleanTitle, hasPinnedBadge } = harvestBadgesAndTitles(item.name, item.title, item.badge || item.badges);
+            const { ts } = parseImportTs(item.ts ?? item.timestamp, item.iso_date);
+            const isPinned = (Number(item.pinned || 0) === 1 || Boolean(item.is_pinned) || hasPinnedBadge) ? 1 : 0;
+            pushFeedback({
               id: item.id || `fb_${Date.now()}_${idx}`,
               name: item.name || 'Anonymous Visitor',
               role: item.role || 'Student',
               class_info: item.class_info || item.class || '',
+              title: cleanTitle,
+              badge: Array.isArray(item.badges) ? item.badges.join(' | ') : (item.badge || ''),
               comment: item.comment || item.review || item.detail || '',
               r_useful: Number(item.r_useful ?? item.useful ?? 5),
               r_games: Number(item.r_games ?? item.games ?? 5),
               r_speaking: Number(item.r_speaking ?? item.speaking ?? 5),
-              ts: Number(item.ts || item.timestamp || Date.now()),
-              is_pinned: item.is_pinned ? 1 : 0
+              ts,
+              pinned: isPinned,
+              is_pinned: isPinned
             });
           } else {
-            result.scores.push({
+            const { cleanTitle } = harvestBadgesAndTitles(item.name, item.title, item.badge || item.badges);
+            const tsInfo = parseImportTs(item.ts ?? item.timestamp, item.iso_date);
+            pushScore({
               id: item.id || `score_${Date.now()}_${idx}`,
               name: item.name || item.student_name || 'Anonymous Student',
+              title: cleanTitle,
+              badge: Array.isArray(item.badges) ? item.badges.join(' | ') : (item.badge || ''),
               pack: item.pack || item.speaking_pack || 'Everyday',
               level: Number(item.level || 1),
               acc: Number(item.acc ?? item.accuracy ?? 70),
@@ -16109,17 +16570,32 @@ function parseExhibitionImportData(rawText, fileName = '') {
               wpm: Number(item.wpm ?? 120),
               class_name: item.class_name || item.class || 'General',
               target_career: item.target_career || item.career || '',
-              ts: Number(item.ts || item.timestamp || Date.now())
-            });
+              ts: tsInfo.ts
+            }, tsInfo.explicit);
           }
         });
         result.detectedFormat = 'JSON Array';
       } else if (typeof parsed === 'object') {
+        const incomingTitles = (parsed.user_titles && typeof parsed.user_titles === 'object')
+          ? parsed.user_titles
+          : ((parsed.titles && typeof parsed.titles === 'object') ? parsed.titles : {});
+        for (const [k, v] of Object.entries(incomingTitles)) {
+          if (k && v) result.titles[String(k).trim()] = String(v).trim();
+        }
+        result.user_badges = mergeClientBadgesStores(result.user_badges, parsed.user_badges || parsed.badges);
+        if (Array.isArray(parsed.pinned_feedbacks)) {
+          result.pinned_feedbacks = [...new Set(parsed.pinned_feedbacks.map(x => String(x || '').trim()).filter(Boolean))];
+        }
+
         const scList = Array.isArray(parsed.scores) ? parsed.scores : (Array.isArray(parsed.leaderboard) ? parsed.leaderboard : []);
         scList.forEach((s, idx) => {
-          result.scores.push({
+          const { cleanTitle } = harvestBadgesAndTitles(s.name || s.student_name, s.title, s.badge || s.badges);
+          const tsInfo = parseImportTs(s.ts ?? s.timestamp, s.iso_date);
+          pushScore({
             id: s.id || `score_${Date.now()}_${idx}`,
             name: s.name || s.student_name || 'Anonymous Student',
+            title: cleanTitle || lookupUserTitle(result.titles, s.name || s.student_name),
+            badge: Array.isArray(s.badges) ? s.badges.join(' | ') : (s.badge || ''),
             pack: s.pack || s.speaking_pack || 'Everyday',
             level: Number(s.level || 1),
             acc: Number(s.acc ?? s.accuracy ?? 70),
@@ -16128,29 +16604,31 @@ function parseExhibitionImportData(rawText, fileName = '') {
             wpm: Number(s.wpm ?? 120),
             class_name: s.class_name || s.class || 'General',
             target_career: s.target_career || s.career || '',
-            ts: Number(s.ts || s.timestamp || Date.now())
-          });
+            ts: tsInfo.ts
+          }, tsInfo.explicit);
         });
 
         const fbList = Array.isArray(parsed.feedback) ? parsed.feedback : (Array.isArray(parsed.reflections) ? parsed.reflections : []);
         fbList.forEach((f, idx) => {
-          result.feedback.push({
+          const { cleanTitle, hasPinnedBadge } = harvestBadgesAndTitles(f.name, f.title, f.badge || f.badges);
+          const tsInfo = parseImportTs(f.ts ?? f.timestamp, f.iso_date);
+          const isPinned = (Number(f.pinned || 0) === 1 || Boolean(f.is_pinned) || hasPinnedBadge) ? 1 : 0;
+          pushFeedback({
             id: f.id || `fb_${Date.now()}_${idx}`,
             name: f.name || 'Anonymous Visitor',
             role: f.role || 'Student',
             class_info: f.class_info || f.class || '',
+            title: cleanTitle || lookupUserTitle(result.titles, f.name),
+            badge: Array.isArray(f.badges) ? f.badges.join(' | ') : (f.badge || ''),
             comment: f.comment || f.review || f.detail || '',
             r_useful: Number(f.r_useful ?? f.useful ?? 5),
             r_games: Number(f.r_games ?? f.games ?? 5),
             r_speaking: Number(f.r_speaking ?? f.speaking ?? 5),
-            ts: Number(f.ts || f.timestamp || Date.now()),
-            is_pinned: f.is_pinned ? 1 : 0
+            ts: tsInfo.ts,
+            pinned: isPinned,
+            is_pinned: isPinned
           });
         });
-        const incomingTitles = (parsed.user_titles && typeof parsed.user_titles === 'object') ? parsed.user_titles : ((parsed.titles && typeof parsed.titles === 'object') ? parsed.titles : {});
-        for (const [k, v] of Object.entries(incomingTitles)) {
-          if (k && v) result.titles[k] = String(v).trim();
-        }
         result.detectedFormat = 'Connected JSON Archive';
       }
       return result;
@@ -16185,117 +16663,159 @@ function parseExhibitionImportData(rawText, fileName = '') {
     return cols.map(c => c.trim().replace(/^"|"$/g, ''));
   }
 
-  const header = parseCsvRow(lines[0]).map(h => h.toLowerCase());
+  const header = parseCsvRow(lines[0]).map(h => h.replace(/^\uFEFF/, '').trim().toLowerCase());
+  const colIdx = (...names) => {
+    for (const n of names) {
+      const idx = header.indexOf(n);
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  };
+  const colVal = (cols, ...names) => {
+    const idx = colIdx(...names);
+    return idx >= 0 && cols[idx] !== undefined ? cols[idx] : '';
+  };
 
-  // 2A: Connected Global CSV (Record_Type,ID,Name,Detail,Metric,Timestamp,ISO_Date)
+  // 2A: Connected Global CSV
   if (header.includes('record_type') || header[0] === 'record_type') {
     result.detectedFormat = 'Connected Global CSV';
     for (let i = 1; i < lines.length; i++) {
       const cols = parseCsvRow(lines[i]);
       if (cols.length < 3) continue;
-      const type = (cols[0] || '').toLowerCase();
-      const id = cols[1];
-      const name = cols[2];
-      const detail = cols[3] || '';
-      const metric = Number(cols[4] || 0);
-      const ts = Number(cols[5] || Date.now());
-
-      // Check if row has Title column (Record_Type,ID,Name,Title,Detail,Metric,Timestamp,ISO_Date)
-      const hasTitleCol = header.includes('title');
-      const titleColVal = hasTitleCol ? (cols[header.indexOf('title')] || '') : '';
-      if (titleColVal && name) {
-        result.titles[name] = titleColVal.trim();
-      }
+      const type = (colVal(cols, 'record_type') || cols[0] || '').toLowerCase();
+      const id = colVal(cols, 'id') || cols[1] || '';
+      const name = colVal(cols, 'name') || cols[2] || '';
+      const titleColVal = colVal(cols, 'title');
+      const badgeColVal = colVal(cols, 'badge', 'badges');
+      const detail = colVal(cols, 'detail', 'comment') || (!header.includes('title') ? (cols[3] || '') : '');
+      const metric = Number(colVal(cols, 'metric') || (!header.includes('title') ? cols[4] : 0) || 0);
+      const rawTs = colVal(cols, 'timestamp', 'ts');
+      const rawIso = colVal(cols, 'iso_date');
+      const tsInfo = parseImportTs(rawTs, rawIso);
 
       if (type.includes('title')) {
         const titleVal = titleColVal || detail || cols[3] || '';
         if (name && titleVal) {
-          result.titles[name] = titleVal.trim();
+          result.titles[name.trim()] = titleVal.trim();
+        }
+      } else if (type.includes('badge')) {
+        const bKey = String(badgeColVal || titleColVal || '').trim();
+        if (bKey) {
+          if (!name || name === '__global__') {
+            result.user_badges = mergeClientBadgesStores(result.user_badges, { global: [bKey] });
+          } else {
+            result.user_badges = mergeClientBadgesStores(result.user_badges, { by_user: { [name.trim()]: [bKey] } });
+          }
         }
       } else if (type.includes('score')) {
-        result.scores.push({
+        const { cleanTitle } = harvestBadgesAndTitles(name, titleColVal, badgeColVal);
+        let pack = colVal(cols, 'pack', 'speaking_pack');
+        let level = Number(colVal(cols, 'level') || 0);
+        let acc = Number(colVal(cols, 'accuracy', 'acc') || 0);
+        if (!pack || !level) {
+          const m = String(detail || '').match(/^(.+?)\s+Level\s+(\d+)\s*(?:\(Accuracy\s*(\d+)%\))?/i);
+          if (m) {
+            if (!pack) pack = m[1].trim();
+            if (!level) level = Number(m[2]) || 1;
+            if (!acc && m[3]) acc = Number(m[3]) || 0;
+          }
+        }
+        pushScore({
           id,
-          name,
-          pack: 'Everyday',
-          level: 1,
-          acc: metric || 70,
-          fluency: 70,
-          clarity: 70,
-          wpm: 120,
-          class_name: 'General',
-          target_career: titleColVal || '',
-          ts
-        });
+          name: name || 'Anonymous Student',
+          title: cleanTitle,
+          badge: badgeColVal,
+          pack: pack || 'Everyday',
+          level: level || 1,
+          acc: acc || metric || 70,
+          fluency: Number(colVal(cols, 'fluency') || 70) || 70,
+          clarity: Number(colVal(cols, 'clarity') || 70) || 70,
+          wpm: Number(colVal(cols, 'wpm') || 120) || 120,
+          class_name: colVal(cols, 'class_info', 'class_name', 'class') || 'General',
+          target_career: colVal(cols, 'target_career', 'targetcareer', 'career') || '',
+          ts: tsInfo.ts
+        }, tsInfo.explicit);
       } else if (type.includes('feedback')) {
-        result.feedback.push({
+        const { cleanTitle, hasPinnedBadge } = harvestBadgesAndTitles(name, titleColVal, badgeColVal);
+        const pinnedRaw = colVal(cols, 'pinned', 'is_pinned').toLowerCase();
+        const isPinned = (pinnedRaw === '1' || pinnedRaw === 'true' || hasPinnedBadge) ? 1 : 0;
+        pushFeedback({
           id,
-          name,
-          role: 'Student',
-          class_info: '',
-          comment: hasTitleCol ? (cols[header.indexOf('detail')] || detail) : detail,
-          r_useful: metric || 5,
-          r_games: 5,
-          r_speaking: 5,
-          ts
+          name: name || 'Anonymous Visitor',
+          title: cleanTitle,
+          badge: badgeColVal,
+          role: colVal(cols, 'role') || 'Student',
+          class_info: colVal(cols, 'class_info', 'classinfo', 'class') || '',
+          comment: detail || '',
+          r_useful: metric || Number(colVal(cols, 'useful', 'r_useful') || 5) || 5,
+          r_games: Number(colVal(cols, 'games', 'r_games') || 5) || 5,
+          r_speaking: Number(colVal(cols, 'speaking', 'r_speaking') || 5) || 5,
+          pinned: isPinned,
+          is_pinned: isPinned,
+          ts: tsInfo.ts
         });
       }
     }
     return result;
   }
 
-  // 2B: Separated Leaderboard CSV (ID,Name,Pack,Level,Accuracy,Fluency,Clarity,WPM,Class,TargetCareer,Timestamp)
+  // 2B: Separated Leaderboard CSV
   if (header.includes('accuracy') || header.includes('pack') || header.includes('wpm')) {
     result.detectedFormat = 'Separated Leaderboard CSV';
-    const nameIdx = header.findIndex(h => h === 'name' || h.includes('student'));
-    const packIdx = header.findIndex(h => h === 'pack');
-    const accIdx = header.findIndex(h => h.includes('acc'));
-    const fluIdx = header.findIndex(h => h.includes('flu'));
-    const wpmIdx = header.findIndex(h => h === 'wpm');
-    const tsIdx = header.findIndex(h => h === 'timestamp' || h === 'ts' || h === 'time');
-
     for (let i = 1; i < lines.length; i++) {
       const cols = parseCsvRow(lines[i]);
       if (cols.length < 2) continue;
-      result.scores.push({
-        id: cols[0]?.startsWith('score_') ? cols[0] : `score_${Date.now()}_${i}`,
-        name: (nameIdx >= 0 ? cols[nameIdx] : cols[1]) || 'Student',
-        pack: (packIdx >= 0 ? cols[packIdx] : 'Everyday') || 'Everyday',
-        level: 1,
-        acc: Number((accIdx >= 0 ? cols[accIdx] : 75)) || 75,
-        fluency: Number((fluIdx >= 0 ? cols[fluIdx] : 70)) || 70,
-        clarity: 70,
-        wpm: Number((wpmIdx >= 0 ? cols[wpmIdx] : 120)) || 120,
-        class_name: 'General',
-        target_career: '',
-        ts: Number((tsIdx >= 0 ? cols[tsIdx] : Date.now())) || Date.now()
-      });
+      const name = colVal(cols, 'name', 'student', 'student_name') || cols[1] || 'Student';
+      const titleColVal = colVal(cols, 'title');
+      const badgeColVal = colVal(cols, 'badge', 'badges');
+      const { cleanTitle } = harvestBadgesAndTitles(name, titleColVal, badgeColVal);
+      const tsInfo = parseImportTs(colVal(cols, 'timestamp', 'ts', 'time'), colVal(cols, 'iso_date'));
+      pushScore({
+        id: colVal(cols, 'id') || (cols[0]?.startsWith('score_') ? cols[0] : `score_${Date.now()}_${i}`),
+        name,
+        title: cleanTitle,
+        badge: badgeColVal,
+        pack: colVal(cols, 'pack', 'speaking_pack') || 'Everyday',
+        level: Number(colVal(cols, 'level') || 1) || 1,
+        acc: Number(colVal(cols, 'accuracy', 'acc') || 75) || 75,
+        fluency: Number(colVal(cols, 'fluency') || 70) || 70,
+        clarity: Number(colVal(cols, 'clarity') || 70) || 70,
+        wpm: Number(colVal(cols, 'wpm') || 120) || 120,
+        class_name: colVal(cols, 'class', 'class_name', 'class_info') || 'General',
+        target_career: colVal(cols, 'targetcareer', 'target_career', 'career') || '',
+        ts: tsInfo.ts
+      }, tsInfo.explicit);
     }
     return result;
   }
 
-  // 2C: Separated Feedback CSV (ID,Name,Role,ClassInfo,Useful,Games,Speaking,Comment,Timestamp)
+  // 2C: Separated Feedback CSV
   if (header.includes('comment') || header.includes('useful') || header.includes('role')) {
     result.detectedFormat = 'Separated Feedback CSV';
-    const nameIdx = header.findIndex(h => h === 'name');
-    const roleIdx = header.findIndex(h => h === 'role');
-    const classIdx = header.findIndex(h => h.includes('class'));
-    const commentIdx = header.findIndex(h => h === 'comment' || h.includes('review') || h.includes('detail'));
-    const usefulIdx = header.findIndex(h => h.includes('useful'));
-    const tsIdx = header.findIndex(h => h === 'timestamp' || h === 'ts');
-
     for (let i = 1; i < lines.length; i++) {
       const cols = parseCsvRow(lines[i]);
       if (cols.length < 2) continue;
-      result.feedback.push({
-        id: cols[0]?.startsWith('fb_') ? cols[0] : `fb_${Date.now()}_${i}`,
-        name: (nameIdx >= 0 ? cols[nameIdx] : cols[1]) || 'Visitor',
-        role: (roleIdx >= 0 ? cols[roleIdx] : 'Student') || 'Student',
-        class_info: (classIdx >= 0 ? cols[classIdx] : '') || '',
-        comment: (commentIdx >= 0 ? cols[commentIdx] : cols[cols.length - 2]) || 'Great exhibition!',
-        r_useful: Number((usefulIdx >= 0 ? cols[usefulIdx] : 5)) || 5,
-        r_games: 5,
-        r_speaking: 5,
-        ts: Number((tsIdx >= 0 ? cols[tsIdx] : Date.now())) || Date.now()
+      const name = colVal(cols, 'name') || cols[1] || 'Visitor';
+      const titleColVal = colVal(cols, 'title');
+      const badgeColVal = colVal(cols, 'badge', 'badges');
+      const { cleanTitle, hasPinnedBadge } = harvestBadgesAndTitles(name, titleColVal, badgeColVal);
+      const pinnedRaw = colVal(cols, 'pinned', 'is_pinned').toLowerCase();
+      const isPinned = (pinnedRaw === '1' || pinnedRaw === 'true' || hasPinnedBadge) ? 1 : 0;
+      const tsInfo = parseImportTs(colVal(cols, 'timestamp', 'ts', 'time'), colVal(cols, 'iso_date'));
+      pushFeedback({
+        id: colVal(cols, 'id') || (cols[0]?.startsWith('fb_') ? cols[0] : `fb_${Date.now()}_${i}`),
+        name,
+        title: cleanTitle,
+        badge: badgeColVal,
+        role: colVal(cols, 'role') || 'Student',
+        class_info: colVal(cols, 'classinfo', 'class_info', 'class') || '',
+        comment: colVal(cols, 'comment', 'review', 'detail') || cols[cols.length - 2] || 'Great exhibition!',
+        r_useful: Number(colVal(cols, 'useful', 'r_useful') || 5) || 5,
+        r_games: Number(colVal(cols, 'games', 'r_games') || 5) || 5,
+        r_speaking: Number(colVal(cols, 'speaking', 'r_speaking') || 5) || 5,
+        pinned: isPinned,
+        is_pinned: isPinned,
+        ts: tsInfo.ts
       });
     }
     return result;
@@ -16306,7 +16826,7 @@ function parseExhibitionImportData(rawText, fileName = '') {
   for (let i = 1; i < lines.length; i++) {
     const cols = parseCsvRow(lines[i]);
     if (cols.length < 2) continue;
-    result.feedback.push({
+    pushFeedback({
       id: `fb_${Date.now()}_${i}`,
       name: cols[0] || 'Visitor',
       role: 'Visitor',
@@ -16350,17 +16870,18 @@ function initAdminImportControls() {
       const text = event.target.result;
       const parsed = parseExhibitionImportData(text, file.name);
       currentParsedData = parsed;
+      const titleCount = Object.keys(parsed.titles || {}).length;
+      const badgeCount = (parsed.user_badges?.global?.length || 0) + Object.keys(parsed.user_badges?.by_user || {}).length;
 
-      if (!parsed.scores.length && !parsed.feedback.length) {
-        showToast('⚠️ No valid leaderboard scores or feedback records found in file.');
+      if (!parsed.scores.length && !parsed.feedback.length && !titleCount && !badgeCount) {
+        showToast('⚠️ No valid leaderboard scores, feedback, or badges found in file.');
         if (previewBox) previewBox.style.display = 'none';
         return;
       }
 
       if (filenameEl) filenameEl.textContent = `📄 ${file.name} (${parsed.detectedFormat})`;
-      const titleCount = Object.keys(parsed.titles || {}).length;
       if (summaryEl) {
-        summaryEl.textContent = `Ready to import: ${parsed.scores.length} Scores, ${parsed.feedback.length} Reviews${titleCount ? `, ${titleCount} Titles` : ''}`;
+        summaryEl.textContent = `Ready to import: ${parsed.scores.length} Scores, ${parsed.feedback.length} Reviews${titleCount ? `, ${titleCount} Titles` : ''}${badgeCount ? `, ${badgeCount} Badges` : ''}`;
       }
       if (previewBox) previewBox.style.display = 'block';
     };
@@ -16376,31 +16897,54 @@ function initAdminImportControls() {
   executeBtn?.addEventListener('click', async () => {
     if (!currentParsedData) return;
     const { scores, feedback } = currentParsedData;
+    const titles = currentParsedData.titles || {};
+    const userBadges = normalizeClientBadgesStore(currentParsedData.user_badges);
+    const pinnedFeedbacks = currentParsedData.pinned_feedbacks || [];
     executeBtn.disabled = true;
     executeBtn.textContent = 'Importing Data...';
 
     try {
-      // 1. Send to Cloudflare backend (including titles)
-      const titles = currentParsedData.titles || {};
+      // 1. Send to Cloudflare backend (server deduplicates against D1 & cache)
       const res = await fetch(getApiUrl('api/admin/import'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${getActiveAdminToken()}`
         },
-        body: JSON.stringify({ scores, feedback, titles, user_titles: titles })
+        body: JSON.stringify({
+          scores,
+          feedback,
+          titles,
+          user_titles: titles,
+          user_badges: userBadges,
+          badges: userBadges,
+          pinned_feedbacks: pinnedFeedbacks
+        })
       });
+      if (!res.ok) {
+        const errPayload = await res.json().catch(() => ({}));
+        throw new Error(errPayload?.error || `HTTP ${res.status}`);
+      }
+      const importResult = await res.json().catch(() => ({}));
 
-      // 2. Immediate local cache & UI merge for instant reflection
+      // 2. Deduplicated merge into authoritative localStorage caches
       if (scores.length) {
-        STATE.scores = [...scores, ...(STATE.scores || [])];
-        localStorage.setItem('cf_scores_cache', JSON.stringify(STATE.scores));
-        if (typeof renderLeaderboardTable === 'function') renderLeaderboardTable(STATE.scores);
+        localStorage.removeItem('cf_scores_reset');
+        let curScores = [];
+        try { curScores = JSON.parse(localStorage.getItem('cf_user_scores') || '[]'); } catch {}
+        if (!Array.isArray(curScores)) curScores = [];
+        const dedupedScores = mergeScoresDeduplicated(scores, curScores);
+        STATE.scores = dedupedScores;
+        localStorage.setItem('cf_user_scores', JSON.stringify(dedupedScores));
       }
       if (feedback.length) {
-        STATE.feedback = [...feedback, ...(STATE.feedback || [])];
-        localStorage.setItem('cf_feedback_cache', JSON.stringify(STATE.feedback));
-        if (typeof renderFeedbackCards === 'function') renderFeedbackCards(STATE.feedback);
+        localStorage.removeItem('cf_feedback_reset');
+        let curFb = [];
+        try { curFb = JSON.parse(localStorage.getItem('cf_user_feedbacks') || '[]'); } catch {}
+        if (!Array.isArray(curFb)) curFb = [];
+        const dedupedFb = mergeFeedbacksDeduplicated(feedback, curFb);
+        STATE.feedback = dedupedFb;
+        localStorage.setItem('cf_user_feedbacks', JSON.stringify(dedupedFb));
       }
       if (titles && Object.keys(titles).length > 0) {
         let curTitles = {};
@@ -16411,20 +16955,32 @@ function initAdminImportControls() {
         Object.assign(curTitles, titles);
         localStorage.setItem('cf_user_titles', JSON.stringify(curTitles));
       }
+      if (userBadges.global.length > 0) {
+        try {
+          const curLocalBadges = JSON.parse(localStorage.getItem('cf_user_badges') || '[]');
+          const nextLocalBadges = [...new Set([...(Array.isArray(curLocalBadges) ? curLocalBadges : []), ...userBadges.global])];
+          localStorage.setItem('cf_user_badges', JSON.stringify(nextLocalBadges));
+        } catch {}
+      }
 
-      // Refresh admin tables
-      if (typeof loadLeaderboard === 'function') loadLeaderboard();
-      if (typeof loadFeedbackWall === 'function') loadFeedbackWall();
-      if (typeof renderAdminScoresTable === 'function') renderAdminScoresTable(STATE.scores || []);
-      if (typeof renderAdminFeedbackList === 'function') renderAdminFeedbackList(STATE.feedback || []);
+      // 3. Reload authoritative views sequentially so titles, feedback, leaderboard, and admin sync cleanly
+      if (typeof window.loadUserTitles === 'function') await window.loadUserTitles();
+      if (typeof loadLeaderboard === 'function') await loadLeaderboard();
+      if (typeof loadFeedbackWall === 'function') await loadFeedbackWall();
+      if (typeof renderAdminModeration === 'function') await renderAdminModeration();
 
-      showToast(`🎉 Imported ${scores.length} scores and ${feedback.length} reflections successfully!`);
+      const impS = Number(importResult.importedScores ?? scores.length);
+      const skipS = Number(importResult.skippedScores ?? 0);
+      const impF = Number(importResult.importedFeedback ?? feedback.length);
+      const skipF = Number(importResult.skippedFeedback ?? 0);
+      const impT = Number(importResult.importedTitles ?? Object.keys(titles).length);
+      showToast(`Imported ${impS} scores (${skipS} duplicates skipped), ${impF} reviews (${skipF} duplicates skipped)${impT ? `, ${impT} titles` : ''}`);
       if (previewBox) previewBox.style.display = 'none';
       fileInput.value = '';
       currentParsedData = null;
     } catch (err) {
       console.error('Import error:', err);
-      showToast('⚠️ Data merged into local session. Network notice: ' + err.message);
+      showToast('Import failed: ' + err.message);
     } finally {
       executeBtn.disabled = false;
       executeBtn.innerHTML = '<span>⚡</span> <span>Confirm &amp; Import Data</span>';

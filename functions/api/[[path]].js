@@ -31,6 +31,170 @@ function csvCell(val) {
   return `"${s.replace(/"/g, '""')}"`;
 }
 
+function findUserTitle(titlesMap, name) {
+  if (!titlesMap || typeof titlesMap !== 'object' || !name) return '';
+  const exact = titlesMap[name];
+  if (exact) return String(exact).trim();
+  const target = String(name).trim().toLowerCase();
+  for (const [k, v] of Object.entries(titlesMap)) {
+    if (String(k).trim().toLowerCase() === target && v) {
+      return String(v).trim();
+    }
+  }
+  return '';
+}
+
+function normDedupText(val) {
+  return String(val || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function formatCsvIso(tsVal) {
+  const n = Number(tsVal);
+  if (Number.isFinite(n) && n > 0) {
+    const d = new Date(n);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+  return new Date().toISOString();
+}
+
+function normalizeTsMs(val) {
+  if (typeof val === 'number' && Number.isFinite(val) && val > 0) {
+    return val < 1e12 ? Math.round(val * 1000) : Math.round(val);
+  }
+  const s = String(val ?? '').trim();
+  if (s) {
+    const num = Number(s);
+    if (Number.isFinite(num) && num > 0) {
+      return num < 1e12 ? Math.round(num * 1000) : Math.round(num);
+    }
+    const parsed = Date.parse(s);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return Date.now();
+}
+
+function normalizeUserBadgesStore(rawBadges) {
+  const out = { global: [], by_user: {} };
+  if (!rawBadges) return out;
+  if (Array.isArray(rawBadges)) {
+    out.global = [...new Set(rawBadges.map(b => String(b || '').trim()).filter(Boolean))];
+    return out;
+  }
+  if (typeof rawBadges === 'object') {
+    if (Array.isArray(rawBadges.global)) {
+      out.global = [...new Set(rawBadges.global.map(b => String(b || '').trim()).filter(Boolean))];
+    }
+    const byUserSrc = (rawBadges.by_user && typeof rawBadges.by_user === 'object')
+      ? rawBadges.by_user
+      : null;
+    if (byUserSrc) {
+      for (const [k, v] of Object.entries(byUserSrc)) {
+        const cleanName = String(k || '').trim();
+        if (!cleanName) continue;
+        const list = Array.isArray(v)
+          ? v
+          : String(v || '').split('|').map(x => x.trim()).filter(Boolean);
+        if (list.length) out.by_user[cleanName] = [...new Set(list.map(x => String(x).trim()).filter(Boolean))];
+      }
+    } else {
+      for (const [k, v] of Object.entries(rawBadges)) {
+        if (k === 'global' || k === 'by_user') continue;
+        const cleanName = String(k || '').trim();
+        if (!cleanName) continue;
+        const list = Array.isArray(v)
+          ? v
+          : String(v || '').split('|').map(x => x.trim()).filter(Boolean);
+        if (list.length) out.by_user[cleanName] = [...new Set(list.map(x => String(x).trim()).filter(Boolean))];
+      }
+    }
+  }
+  return out;
+}
+
+function mergeUserBadgesStores(baseRaw, incomingRaw) {
+  const a = normalizeUserBadgesStore(baseRaw);
+  const b = normalizeUserBadgesStore(incomingRaw);
+  const merged = {
+    global: [...new Set([...a.global, ...b.global])],
+    by_user: { ...a.by_user }
+  };
+  for (const [k, v] of Object.entries(b.by_user)) {
+    const existing = merged.by_user[k] || [];
+    merged.by_user[k] = [...new Set([...existing, ...v])];
+  }
+  return merged;
+}
+
+function findUserBadgesLabel(badgesStoreRaw, name, titleStr = '', roleStr = '', extraBadges = []) {
+  const store = normalizeUserBadgesStore(badgesStoreRaw);
+  const items = [];
+  if (titleStr) items.push(`Title:${titleStr}`);
+  if (roleStr) items.push(`Role:${roleStr}`);
+  const target = normDedupText(name);
+  for (const [k, v] of Object.entries(store.by_user || {})) {
+    if (normDedupText(k) === target && Array.isArray(v)) {
+      v.forEach(x => items.push(x));
+    }
+  }
+  if (Array.isArray(extraBadges)) {
+    extraBadges.forEach(x => { if (x) items.push(String(x).trim()); });
+  }
+  return [...new Set(items.filter(Boolean))].join(' | ');
+}
+
+function makeFeedbackDedupKey(f) {
+  const nName = normDedupText(f?.name || 'Visitor');
+  const nComment = normDedupText(f?.comment || f?.detail || f?.review || '');
+  if (nComment) return `${nName}::${nComment}`;
+  const tsSec = Math.floor(normalizeTsMs(f?.ts || f?.timestamp || 0) / 1000);
+  const useful = Number(f?.r_useful ?? f?.useful ?? 5) || 5;
+  return `${nName}::empty::${tsSec}::${useful}`;
+}
+
+function buildScoreDedupTracker(existingRows = []) {
+  const fullKeys = new Set();
+  const coreKeys = new Set();
+  const noTsKeys = new Set();
+
+  function computeKeys(s) {
+    const name = normDedupText(s?.name || s?.student_name || 'Anonymous Student');
+    const pack = normDedupText(s?.pack || s?.speaking_pack || 'Everyday');
+    const level = Math.round(Number(s?.level || 1) || 1);
+    const acc = Math.round(Number(s?.acc ?? s?.accuracy ?? 50) || 0);
+    const fluency = Math.round(Number(s?.fluency ?? 50) || 0);
+    const clarity = Math.round(Number(s?.clarity ?? 50) || 0);
+    const wpm = Math.round(Number(s?.wpm ?? 120) || 0);
+    const rawTs = s?.ts ?? s?.timestamp;
+    const hasExplicitTs = rawTs !== undefined && rawTs !== null && String(rawTs).trim() !== '' && Number(rawTs) !== 0;
+    const tsSec = hasExplicitTs ? Math.floor(normalizeTsMs(rawTs) / 1000) : 0;
+    return {
+      full: `${name}|${pack}|${level}|${acc}|${fluency}|${clarity}|${wpm}|${tsSec}`,
+      core: `${name}|${pack}|${level}|${acc}|${tsSec}`,
+      noTs: `${name}|${pack}|${level}|${acc}`,
+      hasExplicitTs
+    };
+  }
+
+  function add(s) {
+    const k = computeKeys(s);
+    fullKeys.add(k.full);
+    coreKeys.add(k.core);
+    noTsKeys.add(k.noTs);
+  }
+
+  function has(s) {
+    const k = computeKeys(s);
+    if (fullKeys.has(k.full) || coreKeys.has(k.core)) return true;
+    if (!k.hasExplicitTs && noTsKeys.has(k.noTs)) return true;
+    return false;
+  }
+
+  for (const row of existingRows || []) {
+    if (row) add(row);
+  }
+  return { has, add };
+}
+
 /** Levenshtein distance calculation */
 function levenshtein(a, b) {
   const m = a.length, n = b.length;
@@ -1100,6 +1264,9 @@ const GLOBAL_CACHE = {
   ],
   api_keys: [],
   telemetry: [],
+  user_titles: {},
+  user_badges: { global: [], by_user: {} },
+  pinned_feedbacks: [],
   issues: [],
   admin_devices: [],
   admin_blocked_ips: [],
@@ -2063,6 +2230,9 @@ export async function onRequest(ctx) {
     };
 
     MEM_FEEDBACK_CLEARED = false;
+    if (db) {
+      try { await kvSet(db, 'feedback_cleared', '0'); } catch {}
+    }
     // Update in-memory persistent cache
     GLOBAL_CACHE.feedback.unshift(fbObj);
 
@@ -2138,6 +2308,15 @@ export async function onRequest(ctx) {
       } catch {}
     } else {
       pinnedList = GLOBAL_CACHE.pinned_feedbacks || [];
+    }
+
+    if (dbFeedbackOk && items.length === 0) {
+      try {
+        const clearedFlag = await kvGet(db, 'feedback_cleared', '0');
+        if (clearedFlag === '1') {
+          MEM_FEEDBACK_CLEARED = true;
+        }
+      } catch {}
     }
 
     // Only merge in-memory fallback cache when D1 is unbound/unavailable and not reset
@@ -3179,24 +3358,49 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     const id = body.id;
     const comment = body.comment ? String(body.comment).trim() : '';
 
-    // 1. Purge from in-memory cache
+    // 1. Purge from in-memory cache (match by id OR trimmed comment)
     GLOBAL_CACHE.feedback = (GLOBAL_CACHE.feedback || []).filter(f => {
-      if (id) return String(f.id).trim() !== String(id).trim();
-      if (comment) return (f.comment || '').trim() !== comment;
+      if (id && String(f.id).trim() === String(id).trim()) return false;
+      if (comment && (f.comment || '').trim() === comment) return false;
       return true;
     });
+    if (Array.isArray(GLOBAL_CACHE.pinned_feedbacks)) {
+      GLOBAL_CACHE.pinned_feedbacks = GLOBAL_CACHE.pinned_feedbacks.filter(x => {
+        const s = String(x || '').trim();
+        if (id && s === String(id).trim()) return false;
+        if (comment && s === comment) return false;
+        return true;
+      });
+    }
 
     // 2. Purge from persistent Cloudflare D1 database
     if (db) {
       try {
+        let deleted = 0;
         if (id && !isNaN(Number(id))) {
-          await db.prepare('DELETE FROM feedback WHERE id=?').bind(Number(id)).run();
+          const r = await db.prepare('DELETE FROM feedback WHERE id=?').bind(Number(id)).run();
+          deleted += Number(r?.meta?.changes || 0);
         } else if (id) {
-          await db.prepare('DELETE FROM feedback WHERE id=?').bind(String(id)).run();
-        } else if (comment) {
+          const r = await db.prepare('DELETE FROM feedback WHERE id=?').bind(String(id)).run();
+          deleted += Number(r?.meta?.changes || 0);
+        }
+        if (comment && deleted === 0) {
           await db.prepare('DELETE FROM feedback WHERE TRIM(comment)=?').bind(comment).run();
           await db.prepare('DELETE FROM feedback WHERE comment=?').bind(comment).run();
         }
+        try {
+          const rawPinned = await kvGet(db, 'pinned_feedbacks', '[]');
+          const pinnedList = JSON.parse(rawPinned);
+          if (Array.isArray(pinnedList)) {
+            const nextPinned = pinnedList.filter(x => {
+              const s = String(x || '').trim();
+              if (id && s === String(id).trim()) return false;
+              if (comment && s === comment) return false;
+              return true;
+            });
+            await kvSet(db, 'pinned_feedbacks', JSON.stringify(nextPinned));
+          }
+        } catch {}
       } catch (e) {
         console.warn('D1 feedback delete error:', e);
       }
@@ -3300,8 +3504,11 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     if (!authCheck.ok) return err(authCheck.error, authCheck.status);
     MEM_FEEDBACK_CLEARED = true;
     GLOBAL_CACHE.feedback = [];
+    GLOBAL_CACHE.pinned_feedbacks = [];
     if (db) {
       try { await db.prepare('DELETE FROM feedback').run(); } catch {}
+      try { await kvSet(db, 'feedback_cleared', '1'); } catch {}
+      try { await kvSet(db, 'pinned_feedbacks', '[]'); } catch {}
     }
     return json({ ok: true, message: 'All feedback reset' });
   }
@@ -3309,19 +3516,39 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
   if (path === '/admin/export' && method === 'GET') {
     const authCheck = await verifyAuth(request, env, db, 'read:leaderboard', url);
     if (!authCheck.ok) return err(authCheck.error, authCheck.status);
-    let csv = 'ID,Name,Pack,Level,Accuracy,Fluency,Clarity,WPM,Class,TargetCareer,Timestamp\n';
+    let csv = 'ID,Name,Title,Badge,Pack,Level,Accuracy,Fluency,Clarity,WPM,Class,TargetCareer,Timestamp,ISO_Date\n';
     try {
+      let scoreRows = [];
+      let titlesMap = {};
+      let badgesStore = {};
       if (db) {
         const { results } = await db.prepare('SELECT * FROM scores ORDER BY level DESC, acc DESC').all();
-        for (const r of (results || [])) {
-          csv += `${r.id},${csvCell(r.name)},${csvCell(r.pack)},${r.level},${r.acc},${r.fluency},${r.clarity},${r.wpm},${csvCell(r.class_name)},${csvCell(r.target_career)},${csvCell(new Date(r.ts).toISOString())}\n`;
-        }
+        scoreRows = results || [];
+        try {
+          const rawTitles = await kvGet(db, 'user_titles', '{}');
+          if (rawTitles) titlesMap = JSON.parse(rawTitles);
+        } catch {}
+        try {
+          const rawBadges = await kvGet(db, 'user_badges', '{}');
+          if (rawBadges) badgesStore = JSON.parse(rawBadges);
+        } catch {}
+      } else {
+        scoreRows = MEM_SCORES_CLEARED ? [] : (GLOBAL_CACHE.scores || []);
+        titlesMap = GLOBAL_CACHE.user_titles || {};
+        badgesStore = GLOBAL_CACHE.user_badges || {};
+      }
+      for (const r of scoreRows) {
+        const title = findUserTitle(titlesMap, r.name);
+        const badgeLabel = findUserBadgesLabel(badgesStore, r.name, title, r.target_career || '', r.badge ? [r.badge] : []);
+        const tsNum = normalizeTsMs(r.ts);
+        csv += `${csvCell(r.id)},${csvCell(r.name)},${csvCell(title)},${csvCell(badgeLabel)},${csvCell(r.pack)},${Number(r.level || 1)},${Number(r.acc ?? 0)},${Number(r.fluency ?? 0)},${Number(r.clarity ?? 0)},${Number(r.wpm ?? 0)},${csvCell(r.class_name)},${csvCell(r.target_career)},${tsNum},${csvCell(formatCsvIso(tsNum))}\n`;
       }
     } catch {}
     return new Response(csv, {
       headers: {
         'Content-Type': 'text/csv',
         'Content-Disposition': 'attachment; filename="careerfair-scores.csv"',
+        'Cache-Control': 'no-store',
         'Access-Control-Allow-Origin': '*'
       }
     });
@@ -3330,19 +3557,51 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
   if (path === '/admin/export-feedback' && method === 'GET') {
     const authCheck = await verifyAuth(request, env, db, 'read:feedback', url);
     if (!authCheck.ok) return err(authCheck.error, authCheck.status);
-    let csv = 'ID,Name,Role,ClassInfo,Useful,Games,Speaking,Comment,Timestamp\n';
+    let csv = 'ID,Name,Title,Badge,Role,ClassInfo,Useful,Games,Speaking,Pinned,Comment,Timestamp,ISO_Date\n';
     try {
+      let feedbackRows = [];
+      let titlesMap = {};
+      let badgesStore = {};
+      let pinnedList = [];
       if (db) {
         const { results } = await db.prepare('SELECT * FROM feedback ORDER BY ts DESC').all();
-        for (const r of (results || [])) {
-          csv += `${r.id},${csvCell(r.name)},${csvCell(r.role)},${csvCell(r.class_info)},${r.r_useful},${r.r_games},${r.r_speaking},${csvCell(r.comment)},${csvCell(new Date(r.ts).toISOString())}\n`;
-        }
+        feedbackRows = results || [];
+        try {
+          const rawTitles = await kvGet(db, 'user_titles', '{}');
+          if (rawTitles) titlesMap = JSON.parse(rawTitles);
+        } catch {}
+        try {
+          const rawBadges = await kvGet(db, 'user_badges', '{}');
+          if (rawBadges) badgesStore = JSON.parse(rawBadges);
+        } catch {}
+        try {
+          const rawPinned = await kvGet(db, 'pinned_feedbacks', '[]');
+          pinnedList = JSON.parse(rawPinned);
+        } catch {}
+      } else {
+        feedbackRows = MEM_FEEDBACK_CLEARED ? [] : (GLOBAL_CACHE.feedback || []);
+        titlesMap = GLOBAL_CACHE.user_titles || {};
+        badgesStore = GLOBAL_CACHE.user_badges || {};
+        pinnedList = GLOBAL_CACHE.pinned_feedbacks || [];
+      }
+      for (const r of feedbackRows) {
+        const title = findUserTitle(titlesMap, r.name);
+        const cleanComment = String(r.comment || '').trim();
+        const isPinned = (Number(r.pinned || 0) === 1 || pinnedList.includes(String(r.id)) || (cleanComment && pinnedList.includes(cleanComment))) ? 1 : 0;
+        const badgeLabel = findUserBadgesLabel(badgesStore, r.name, title, r.role || 'Student', [
+          r.class_info || '',
+          isPinned ? 'Pinned' : '',
+          r.badge || ''
+        ]);
+        const tsNum = normalizeTsMs(r.ts);
+        csv += `${csvCell(r.id)},${csvCell(r.name)},${csvCell(title)},${csvCell(badgeLabel)},${csvCell(r.role)},${csvCell(r.class_info)},${Number(r.r_useful ?? r.useful ?? 5)},${Number(r.r_games ?? 5)},${Number(r.r_speaking ?? 5)},${isPinned},${csvCell(r.comment)},${tsNum},${csvCell(formatCsvIso(tsNum))}\n`;
       }
     } catch {}
     return new Response(csv, {
       headers: {
         'Content-Type': 'text/csv',
         'Content-Disposition': 'attachment; filename="careerfair-feedback.csv"',
+        'Cache-Control': 'no-store',
         'Access-Control-Allow-Origin': '*'
       }
     });
@@ -3350,7 +3609,7 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
 
   // ── 9b. Scoped Admin API Keys Management ──────────────────────────────────
   
-  // ── 9a. Global Exhibition Data Importer (JSON / CSV) ─────────────────────
+  // ── 9a. Global Exhibition Data Importer (JSON / CSV, Deduplicated) ──────
   if (path === '/admin/import' && method === 'POST') {
     const authCheck = await verifyAuth(request, env, db, 'write:admin', url);
     if (!authCheck.ok) return err(authCheck.error, authCheck.status);
@@ -3358,27 +3617,87 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     try {
       const payload = await request.json();
       let importedScores = 0;
+      let skippedScores = 0;
       let importedFeedback = 0;
+      let skippedFeedback = 0;
 
       const rawScores = Array.isArray(payload.scores) ? payload.scores : (Array.isArray(payload.leaderboard) ? payload.leaderboard : []);
       const rawFeedback = Array.isArray(payload.feedback) ? payload.feedback : [];
-      const rawTitles = (payload.user_titles && typeof payload.user_titles === 'object') ? payload.user_titles : ((payload.titles && typeof payload.titles === 'object') ? payload.titles : {});
+      const mergedTitles = {};
+      const srcTitles = (payload.user_titles && typeof payload.user_titles === 'object')
+        ? payload.user_titles
+        : ((payload.titles && typeof payload.titles === 'object') ? payload.titles : {});
+      for (const [k, v] of Object.entries(srcTitles || {})) {
+        const cleanK = String(k || '').trim();
+        const cleanV = String(v || '').trim();
+        if (cleanK && cleanV) mergedTitles[cleanK] = cleanV;
+      }
+
+      let incomingBadges = normalizeUserBadgesStore(payload.user_badges || payload.badges);
+      const pinnedIdentsToAdd = Array.isArray(payload.pinned_feedbacks)
+        ? payload.pinned_feedbacks.map(x => String(x || '').trim()).filter(Boolean)
+        : [];
       let importedTitles = 0;
+      let importedBadges = 0;
+
+      const harvestRowMeta = (row) => {
+        const rName = String(row?.name || row?.student_name || '').trim();
+        const rTitle = String(row?.title || '').trim();
+        if (rName && rTitle && !mergedTitles[rName]) {
+          mergedTitles[rName] = rTitle;
+        }
+        const rawRowBadges = [];
+        if (Array.isArray(row?.badges)) rawRowBadges.push(...row.badges);
+        if (row?.badge) rawRowBadges.push(...String(row.badge).split('|'));
+        const cleanRowBadges = rawRowBadges
+          .map(x => String(x || '').trim())
+          .filter(x => x && !x.startsWith('Title:') && !x.startsWith('Role:'));
+        if (rName && cleanRowBadges.length > 0) {
+          incomingBadges = mergeUserBadgesStores(incomingBadges, { by_user: { [rName]: cleanRowBadges } });
+        }
+      };
+
+      rawScores.forEach(harvestRowMeta);
+      rawFeedback.forEach(harvestRowMeta);
 
       if (db) {
-        // Import scores into D1
+        let existingScores = [];
+        let existingFeedback = [];
+        try {
+          const scRes = await db.prepare('SELECT id, name, pack, level, acc, fluency, clarity, wpm, ts FROM scores').all();
+          existingScores = scRes.results || [];
+        } catch {}
+        try {
+          const fbRes = await db.prepare('SELECT id, name, comment, r_useful, ts FROM feedback').all();
+          existingFeedback = fbRes.results || [];
+        } catch {}
+
+        const scoreDedup = buildScoreDedupTracker(existingScores);
+        const feedbackKeys = new Set(existingFeedback.map(makeFeedbackDedupKey));
+
+        // Import deduplicated scores into D1
         for (const s of rawScores) {
-          const id = String(s.id || `score_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
           const name = String(s.name || s.student_name || 'Anonymous Student').trim();
           const pack = String(s.pack || s.speaking_pack || 'Everyday').trim();
-          const level = Number(s.level || 1);
+          const level = Number(s.level || 1) || 1;
           const acc = Number(s.acc ?? s.accuracy ?? 50);
           const fluency = Number(s.fluency ?? 50);
           const clarity = Number(s.clarity ?? 50);
           const wpm = Number(s.wpm ?? 120);
           const className = String(s.class_name || s.class || 'General').trim();
           const targetCareer = String(s.target_career || s.career || '').trim();
-          const ts = Number(s.ts || s.timestamp || Date.now());
+          const hasExplicitTs = s.ts !== undefined || s.timestamp !== undefined;
+          const ts = normalizeTsMs(s.ts ?? s.timestamp ?? Date.now());
+          const candidate = {
+            name, pack, level, acc, fluency, clarity, wpm,
+            ts: hasExplicitTs ? ts : ''
+          };
+
+          if (scoreDedup.has(candidate)) {
+            skippedScores++;
+            continue;
+          }
+          scoreDedup.add({ ...candidate, ts });
 
           try {
             await db.prepare(`
@@ -3391,9 +3710,8 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
           }
         }
 
-        // Import feedback into D1
+        // Import deduplicated feedback into D1
         for (const f of rawFeedback) {
-          const id = String(f.id || `fb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
           const name = String(f.name || 'Anonymous Visitor').trim();
           const role = String(f.role || 'Student').trim();
           const classInfo = String(f.class_info || f.class || '').trim();
@@ -3401,8 +3719,18 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
           const rGames = Number(f.r_games ?? f.games ?? 5);
           const rSpeaking = Number(f.r_speaking ?? f.speaking ?? 5);
           const comment = String(f.comment || f.detail || f.review || '').trim();
-          const ts = Number(f.ts || f.timestamp || Date.now());
-          const isPinned = f.is_pinned ? 1 : 0;
+          const ts = normalizeTsMs(f.ts ?? f.timestamp ?? Date.now());
+          const isPinned = (Number(f.pinned || 0) === 1 || Boolean(f.is_pinned)) ? 1 : 0;
+          const dedupKey = makeFeedbackDedupKey({ name, comment, r_useful: rUseful, ts });
+
+          if (feedbackKeys.has(dedupKey)) {
+            skippedFeedback++;
+            continue;
+          }
+          feedbackKeys.add(dedupKey);
+          if (isPinned && comment && !pinnedIdentsToAdd.includes(comment)) {
+            pinnedIdentsToAdd.push(comment);
+          }
 
           try {
             await db.prepare(`
@@ -3415,33 +3743,125 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
           }
         }
 
+        if (importedScores > 0) MEM_SCORES_CLEARED = false;
+        if (importedFeedback > 0) {
+          MEM_FEEDBACK_CLEARED = false;
+          try { await kvSet(db, 'feedback_cleared', '0'); } catch {}
+        }
+
+        if (pinnedIdentsToAdd.length > 0) {
+          try {
+            const rawPinned = await kvGet(db, 'pinned_feedbacks', '[]');
+            const curPinned = Array.isArray(JSON.parse(rawPinned)) ? JSON.parse(rawPinned) : [];
+            const nextPinned = [...new Set([...curPinned, ...pinnedIdentsToAdd])];
+            await kvSet(db, 'pinned_feedbacks', JSON.stringify(nextPinned));
+            GLOBAL_CACHE.pinned_feedbacks = nextPinned;
+          } catch {}
+        }
+
         // Import user titles into D1 kv and cache
-        if (rawTitles && typeof rawTitles === 'object' && Object.keys(rawTitles).length > 0) {
+        if (Object.keys(mergedTitles).length > 0) {
           let currentTitles = {};
           try {
             const raw = await kvGet(db, 'user_titles', '{}');
             if (raw) currentTitles = JSON.parse(raw);
           } catch {}
-          Object.assign(currentTitles, rawTitles);
+          Object.assign(currentTitles, mergedTitles);
           await kvSet(db, 'user_titles', JSON.stringify(currentTitles));
           if (!GLOBAL_CACHE.user_titles) GLOBAL_CACHE.user_titles = {};
           Object.assign(GLOBAL_CACHE.user_titles, currentTitles);
-          importedTitles = Object.keys(rawTitles).length;
+          importedTitles = Object.keys(mergedTitles).length;
+        }
+
+        // Import user achievement badges into D1 kv and cache
+        if (incomingBadges.global.length > 0 || Object.keys(incomingBadges.by_user).length > 0) {
+          let currentBadges = {};
+          try {
+            const rawB = await kvGet(db, 'user_badges', '{}');
+            if (rawB) currentBadges = JSON.parse(rawB);
+          } catch {}
+          const nextBadges = mergeUserBadgesStores(currentBadges, incomingBadges);
+          await kvSet(db, 'user_badges', JSON.stringify(nextBadges));
+          GLOBAL_CACHE.user_badges = nextBadges;
+          importedBadges = incomingBadges.global.length + Object.keys(incomingBadges.by_user).length;
         }
       } else {
-        if (rawTitles && typeof rawTitles === 'object') {
+        const baseScores = MEM_SCORES_CLEARED ? [] : (GLOBAL_CACHE.scores || []);
+        const scoreDedup = buildScoreDedupTracker(baseScores);
+        if (!Array.isArray(GLOBAL_CACHE.scores) || MEM_SCORES_CLEARED) GLOBAL_CACHE.scores = [];
+        for (const s of rawScores) {
+          const item = {
+            id: s.id || `score_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            name: String(s.name || s.student_name || 'Anonymous Student').trim(),
+            pack: String(s.pack || s.speaking_pack || 'Everyday').trim(),
+            level: Number(s.level || 1) || 1,
+            acc: Number(s.acc ?? s.accuracy ?? 50),
+            fluency: Number(s.fluency ?? 50),
+            clarity: Number(s.clarity ?? 50),
+            wpm: Number(s.wpm ?? 120),
+            class_name: String(s.class_name || s.class || 'General').trim(),
+            target_career: String(s.target_career || s.career || '').trim(),
+            ts: normalizeTsMs(s.ts ?? s.timestamp ?? Date.now())
+          };
+          if (scoreDedup.has(item)) {
+            skippedScores++;
+            continue;
+          }
+          scoreDedup.add(item);
+          GLOBAL_CACHE.scores.push(item);
+          importedScores++;
+        }
+
+        const baseFeedback = MEM_FEEDBACK_CLEARED ? [] : (GLOBAL_CACHE.feedback || []);
+        const feedbackKeys = new Set(baseFeedback.map(makeFeedbackDedupKey));
+        if (!Array.isArray(GLOBAL_CACHE.feedback) || MEM_FEEDBACK_CLEARED) GLOBAL_CACHE.feedback = [];
+        for (const f of rawFeedback) {
+          const item = {
+            id: f.id || `fb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            name: String(f.name || 'Anonymous Visitor').trim(),
+            role: String(f.role || 'Student').trim(),
+            class_info: String(f.class_info || f.class || '').trim(),
+            r_useful: Number(f.r_useful ?? f.useful ?? 5),
+            r_games: Number(f.r_games ?? f.games ?? 5),
+            r_speaking: Number(f.r_speaking ?? f.speaking ?? 5),
+            comment: String(f.comment || f.detail || f.review || '').trim(),
+            approved: 1,
+            pinned: (Number(f.pinned || 0) === 1 || Boolean(f.is_pinned)) ? 1 : 0,
+            ts: normalizeTsMs(f.ts ?? f.timestamp ?? Date.now())
+          };
+          const key = makeFeedbackDedupKey(item);
+          if (feedbackKeys.has(key)) {
+            skippedFeedback++;
+            continue;
+          }
+          feedbackKeys.add(key);
+          GLOBAL_CACHE.feedback.unshift(item);
+          importedFeedback++;
+        }
+
+        if (importedScores > 0) MEM_SCORES_CLEARED = false;
+        if (importedFeedback > 0) MEM_FEEDBACK_CLEARED = false;
+
+        if (Object.keys(mergedTitles).length > 0) {
           if (!GLOBAL_CACHE.user_titles) GLOBAL_CACHE.user_titles = {};
-          Object.assign(GLOBAL_CACHE.user_titles, rawTitles);
-          importedTitles = Object.keys(rawTitles).length;
+          Object.assign(GLOBAL_CACHE.user_titles, mergedTitles);
+          importedTitles = Object.keys(mergedTitles).length;
+        }
+        if (incomingBadges.global.length > 0 || Object.keys(incomingBadges.by_user).length > 0) {
+          GLOBAL_CACHE.user_badges = mergeUserBadgesStores(GLOBAL_CACHE.user_badges, incomingBadges);
+          importedBadges = incomingBadges.global.length + Object.keys(incomingBadges.by_user).length;
         }
       }
 
       return json({
         success: true,
         importedScores,
+        skippedScores,
         importedFeedback,
+        skippedFeedback,
         importedTitles,
-        message: `Successfully imported ${importedScores} scores, ${importedFeedback} visitor reflections, and ${importedTitles} user titles.`
+        importedBadges,
+        message: `Imported ${importedScores} scores (${skippedScores} duplicates skipped), ${importedFeedback} reflections (${skippedFeedback} duplicates skipped), ${importedTitles} titles.`
       });
     } catch (e) {
       console.error('Import error:', e);
@@ -4239,6 +4659,8 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     let scoreRows = [];
     let issueRows = [];
     let titlesMap = {};
+    let pinnedList = [];
+    let badgesStore = { global: [], by_user: {} };
 
     if (db) {
       try {
@@ -4254,37 +4676,121 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
           const rawTitles = await kvGet(db, 'user_titles', '{}');
           if (rawTitles) titlesMap = JSON.parse(rawTitles);
         } catch {}
+        try {
+          const rawPinned = await kvGet(db, 'pinned_feedbacks', '[]');
+          const parsedPinned = JSON.parse(rawPinned);
+          if (Array.isArray(parsedPinned)) pinnedList = parsedPinned;
+        } catch {}
+        try {
+          const rawBadges = await kvGet(db, 'user_badges', '{}');
+          if (rawBadges) badgesStore = normalizeUserBadgesStore(JSON.parse(rawBadges));
+        } catch {}
       } catch (e) {
         console.error('D1 Export error:', e);
       }
     } else {
-      feedbackRows = GLOBAL_CACHE.feedback || [];
-      scoreRows = GLOBAL_CACHE.scores || [];
+      feedbackRows = MEM_FEEDBACK_CLEARED ? [] : (GLOBAL_CACHE.feedback || []);
+      scoreRows = MEM_SCORES_CLEARED ? [] : (GLOBAL_CACHE.scores || []);
       titlesMap = GLOBAL_CACHE.user_titles || {};
+      pinnedList = GLOBAL_CACHE.pinned_feedbacks || [];
+      badgesStore = normalizeUserBadgesStore(GLOBAL_CACHE.user_badges);
     }
 
+    const enrichedFeedback = feedbackRows.map(f => {
+      const title = findUserTitle(titlesMap, f.name);
+      const cleanComment = String(f.comment || '').trim();
+      const isPinned = (Number(f.pinned || 0) === 1 || pinnedList.includes(String(f.id)) || (cleanComment && pinnedList.includes(cleanComment))) ? 1 : 0;
+      const badgeLabel = findUserBadgesLabel(badgesStore, f.name, title, f.role || 'Student', [
+        f.class_info || '',
+        isPinned ? 'Pinned' : '',
+        f.badge || ''
+      ]);
+      return {
+        ...f,
+        pinned: isPinned,
+        is_pinned: Boolean(isPinned),
+        title,
+        badge: badgeLabel
+      };
+    });
+
+    const enrichedScores = scoreRows.map(s => {
+      const title = findUserTitle(titlesMap, s.name);
+      const badgeLabel = findUserBadgesLabel(badgesStore, s.name, title, s.target_career || '', s.badge ? [s.badge] : []);
+      return {
+        ...s,
+        title,
+        badge: badgeLabel
+      };
+    });
+
     if (format === 'csv') {
-      let csv = 'Record_Type,ID,Name,Title,Detail,Metric,Timestamp,ISO_Date\n';
-      // 1. Export Titles
+      const headers = [
+        'Record_Type', 'ID', 'Name', 'Title', 'Badge', 'Role', 'Class_Info',
+        'Pack', 'Level', 'Accuracy', 'Fluency', 'Clarity', 'WPM', 'Target_Career',
+        'Pinned', 'Games', 'Speaking', 'Detail', 'Metric', 'Timestamp', 'ISO_Date'
+      ];
+      const csvLines = [headers.join(',')];
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
+      // 1. Export Honor Titles
       for (const [tName, tVal] of Object.entries(titlesMap || {})) {
         if (tVal) {
-          csv += `Title,${csvCell('title_' + encodeURIComponent(tName))},${csvCell(tName)},${csvCell(tVal)},"Honor Title",0,${Date.now()},${csvCell(new Date().toISOString())}\n`;
+          csvLines.push([
+            'Title', csvCell('title_' + encodeURIComponent(tName)), csvCell(tName), csvCell(tVal), csvCell('Title:' + tVal),
+            '', '', '', '', '', '', '', '', '',
+            0, 5, 5, csvCell('Honor Title'), 0, nowMs, csvCell(nowIso)
+          ].join(','));
         }
       }
-      // 2. Export Feedback (with assigned titles if available)
-      for (const f of feedbackRows) {
-        const userTitle = titlesMap[f.name] || '';
-        csv += `Feedback,${csvCell(f.id)},${csvCell(f.name)},${csvCell(userTitle)},${csvCell(f.comment)},${f.r_useful || 5},${f.ts},${csvCell(new Date(Number(f.ts)).toISOString())}\n`;
+      // 2. Export Achievement Badges (global + per-user)
+      for (const bKey of (badgesStore.global || [])) {
+        if (bKey) {
+          csvLines.push([
+            'Badge', csvCell('badge_global_' + encodeURIComponent(bKey)), '__global__', '', csvCell(bKey),
+            '', '', '', '', '', '', '', '', '',
+            0, 5, 5, csvCell('Unlocked Badge'), 1, nowMs, csvCell(nowIso)
+          ].join(','));
+        }
       }
-      // 3. Export Scores (with assigned titles or target_career)
-      for (const s of scoreRows) {
-        const userTitle = titlesMap[s.name] || s.target_career || '';
-        csv += `Score,${csvCell(s.id)},${csvCell(s.name)},${csvCell(userTitle)},${csvCell(`${s.pack} Level ${s.level} (Accuracy ${s.acc}%)`)},${s.acc},${s.ts},${csvCell(new Date(Number(s.ts)).toISOString())}\n`;
+      for (const [bName, bList] of Object.entries(badgesStore.by_user || {})) {
+        for (const bKey of (bList || [])) {
+          csvLines.push([
+            'Badge', csvCell('badge_' + encodeURIComponent(bName + '_' + bKey)), csvCell(bName), '', csvCell(bKey),
+            '', '', '', '', '', '', '', '', '',
+            0, 5, 5, csvCell('User Badge'), 1, nowMs, csvCell(nowIso)
+          ].join(','));
+        }
       }
+      // 3. Export Feedback (with titles, roles, class info, pin badge, ratings)
+      for (const f of enrichedFeedback) {
+        const tsNum = normalizeTsMs(f.ts);
+        csvLines.push([
+          'Feedback', csvCell(f.id), csvCell(f.name), csvCell(f.title), csvCell(f.badge),
+          csvCell(f.role || 'Student'), csvCell(f.class_info || ''),
+          '', '', '', '', '', '', '',
+          Number(f.pinned || 0), Number(f.r_games ?? 5), Number(f.r_speaking ?? 5),
+          csvCell(f.comment), Number(f.r_useful ?? 5), tsNum, csvCell(formatCsvIso(tsNum))
+        ].join(','));
+      }
+      // 4. Export Scores (with titles, badges, full speaking metrics)
+      for (const s of enrichedScores) {
+        const tsNum = normalizeTsMs(s.ts);
+        csvLines.push([
+          'Score', csvCell(s.id), csvCell(s.name), csvCell(s.title), csvCell(s.badge),
+          '', csvCell(s.class_name || 'General'),
+          csvCell(s.pack || 'Everyday'), Number(s.level || 1), Number(s.acc ?? 0),
+          Number(s.fluency ?? 0), Number(s.clarity ?? 0), Number(s.wpm ?? 0), csvCell(s.target_career || ''),
+          0, '', '',
+          csvCell(`${s.pack} Level ${s.level} (Accuracy ${s.acc}%)`), Number(s.acc ?? 0), tsNum, csvCell(formatCsvIso(tsNum))
+        ].join(','));
+      }
+      const csv = csvLines.join('\n') + '\n';
       return new Response(csv, {
         headers: {
           'Content-Type': 'text/csv',
           'Content-Disposition': `attachment; filename="careerfair_global_data_${Date.now()}.csv"`,
+          'Cache-Control': 'no-store',
           'Access-Control-Allow-Origin': '*'
         }
       });
@@ -4294,14 +4800,18 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       export_timestamp: Date.now(),
       export_date_iso: new Date().toISOString(),
       database: 'careerfair-db (Cloudflare D1)',
-      total_feedback: feedbackRows.length,
-      total_scores: scoreRows.length,
+      total_feedback: enrichedFeedback.length,
+      total_scores: enrichedScores.length,
       total_issues: (typeof issueRows !== 'undefined' ? issueRows.length : 0),
       total_titles: Object.keys(titlesMap || {}).length,
+      total_badges: (badgesStore.global?.length || 0) + Object.keys(badgesStore.by_user || {}).length,
       user_titles: titlesMap,
       titles: titlesMap,
-      feedback: feedbackRows,
-      scores: scoreRows,
+      user_badges: badgesStore,
+      badges: badgesStore,
+      pinned_feedbacks: pinnedList,
+      feedback: enrichedFeedback,
+      scores: enrichedScores,
       issues: (typeof issueRows !== 'undefined' ? issueRows : [])
     });
   }
