@@ -626,6 +626,129 @@ function stopAllVoice() {
   resetAllTtsButtonsToNormal();
 }
 
+const VOICEFORGE_LOCAL_URL = 'http://127.0.0.1:8765';
+let voiceForgeDownUntil = 0;
+
+async function tryVoiceForgeLocalTts(text, opts = {}) {
+  const {
+    targetBtn = null,
+    sessionId = null,
+    abortSignal = null,
+    forceTry = false,
+    rate = 1.0,
+    onAudioCreated = null,
+    onPlay = null,
+    onEnded = null,
+    onError = null,
+    isTutorial = false
+  } = opts;
+
+  if (!text) return false;
+  if (!forceTry && Date.now() < voiceForgeDownUntil) return false;
+
+  const isStale = () => {
+    if (isTutorial) return sessionId !== null && sessionId !== currentTutorialAudioSessionId;
+    return sessionId !== null && sessionId !== currentSpeechSessionId;
+  };
+
+  try {
+    // Fast loopback probe so browsers without the local server fall back cleanly in milliseconds
+    const probeCtrl = new AbortController();
+    const probeTimer = setTimeout(() => probeCtrl.abort(), 500);
+    const onParentAbort = () => probeCtrl.abort();
+    if (abortSignal) abortSignal.addEventListener('abort', onParentAbort, { once: true });
+
+    let healthRes;
+    try {
+      healthRes = await fetch(`${VOICEFORGE_LOCAL_URL}/health`, {
+        method: 'GET',
+        signal: probeCtrl.signal
+      });
+    } finally {
+      clearTimeout(probeTimer);
+      if (abortSignal) abortSignal.removeEventListener('abort', onParentAbort);
+    }
+
+    if (!healthRes || !healthRes.ok || isStale()) {
+      voiceForgeDownUntil = Date.now() + 20000;
+      return false;
+    }
+
+    const res = await fetch(`${VOICEFORGE_LOCAL_URL}/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, voice: 'voiceforge-local', rate }),
+      signal: abortSignal || undefined
+    });
+
+    if (isStale()) return true;
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+    if (!res.ok || !ct.includes('audio')) {
+      voiceForgeDownUntil = Date.now() + 20000;
+      return false;
+    }
+
+    const blob = await res.blob();
+    if (isStale()) return true;
+
+    voiceForgeDownUntil = 0;
+    if (window._lastTtsBlobUrl) {
+      try { URL.revokeObjectURL(window._lastTtsBlobUrl); } catch (_) {}
+    }
+    const audioUrl = URL.createObjectURL(blob);
+    window._lastTtsBlobUrl = audioUrl;
+    const audio = new Audio(audioUrl);
+    currentTtsAudio = audio;
+    if (typeof onAudioCreated === 'function') onAudioCreated(audio);
+
+    audio.onplay = () => {
+      if (isStale()) return;
+      if (typeof onPlay === 'function') onPlay(audio);
+    };
+
+    audio.onended = () => {
+      if (isStale()) return;
+      if (typeof onEnded === 'function') {
+        onEnded();
+      } else {
+        stopAllVoice();
+        if (targetBtn && targetBtn.id === 'btn-test-tts-voice') {
+          const testStatus = $('#admin-tts-test-status');
+          if (testStatus) {
+            testStatus.innerHTML = `<span style="color:var(--accent-green, #10b981);font-weight:600;">✅ Voice test complete! (VoiceForge Local Offline API)</span>`;
+          }
+        }
+      }
+    };
+
+    audio.onerror = () => {
+      if (isStale()) return;
+      if (typeof onError === 'function') {
+        onError();
+      } else {
+        fallbackIndianNeuralSpeech(text, targetBtn, sessionId);
+      }
+    };
+
+    if (targetBtn && targetBtn.id === 'btn-test-tts-voice') {
+      const testStatus = $('#admin-tts-test-status');
+      if (testStatus) {
+        if (window._testVoiceWatchdog) clearTimeout(window._testVoiceWatchdog);
+        testStatus.innerHTML = `<span style="color:var(--accent-green, #10b981);font-weight:600;">✅ Playing via VoiceForge Local Offline API (127.0.0.1:8765)</span>`;
+      }
+    }
+
+    await audio.play();
+    return true;
+  } catch (e) {
+    if (e && e.name === 'AbortError' && abortSignal && abortSignal.aborted) {
+      return true;
+    }
+    voiceForgeDownUntil = Date.now() + 20000;
+    return false;
+  }
+}
+
 async function speak(text, btn = null) {
   if (!text) return;
 
@@ -693,7 +816,8 @@ async function speak(text, btn = null) {
   const savedVoiceId = ($('#admin-eleven-voice')?.value || localStorage.getItem('cf_eleven_voice') || STATE.config.eleven_voice || '').trim();
 
   // 1. Attempt Studio Humanoid Audio Synthesis via ElevenLabs Backend (/api/tts)
-  const canAttemptTts = Boolean(elevenKeyList.length > 0 || STATE.config?.has_eleven_key || STATE.config?.eleven_keys);
+  const preferVoiceForge = (savedVoiceId === 'voiceforge-local');
+  const canAttemptTts = !preferVoiceForge && Boolean(elevenKeyList.length > 0 || STATE.config?.has_eleven_key || STATE.config?.eleven_keys);
   let synthSuccess = false;
 
   if (canAttemptTts) {
@@ -847,11 +971,19 @@ async function speak(text, btn = null) {
     }
   }
 
-  // 2. Fallback to High-Fidelity Indian English Browser Neural Speech (en-IN)
+  // 2. Fallback to VoiceForge Local Offline API (127.0.0.1:8765), then Browser Indian Neural Speech (en-IN)
   if (sessionId === currentSpeechSessionId && !synthSuccess) {
+    const playedOfflineApi = await tryVoiceForgeLocalTts(text, {
+      targetBtn,
+      sessionId,
+      abortSignal,
+      forceTry: preferVoiceForge || (targetBtn && targetBtn.id === 'btn-test-tts-voice')
+    });
+    if (playedOfflineApi || sessionId !== currentSpeechSessionId) return;
+
     if (targetBtn && targetBtn.id === 'btn-test-tts-voice') {
       const testStatus = $('#admin-tts-test-status');
-      if (testStatus && testStatus.textContent.includes('Synthesizing')) {
+      if (testStatus && (testStatus.textContent.includes('Synthesizing') || preferVoiceForge)) {
         testStatus.innerHTML = `<span style="color:var(--accent-cyan);font-weight:600;">ℹ️ Playing via authentic Indian English Neural Voice (en-IN fallback)</span>`;
       }
     }
@@ -1061,9 +1193,12 @@ async function fetchAndPlayGreetingWithCache(text, voiceId, btn, sessionId, abor
     if (e.name === 'AbortError') return;
   }
 
-  // Fallback to browser Indian neural speech if network/API unavailable
+  // Fallback to VoiceForge Local Offline API, then browser Indian neural speech
   if (sessionId === currentSpeechSessionId) {
-    fallbackIndianNeuralSpeech(text, btn, sessionId);
+    const playedLocal = await tryVoiceForgeLocalTts(text, { targetBtn: btn, sessionId, abortSignal });
+    if (!playedLocal && sessionId === currentSpeechSessionId) {
+      fallbackIndianNeuralSpeech(text, btn, sessionId);
+    }
   }
 }
 
@@ -2078,34 +2213,61 @@ function startTutorialWithMode(mode) {
 
 async function fallbackTutorialSpeech(text, sessionId) {
   if (sessionId && sessionId !== currentTutorialAudioSessionId) return;
-  // Always prefer ElevenLabs River TTS dynamically
-  try {
-    const res = await fetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voiceId: 'SAz9YHcvj6GT2YYXdXww' }) // River Studio Voice
-    });
-    if (res.ok) {
-      const blob = await res.blob();
-      if (sessionId !== currentTutorialAudioSessionId) return;
-      const audioUrl = URL.createObjectURL(blob);
-      const audio = new Audio(audioUrl);
-      activeTutorialAudio = audio;
-      window.currentTtsAudio = audio;
-      audio.onplay = () => {
+  const savedVoiceId = (localStorage.getItem('cf_eleven_voice') || STATE.config.eleven_voice || '').trim();
+  const preferVoiceForge = (savedVoiceId === 'voiceforge-local');
+
+  // Always prefer ElevenLabs River TTS dynamically unless VoiceForge local is explicitly selected
+  if (!preferVoiceForge) {
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voiceId: 'SAz9YHcvj6GT2YYXdXww' }) // River Studio Voice
+      });
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      if (res.ok && ct.includes('audio')) {
+        const blob = await res.blob();
         if (sessionId !== currentTutorialAudioSessionId) return;
-        isTutorialSpeechActive = true;
-        updateTutorialHudStatus('speaking', 'River');
-      };
-      audio.onended = () => {
-        if (sessionId !== currentTutorialAudioSessionId) return;
-        isTutorialSpeechActive = false;
-        updateTutorialHudStatus('idle', 'River');
-      };
-      await audio.play();
-      return;
+        const audioUrl = URL.createObjectURL(blob);
+        const audio = new Audio(audioUrl);
+        activeTutorialAudio = audio;
+        window.currentTtsAudio = audio;
+        audio.onplay = () => {
+          if (sessionId !== currentTutorialAudioSessionId) return;
+          isTutorialSpeechActive = true;
+          updateTutorialHudStatus('speaking', 'River');
+        };
+        audio.onended = () => {
+          if (sessionId !== currentTutorialAudioSessionId) return;
+          isTutorialSpeechActive = false;
+          updateTutorialHudStatus('idle', 'River');
+        };
+        await audio.play();
+        return;
+      }
+    } catch (_) {}
+  }
+
+  // Offline API fallback: VoiceForge Local (127.0.0.1:8765)
+  const playedLocal = await tryVoiceForgeLocalTts(text, {
+    sessionId,
+    isTutorial: true,
+    forceTry: preferVoiceForge,
+    onAudioCreated: (audio) => { activeTutorialAudio = audio; },
+    onPlay: () => {
+      isTutorialSpeechActive = true;
+      updateTutorialHudStatus('speaking', 'VoiceForge');
+    },
+    onEnded: () => {
+      isTutorialSpeechActive = false;
+      updateTutorialHudStatus('idle', 'VoiceForge');
+    },
+    onError: () => {
+      isTutorialSpeechActive = false;
+      updateTutorialHudStatus('idle', 'VoiceForge');
     }
-  } catch (_) {}
+  });
+  if (playedLocal || sessionId !== currentTutorialAudioSessionId) return;
 
   // Offline fallback to browser speech synthesis
   if (!('speechSynthesis' in window)) return;
@@ -14063,8 +14225,8 @@ function initAdminWorkspace() {
         }
 
         if (selectEl && Array.isArray(data.voices)) {
-          selectEl.innerHTML = '<option value="">🇮🇳 [Recommended] Authentic Indian Neural Voice (en-IN · Free & Unlimited)</option>';
           const savedVoice = (customVoiceInput?.value || localStorage.getItem('cf_eleven_voice') || STATE.config.eleven_voice || '').trim();
+          selectEl.innerHTML = `<option value="">🇮🇳 [Recommended] Authentic Indian Neural Voice (en-IN · Free & Unlimited)</option><option value="voiceforge-local" ${savedVoice === 'voiceforge-local' ? 'selected' : ''}>⚡ VoiceForge Local Offline API (127.0.0.1:8765)</option>`;
 
           const freeGroup = document.createElement('optgroup');
           freeGroup.label = '🟢 ElevenLabs Free-Tier Studio Voices (Zero 402 Errors)';
@@ -14306,9 +14468,11 @@ function initAdminWorkspace() {
     }, 7000);
 
     const customVoiceId = ($('#admin-eleven-voice')?.value || localStorage.getItem('cf_eleven_voice') || STATE.config.eleven_voice || '').trim();
-    const testText = customVoiceId
-      ? `Hello! This is a live voice test using voice ID: ${customVoiceId}. Every career pathway speaks with clarity and confidence.`
-      : "Welcome to the Career Fair 2026. This voice test demonstrates authentic Indian English pronunciation for all thirty-two careers.";
+    const testText = customVoiceId === 'voiceforge-local'
+      ? "Hello! This is a live voice test using the VoiceForge Local Offline API. Every career pathway speaks with clarity and confidence."
+      : (customVoiceId
+        ? `Hello! This is a live voice test using voice ID: ${customVoiceId}. Every career pathway speaks with clarity and confidence.`
+        : "Welcome to the Career Fair 2026. This voice test demonstrates authentic Indian English pronunciation for all thirty-two careers.");
     try {
       await speak(testText, this);
     } catch (err) {
