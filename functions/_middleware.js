@@ -194,76 +194,106 @@ export async function onRequest(context) {
     // ─────────────────────────────────────────────────────────────
     // 3. MULTI-TIERED DDoS RATE LIMITER (Instant Burst & 60s Window)
     // ─────────────────────────────────────────────────────────────
-    const isStaticAsset = pathname.endsWith('.png') || pathname.endsWith('.jpg') || pathname.endsWith('.jpeg') ||
-                          pathname.endsWith('.webp') || pathname.endsWith('.svg') || pathname.endsWith('.ico') ||
-                          pathname.endsWith('.woff2') || pathname.endsWith('.mp3');
+    const STATIC_EXTS = [
+      '.png', '.jpg', '.jpeg', '.webp', '.svg', '.ico',
+      '.woff', '.woff2', '.ttf', '.eot',
+      '.mp3', '.wav', '.mp4',
+      '.css', '.js', '.mjs', '.json', '.map', '.webmanifest',
+      '.pdf', '.txt', '.xml'
+    ];
+    const isStaticAsset = STATIC_EXTS.some(ext => pathname.endsWith(ext));
 
     // Skip rate-limiting browser bundle static sub-assets so initial page render isn't penalized
     if (!isStaticAsset) {
+      const method = (request.method || 'GET').toUpperCase();
+      const isApiRequest = pathname.startsWith('/api/');
+      const BOOT_READ_PATHS = new Set(['/api/config', '/api/scores', '/api/feedback', '/api/admin/user-title']);
+      const isBootRead = (method === 'GET' || method === 'HEAD') && BOOT_READ_PATHS.has(pathname);
+      const API_BURST_MAX_REQS = 15;
+      const BOOT_READ_MAX_PER_WINDOW = 60;
+
       let tracker = IP_RATE_LIMITS.get(clientIp);
       if (!tracker) {
-        tracker = { count: 1, resetAt: now + RATE_WINDOW_MS, burstCount: 1, burstResetAt: now + BURST_WINDOW_MS };
+        tracker = {
+          count: 0,
+          resetAt: now + RATE_WINDOW_MS,
+          burstCount: 0,
+          burstResetAt: now + BURST_WINDOW_MS,
+          apiBurstCount: 0,
+          apiBurstResetAt: now + BURST_WINDOW_MS,
+          bootCount: 0,
+          bootResetAt: now + RATE_WINDOW_MS
+        };
         IP_RATE_LIMITS.set(clientIp, tracker);
-      } else {
-        // --- 3A. INSTANT 1-SECOND BURST CHECK (>3 visits/reqs in 1 second) ---
-        if (now > tracker.burstResetAt) {
-          tracker.burstCount = 1;
-          tracker.burstResetAt = now + BURST_WINDOW_MS;
-        } else {
-          tracker.burstCount++;
-          if (tracker.burstCount > BURST_MAX_REQS) {
-            AUTO_BANNED_IPS.set(clientIp, now + BAN_DURATION_MS);
-            return new Response(
-              JSON.stringify({
-                error: "DDoS Attack Blocked: Exceeded rate limit (>3 requests in 1 second). Your device IP has been banned immediately.",
-                retry_after_seconds: 7200
-              }),
-              {
-                status: 429,
-                statusText: "Too Many Requests - DDoS Burst Ban",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Connection": "close",
-                  "Retry-After": "7200",
-                  "Cache-Control": "no-store",
-                  "X-DDoS-Protection": "Burst-Triggered"
-                }
-              }
-            );
-          }
-        }
+      }
 
-        // --- 3B. SUSTAINED 60-SECOND WINDOW CHECK (>25 reqs in 60 seconds) ---
-        if (now > tracker.resetAt) {
-          tracker.count = 1;
-          tracker.resetAt = now + RATE_WINDOW_MS;
+      const bumpWindow = (countKey, resetKey, windowMs) => {
+        if (now > tracker[resetKey]) {
+          tracker[countKey] = 1;
+          tracker[resetKey] = now + windowMs;
         } else {
-          tracker.count++;
-          if (tracker.count > MAX_REQUESTS_PER_WINDOW) {
-            AUTO_BANNED_IPS.set(clientIp, now + BAN_DURATION_MS);
-            return new Response(
-              JSON.stringify({
-                error: "DDoS Protection Triggered: Exceeded 25 requests in 60 seconds. Your device IP has been banned.",
-                retry_after_seconds: 7200
-              }),
-              {
-                status: 429,
-                statusText: "Too Many Requests",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Connection": "close",
-                  "Retry-After": "7200",
-                  "Cache-Control": "no-store"
-                }
-              }
-            );
-          }
+          tracker[countKey] = (tracker[countKey] || 0) + 1;
         }
+        return tracker[countKey];
+      };
 
-        // Periodic cleanup to avoid memory leak
-        if (IP_RATE_LIMITS.size > 2000) {
-          for (const [ipKey, entry] of IP_RATE_LIMITS.entries()) {
-            if (now > entry.resetAt && now > entry.burstResetAt) IP_RATE_LIMITS.delete(ipKey);
+      const makeDdosBanResponse = (message, statusText, extraHeader) => {
+        AUTO_BANNED_IPS.set(clientIp, now + BAN_DURATION_MS);
+        const headers = {
+          "Content-Type": "application/json",
+          "Connection": "close",
+          "Retry-After": "7200",
+          "Cache-Control": "no-store"
+        };
+        if (extraHeader) headers["X-DDoS-Protection"] = extraHeader;
+        return new Response(
+          JSON.stringify({ error: message, retry_after_seconds: 7200 }),
+          { status: 429, statusText, headers }
+        );
+      };
+
+      // --- 3A. INSTANT 1-SECOND BURST CHECK ---
+      // Page-visit burst (>3 visits in 1 second) vs non-boot API burst (>15 reqs in 1 second)
+      if (!isApiRequest) {
+        if (bumpWindow('burstCount', 'burstResetAt', BURST_WINDOW_MS) > BURST_MAX_REQS) {
+          return makeDdosBanResponse(
+            "DDoS Attack Blocked: Exceeded rate limit (>3 requests in 1 second). Your device IP has been banned immediately.",
+            "Too Many Requests - DDoS Burst Ban",
+            "Burst-Triggered"
+          );
+        }
+      } else if (!isBootRead) {
+        if (bumpWindow('apiBurstCount', 'apiBurstResetAt', BURST_WINDOW_MS) > API_BURST_MAX_REQS) {
+          return makeDdosBanResponse(
+            "DDoS Attack Blocked: Exceeded API burst limit. Your device IP has been banned immediately.",
+            "Too Many Requests - DDoS Burst Ban",
+            "Burst-Triggered"
+          );
+        }
+      }
+
+      // --- 3B. SUSTAINED 60-SECOND WINDOW CHECK ---
+      if (isBootRead) {
+        if (bumpWindow('bootCount', 'bootResetAt', RATE_WINDOW_MS) > BOOT_READ_MAX_PER_WINDOW) {
+          return makeDdosBanResponse(
+            "DDoS Protection Triggered: Exceeded sustained boot request limit. Your device IP has been banned.",
+            "Too Many Requests",
+            null
+          );
+        }
+      } else if (bumpWindow('count', 'resetAt', RATE_WINDOW_MS) > MAX_REQUESTS_PER_WINDOW) {
+        return makeDdosBanResponse(
+          "DDoS Protection Triggered: Exceeded 25 requests in 60 seconds. Your device IP has been banned.",
+          "Too Many Requests",
+          null
+        );
+      }
+
+      // Periodic cleanup to avoid memory leak
+      if (IP_RATE_LIMITS.size > 2000) {
+        for (const [ipKey, entry] of IP_RATE_LIMITS.entries()) {
+          if (now > entry.resetAt && now > entry.burstResetAt && now > (entry.apiBurstResetAt || 0) && now > (entry.bootResetAt || 0)) {
+            IP_RATE_LIMITS.delete(ipKey);
           }
         }
       }

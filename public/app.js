@@ -68,6 +68,67 @@ function getActiveAdminToken() {
   }
 }
 
+let _adminVerifyState = { token: '', ts: 0, promise: null, result: null };
+
+async function verifyAdminSessionWithServer(token) {
+  const cleanToken = String(token || '').trim();
+  if (!cleanToken) return { ok: false, status: 401, revoked: false, blocked: false, error: '' };
+
+  const now = Date.now();
+  if (_adminVerifyState.token === cleanToken) {
+    if (_adminVerifyState.promise) return _adminVerifyState.promise;
+    if (_adminVerifyState.result && (now - _adminVerifyState.ts) < 5000) return _adminVerifyState.result;
+  }
+
+  const runCheck = (async () => {
+    try {
+      const reqOpts = { headers: { 'Authorization': 'Bearer ' + cleanToken }, cache: 'no-store' };
+      let res = await fetch(getApiUrl('api/admin/ping'), reqOpts);
+      if (!res.ok && res.status !== 401 && res.status !== 403 && typeof window !== 'undefined' && window.location.protocol !== 'file:' && window.location.hostname !== 'careerwithenglish.pages.dev') {
+        res = await fetch(PRIMARY_D1_ORIGIN + '/api/admin/ping', reqOpts);
+      }
+      if (res.status === 401 || res.status === 403) {
+        const errBody = await res.json().catch(() => null);
+        const blocked = Boolean(res.status === 403 && (errBody?.banned || errBody?.admin_revoked));
+        const revoked = res.status === 401 || (res.status === 403 && Boolean(errBody?.admin_revoked));
+        return { ok: false, status: res.status, revoked, blocked, error: errBody?.error || '' };
+      }
+      return { ok: res.ok, status: res.status, revoked: false, blocked: false, error: '' };
+    } catch {
+      return { ok: true, status: 0, revoked: false, blocked: false, error: '' };
+    }
+  })();
+
+  _adminVerifyState = { token: cleanToken, ts: now, promise: runCheck, result: null };
+  const result = await runCheck;
+  if (_adminVerifyState.promise === runCheck) {
+    _adminVerifyState = { token: cleanToken, ts: Date.now(), promise: null, result };
+  }
+  return result;
+}
+
+function applyAdminVerifyOutcome(result, gateScreen, workspaceScreen) {
+  if (!result) return;
+  if (result.blocked) {
+    enforceSiteIpBlockOverlay(result.error);
+    return;
+  }
+  if (result.revoked) {
+    STATE.adminKey = '';
+    try {
+      sessionStorage.removeItem('cf_admin_session');
+      localStorage.removeItem('cf_admin_session');
+    } catch {}
+    if (gateScreen && workspaceScreen) {
+      gateScreen.hidden = false;
+      workspaceScreen.hidden = true;
+    }
+    updateHeaderBookletVisibility();
+    loadLeaderboard();
+    loadFeedbackWall();
+  }
+}
+
 const STATE = window.STATE = {
   adminLockedInSession: false,
   theme: initialResolvedTheme,
@@ -364,6 +425,10 @@ async function fetchApi(endpoint, options = {}, maybeBody = null) {
   const fetchOpts = Object.assign({}, opts);
   if (controller && !fetchOpts.signal) fetchOpts.signal = controller.signal;
 
+  if (cleanEndpoint.startsWith('admin/') && !fetchOpts.cache) {
+    fetchOpts.cache = 'no-store';
+  }
+
   try {
     const res = await fetch(primaryUrl, fetchOpts);
     if (timeoutId) clearTimeout(timeoutId);
@@ -374,7 +439,7 @@ async function fetchApi(endpoint, options = {}, maybeBody = null) {
         enforceSiteIpBlockOverlay(errBody.error);
         return null;
       }
-      if (cleanEndpoint.startsWith('admin/') && STATE.adminKey) {
+      if ((res.status === 401 || (res.status === 403 && errBody?.admin_revoked)) && cleanEndpoint.startsWith('admin/') && STATE.adminKey) {
         STATE.adminKey = '';
         sessionStorage.removeItem('cf_admin_session');
         localStorage.removeItem('cf_admin_session');
@@ -4491,7 +4556,7 @@ const AppRouter = {
   // 9. Admin Sub-Routing: /admin/:view
   _routeAdmin(viewSlug) {
     renderAdminView();
-    if (viewSlug && STATE.adminKey) {
+    if (viewSlug && getActiveAdminToken()) {
       setTimeout(() => {
         const chip = $(`#admin-tab-row .filter-chip[data-admin-view="${viewSlug}"]`);
         if (chip) chip.click();
@@ -12628,35 +12693,7 @@ function renderAdminView() {
     initAdminWorkspace();
 
     // Verify opaque session token against live backend so revoked/expired sessions cannot stay logged in
-    (async () => {
-      try {
-        let res = await fetch(getApiUrl('api/admin/ping'), {
-          headers: { 'Authorization': 'Bearer ' + STATE.adminKey }
-        });
-        if (!res.ok && res.status !== 401 && res.status !== 403 && window.location.protocol !== 'file:' && window.location.hostname !== 'careerwithenglish.pages.dev') {
-          res = await fetch(PRIMARY_D1_ORIGIN + '/api/admin/ping', {
-            headers: { 'Authorization': 'Bearer ' + STATE.adminKey }
-          });
-        }
-        if (res.status === 401 || res.status === 403) {
-          const errBody = await res.json().catch(() => null);
-          if (res.status === 403 && (errBody?.banned || errBody?.admin_revoked)) {
-            enforceSiteIpBlockOverlay(errBody.error);
-            return;
-          }
-          STATE.adminKey = '';
-          try {
-            sessionStorage.removeItem('cf_admin_session');
-            localStorage.removeItem('cf_admin_session');
-          } catch {}
-          gateScreen.hidden = false;
-          workspaceScreen.hidden = true;
-          updateHeaderBookletVisibility();
-          loadLeaderboard();
-          loadFeedbackWall();
-        }
-      } catch (_) {}
-    })();
+    verifyAdminSessionWithServer(getActiveAdminToken()).then(result => applyAdminVerifyOutcome(result, gateScreen, workspaceScreen)).catch(() => {});
     if (typeof initAdminImportControls === 'function') initAdminImportControls();
 
   // Global D1 Exhibition Data Downloader Wiring
@@ -14751,20 +14788,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       localStorage.setItem('cf_admin_session', savedSession);
       sessionStorage.setItem('cf_admin_session', savedSession);
       // Verify saved session silently against server; purge if expired or revoked
-      fetch(getApiUrl('api/admin/ping'), {
-        headers: { 'Authorization': 'Bearer ' + savedSession }
-      }).then(async res => {
-        if (res.status === 401 || res.status === 403) {
-          STATE.adminKey = '';
-          try {
-            localStorage.removeItem('cf_admin_session');
-            sessionStorage.removeItem('cf_admin_session');
-          } catch {}
-          updateHeaderBookletVisibility();
-          loadLeaderboard();
-          loadFeedbackWall();
-        }
-      }).catch(() => {});
+      verifyAdminSessionWithServer(savedSession).then(result => applyAdminVerifyOutcome(result)).catch(() => {});
     }
   } catch {}
 

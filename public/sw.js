@@ -1,5 +1,5 @@
 // Career Fair 2026 - Service Worker
-const CACHE_NAME = 'cf-cache-v26.1-session-lock-reload';
+const CACHE_NAME = 'cf-cache-v26.2-reload-fix';
 
 // Critical shell assets to pre-cache
 const STATIC_ASSETS = [
@@ -98,7 +98,9 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       (async () => {
         try {
-          const networkResponse = await fetch(event.request);
+          const networkResponse = event.request.mode === 'navigate'
+            ? await fetch(event.request)
+            : await fetch(event.request, { cache: 'no-cache' });
           if (networkResponse && networkResponse.status === 200) {
             const clone = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {});

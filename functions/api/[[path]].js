@@ -286,15 +286,96 @@ async function clearFailedAuthAttempts(db, ip) {
   }
 }
 
+const DDOS_BAN_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+const DDOS_BURST_MIGRATION_KEY = 'ddos_burst_bugfix_v1';
+
+async function pruneExpiredDdosBans(db) {
+  if (!db) return;
+  try {
+    const [rawBans, migrationDone] = await Promise.all([
+      kvGet(db, 'brute_force_bans', ''),
+      GLOBAL_CACHE.ddos_burst_bugfix_v1 ? Promise.resolve('1') : kvGet(db, DDOS_BURST_MIGRATION_KEY, '')
+    ]);
+    if (migrationDone === '1') GLOBAL_CACHE.ddos_burst_bugfix_v1 = true;
+
+    let bans = {};
+    if (rawBans) {
+      try { bans = JSON.parse(rawBans); } catch {}
+    }
+    if (!bans || typeof bans !== 'object' || Array.isArray(bans)) bans = {};
+
+    const now = Date.now();
+    const ipsToUnban = [];
+    for (const [ip, entry] of Object.entries(bans)) {
+      const reason = String(entry?.reason || '');
+      if (!reason.startsWith('DDoS')) continue;
+      const isLegacyBurstBug = migrationDone !== '1' && reason.startsWith('DDoS Burst Attack: Exceeded 3 requests in 1 second');
+      const isExpired = Number(entry?.banned_at || 0) > 0 && (now - Number(entry.banned_at)) >= DDOS_BAN_TTL_MS;
+      if (isLegacyBurstBug || isExpired) {
+        ipsToUnban.push(ip);
+      }
+    }
+
+    if (ipsToUnban.length > 0) {
+      const removeSet = new Set(ipsToUnban);
+      const [bannedIps, adminBlockedIps, tracker] = await Promise.all([
+        getBannedIps(db),
+        getAdminBlockedIps(db),
+        getBruteForceTracker(db)
+      ]);
+      const nextBanned = bannedIps.filter(ip => !removeSet.has(ip));
+      const nextAdminBlocked = adminBlockedIps.filter(ip => !removeSet.has(ip));
+      for (const ip of ipsToUnban) {
+        delete bans[ip];
+        if (tracker[ip]) delete tracker[ip];
+      }
+      GLOBAL_CACHE.banned_ips = nextBanned;
+      GLOBAL_CACHE.admin_blocked_ips = nextAdminBlocked;
+      GLOBAL_CACHE.brute_force_bans = bans;
+      GLOBAL_CACHE.brute_force_tracker = tracker;
+      await Promise.all([
+        kvSet(db, 'banned_ips', JSON.stringify(nextBanned)),
+        kvSet(db, 'admin_blocked_ips', JSON.stringify(nextAdminBlocked)),
+        kvSet(db, 'brute_force_bans', JSON.stringify(bans)),
+        kvSet(db, 'brute_force_tracker', JSON.stringify(tracker))
+      ]);
+    }
+
+    if (migrationDone !== '1') {
+      GLOBAL_CACHE.ddos_burst_bugfix_v1 = true;
+      await kvSet(db, DDOS_BURST_MIGRATION_KEY, '1');
+    }
+  } catch {}
+}
+
 async function checkRequestFlood(req, db, path, method) {
-  const isSensitiveOrWrite = (method !== 'GET' && method !== 'HEAD')
+  const upperMethod = String(method || 'GET').toUpperCase();
+  const isRead = upperMethod === 'GET' || upperMethod === 'HEAD';
+  if (isRead && path === '/admin/user-title') {
+    return { banned: false };
+  }
+
+  const isSensitiveOrWrite = !isRead
     || path.startsWith('/admin')
     || path.startsWith('/ai')
     || path.startsWith('/tts');
   if (!isSensitiveOrWrite) return { banned: false };
 
   const clientIp = getClientIp(req);
-  if (!clientIp) return { banned: false };
+  if (!clientIp || isImmuneAdminIp(clientIp)) return { banned: false };
+
+  let isVerifiedAdminRead = false;
+  if (isRead && path.startsWith('/admin') && db) {
+    const authHdr = req.headers.get('Authorization') || '';
+    const bearer = authHdr.replace(/^Bearer\s+/i, '').trim();
+    if (bearer.startsWith('adm_sess_')) {
+      const sess = await validateAdminSessionToken(db, bearer);
+      if (sess) isVerifiedAdminRead = true;
+    }
+  }
+
+  const effectiveBurstMax = isVerifiedAdminRead ? 20 : BF_BURST_MAX_REQS;
+  const effectiveFloodMax = isVerifiedAdminRead ? 120 : BF_FLOOD_MAX_REQS;
 
   const now = Date.now();
   const tracker = GLOBAL_CACHE.brute_force_tracker || (await getBruteForceTracker(db));
@@ -306,8 +387,10 @@ async function checkRequestFlood(req, db, path, method) {
   GLOBAL_CACHE.brute_force_tracker = tracker;
 
   const burstCount = entry.req_times.filter(ts => now - ts <= BF_BURST_WINDOW_MS).length;
-  if (burstCount > BF_BURST_MAX_REQS) {
-    const reason = `DDoS Burst Attack: Exceeded 3 requests in 1 second (${burstCount} requests/sec)`;
+  if (burstCount > effectiveBurstMax) {
+    const reason = isVerifiedAdminRead
+      ? `DDoS Burst Attack: Exceeded ${effectiveBurstMax} admin read requests in 1 second (${burstCount} requests/sec)`
+      : `DDoS Burst Attack: Exceeded 3 requests in 1 second (${burstCount} requests/sec)`;
     await blockIpAcrossSite(db, clientIp);
     await recordBruteForceBan(db, clientIp, reason, burstCount, req.headers.get('user-agent') || '');
     await saveBruteForceTracker(db, tracker);
@@ -315,15 +398,15 @@ async function checkRequestFlood(req, db, path, method) {
   }
 
   const count = entry.req_times.length;
-  if (count > BF_FLOOD_MAX_REQS) {
-    const reason = `DDoS Protection: Exceeded 25 requests in 60 seconds (${count} requests)`;
+  if (count > effectiveFloodMax) {
+    const reason = `DDoS Protection: Exceeded ${effectiveFloodMax} requests in 60 seconds (${count} requests)`;
     await blockIpAcrossSite(db, clientIp);
     await recordBruteForceBan(db, clientIp, reason, count, req.headers.get('user-agent') || '');
     await saveBruteForceTracker(db, tracker);
     return { banned: true, ip: clientIp, reason };
   }
 
-  if (db && (count >= BF_FLOOD_MAX_REQS - 5 || count % 15 === 0)) {
+  if (db && (count >= effectiveFloodMax - 5 || count % 15 === 0)) {
     await saveBruteForceTracker(db, tracker);
   }
   return { banned: false };
@@ -1241,6 +1324,11 @@ export async function onRequest(ctx) {
         }
       }
     } catch {}
+  }
+
+  // Auto-expire 2-hour DDoS auto-bans & run one-time cleanup of prior reload burst false-positives
+  if (db) {
+    await pruneExpiredDdosBans(db);
   }
 
 
