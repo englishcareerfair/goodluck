@@ -393,7 +393,9 @@ function enforceSiteIpBlockOverlay(message) {
     console.warn('Ignoring site IP block overlay for protected admin IP:', currentDevIp);
     return;
   }
+  STATE.isSiteBlocked = true;
   try {
+    if (typeof window.stopAdminVisitorsLivePoll === 'function') window.stopAdminVisitorsLivePoll();
     STATE.adminKey = '';
     sessionStorage.removeItem('cf_admin_session');
     localStorage.removeItem('cf_admin_session');
@@ -4792,6 +4794,12 @@ function switchTab(tabId, options = {}) {
   if (tabId === 'speechLab') initSpeechLab();
   if (tabId === 'teleprompter') initTeleprompter();
   if (tabId === 'voicelab' && window.VoiceLab && typeof window.VoiceLab.init === 'function') window.VoiceLab.init();
+  if (tabId === 'admin' && getActiveAdminToken() && typeof window.renderAdminVisitors === 'function') {
+    window.renderAdminVisitors();
+  }
+  if (typeof window.scheduleVisitorHeartbeat === 'function') {
+    window.scheduleVisitorHeartbeat('tab');
+  }
   if (!options.skipSubInit) {
     if (tabId === 'games') renderGameArena('quest-scribe');
     if (tabId === 'roadmap') renderPlanTool('bizcard');
@@ -13924,6 +13932,7 @@ function initAdminWorkspace() {
 
   if (typeof window.initDynamicApiPools === 'function') window.initDynamicApiPools();
   renderAdminDbStatus(STATE.config);
+  if (typeof window.startAdminVisitorsLivePoll === 'function') window.startAdminVisitorsLivePoll();
 
   // Admin tabs switching
   $$('#admin-tab-row .filter-chip').forEach(btn => {
@@ -15204,9 +15213,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTimeout(signalSiteLoaded, 400);
   }
 
-  // ─── BACKGROUND MULTI-SYSTEM GLOBAL SYNCHRONIZER ───
-  // Automatically synchronizes live stream, scores, and feedback across systems
+  // ─── BACKGROUND MULTI-SYSTEM GLOBAL SYNCHRONIZER & VISITOR TELEMETRY ───
+  // Start visitor heartbeat (skipped/self-excluded when admin authenticated)
+  setTimeout(() => {
+    if (typeof window.sendVisitorHeartbeat === 'function') {
+      window.sendVisitorHeartbeat('boot');
+    }
+  }, 450);
+
+  setInterval(() => {
+    if (document.hidden || STATE.isSiteBlocked) return;
+    if (typeof window.sendVisitorHeartbeat === 'function') {
+      window.sendVisitorHeartbeat('interval');
+    }
+  }, 30000);
+
+  // Automatically synchronizes live stream, scores, and feedback across systems (paused when tab hidden)
   setInterval(async () => {
+    if (document.hidden || STATE.isSiteBlocked) return;
     try {
       const liveCfg = await fetchApi('config');
       if (liveCfg) {
@@ -15250,7 +15274,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         loadFeedbackWall();
       }
     } catch (e) {}
-  }, 15000);
+  }, 60000);
 
   // Admin login submission (E2EE ECDH + AES-256-GCM)
   $('#admin-login-form')?.addEventListener('submit', async e => {
@@ -15333,6 +15357,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function lockAdminForCurrentSession(toastMessage) {
     STATE.adminLockedInSession = true;
     STATE.adminKey = '';
+    if (typeof window.stopAdminVisitorsLivePoll === 'function') window.stopAdminVisitorsLivePoll();
     try { sessionStorage.removeItem('cf_admin_session'); } catch {}
     updateHeaderBookletVisibility();
     renderAdminView();
@@ -15347,6 +15372,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   $('#btn-admin-logout')?.addEventListener('click', async () => {
+    if (typeof window.stopAdminVisitorsLivePoll === 'function') window.stopAdminVisitorsLivePoll();
     try {
       const tok = getActiveAdminToken();
       if (tok) {
@@ -15661,6 +15687,7 @@ window.adminRevokeDeviceIp = async function(ipToRevoke, isCurrent = false) {
     } else {
       await window.renderAdminDevices();
       if (typeof window.renderAdminBannedIps === 'function') window.renderAdminBannedIps();
+      if (typeof window.renderAdminVisitors === 'function') window.renderAdminVisitors();
     }
   } else {
     showToast('Failed to block that IP.');
@@ -15675,6 +15702,7 @@ window.adminRestoreDeviceIp = async function(ip) {
     showToast(`Site & admin access restored for IP "${ip}" ✅`);
     await window.renderAdminDevices();
     if (typeof window.renderAdminBannedIps === 'function') window.renderAdminBannedIps();
+    if (typeof window.renderAdminVisitors === 'function') window.renderAdminVisitors();
   } else {
     showToast('Failed to restore access.');
   }
@@ -15707,6 +15735,7 @@ window.adminBanIp = async function(ipToBan) {
   if (input) input.value = '';
   window.renderAdminBannedIps();
   if (typeof window.renderAdminDevices === 'function') window.renderAdminDevices();
+  if (typeof window.renderAdminVisitors === 'function') window.renderAdminVisitors();
 };
 
 window.adminUnbanIp = async function(ip) {
@@ -15729,6 +15758,292 @@ window.adminUnbanIp = async function(ip) {
   showToast(`IP "${ip}" unblocked ✅`);
   window.renderAdminBannedIps();
   if (typeof window.renderAdminDevices === 'function') window.renderAdminDevices();
+  if (typeof window.renderAdminVisitors === 'function') window.renderAdminVisitors();
+};
+
+// ─── VPN Shield Telemetry & Realtime Admin Visitor Monitor ────────────────
+window.collectPublicWebRtcIpsOnce = function() {
+  if (window._cfWebRtcIpsPromise) return window._cfWebRtcIpsPromise;
+  window._cfWebRtcIpsPromise = new Promise(resolve => {
+    const RTCPeer = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+    if (typeof RTCPeer !== 'function') return resolve([]);
+    const ips = new Set();
+    let settled = false;
+    let pc = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      try { if (pc) pc.close(); } catch {}
+      resolve(Array.from(ips));
+    };
+    const timer = setTimeout(finish, 650);
+    try {
+      pc = new RTCPeer({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      pc.createDataChannel('cf-probe');
+      pc.onicecandidate = evt => {
+        if (!evt || !evt.candidate) {
+          clearTimeout(timer);
+          return finish();
+        }
+        const cand = String(evt.candidate.candidate || '');
+        const matches = cand.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g) || [];
+        for (const ip of matches) {
+          if (
+            !ip.startsWith('127.') &&
+            !ip.startsWith('10.') &&
+            !ip.startsWith('192.168.') &&
+            !ip.startsWith('169.254.') &&
+            !ip.startsWith('0.') &&
+            !/^172\.(1[6-9]|2\d|3[01])\./.test(ip)
+          ) {
+            ips.add(ip);
+          }
+        }
+      };
+      pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {
+        clearTimeout(timer);
+        finish();
+      });
+    } catch {
+      clearTimeout(timer);
+      finish();
+    }
+  });
+  return window._cfWebRtcIpsPromise;
+};
+
+let _lastVisitorHeartbeatMs = 0;
+let _adminBootHeartbeatSent = false;
+let _visitorHeartbeatTimer = null;
+
+window.sendVisitorHeartbeat = async function(reason = 'auto') {
+  if (STATE.isSiteBlocked) return;
+  const isAdminSess = Boolean(getActiveAdminToken());
+  if (isAdminSess && _adminBootHeartbeatSent) return;
+
+  const now = Date.now();
+  if (reason !== 'boot' && (now - _lastVisitorHeartbeatMs) < 2500) return;
+  _lastVisitorHeartbeatMs = now;
+
+  try {
+    let webrtcIps = [];
+    if (!isAdminSess) {
+      webrtcIps = await window.collectPublicWebRtcIpsOnce();
+    }
+    const tz = (() => {
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; }
+    })();
+    const offsetMin = (() => {
+      try { return new Date().getTimezoneOffset(); } catch { return 0; }
+    })();
+    const payload = {
+      tab: STATE.activeTab || 'overview',
+      path: (typeof window !== 'undefined' ? window.location.pathname : '/') || '/',
+      tz,
+      offsetMin,
+      webrtcIps,
+      reason
+    };
+    const res = await fetchApi('visitor/heartbeat', 'POST', payload);
+    if (isAdminSess && res && res.ok) {
+      _adminBootHeartbeatSent = true;
+    }
+  } catch {}
+};
+
+window.scheduleVisitorHeartbeat = function(reason = 'tab') {
+  if (STATE.isSiteBlocked) return;
+  clearTimeout(_visitorHeartbeatTimer);
+  _visitorHeartbeatTimer = setTimeout(() => {
+    window.sendVisitorHeartbeat(reason);
+  }, 220);
+};
+
+window._adminVisitorFilter = window._adminVisitorFilter || 'all';
+let _cachedAdminVisitorsPayload = null;
+let _adminVisitorsPollTimer = null;
+let _adminVisitorsRenderInFlight = false;
+
+function formatRelativeVisitorTime(ts) {
+  if (!ts) return '—';
+  const diffSec = Math.max(0, Math.floor((Date.now() - Number(ts)) / 1000));
+  if (diffSec < 10) return 'Just now';
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const mins = Math.floor(diffSec / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  try {
+    return new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '—';
+  }
+}
+
+function renderAdminVisitorsRows(payload) {
+  const tbody = $('#admin-live-visitors-tbody');
+  const onlineBadge = $('#admin-visitors-online-count');
+  const vpnBadge = $('#admin-visitors-vpn-count');
+  const updatedEl = $('#admin-visitors-updated-at');
+  if (!tbody) return;
+
+  const list = Array.isArray(payload?.visitors) ? payload.visitors : [];
+  if (onlineBadge) {
+    const oc = Number(payload?.online_count ?? list.filter(v => v.is_online).length);
+    onlineBadge.textContent = `${oc} Online`;
+  }
+  if (vpnBadge) {
+    const vc = Number(payload?.vpn_banned_count ?? list.filter(v => v.is_banned && v.is_vpn).length);
+    vpnBadge.textContent = `${vc} VPN${vc === 1 ? '' : 's'} Banned`;
+  }
+  if (updatedEl) {
+    try {
+      updatedEl.textContent = `Updated ${new Date(payload?.updated_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+    } catch {}
+  }
+
+  const filter = window._adminVisitorFilter || 'all';
+  const filtered = list.filter(v => {
+    if (!v || !v.ip) return false;
+    if (filter === 'online') return Boolean(v.is_online);
+    if (filter === 'vpn') return Boolean(v.is_vpn || v.is_banned);
+    return true;
+  });
+
+  if (!filtered.length) {
+    const emptyMsg = filter === 'online'
+      ? 'No external visitors currently online right now (your admin IP is hidden).'
+      : filter === 'vpn'
+        ? 'No VPN / Proxy visitors banned yet.'
+        : 'No visitor IPs recorded yet (your own admin IP is excluded from this list).';
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:18px;color:var(--text-muted);">${escapeHtml(emptyMsg)}</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(v => {
+    const safeIp = escapeHtml(v.ip || '');
+    const locParts = [v.city, v.region, v.country].filter(Boolean).join(', ');
+    const safeLoc = escapeHtml(locParts || 'Direct / Local Network');
+    const safeIsp = escapeHtml(v.isp ? (v.asn ? `AS${v.asn} · ${v.isp}` : v.isp) : (v.asn ? `AS${v.asn}` : 'Unknown ISP'));
+    const safeDevice = escapeHtml(v.device || 'Browser');
+    const safeTab = escapeHtml(v.active_tab || v.current_path || 'overview');
+    const safeReason = escapeHtml(v.vpn_reason || '');
+    const hits = Number(v.hits || 1);
+
+    let statusHtml = `<span style="color:var(--text-muted);font-weight:700;">⚪ Idle</span>`;
+    if (v.is_banned && v.is_vpn) {
+      statusHtml = `<span style="color:#ef4444;font-weight:700;">🛡️ VPN Banned</span>${safeReason ? `<div style="font-size:10.5px;color:#fca5a5;margin-top:2px;">${safeReason}</div>` : ''}`;
+    } else if (v.is_banned) {
+      statusHtml = `<span style="color:#ef4444;font-weight:700;">🚫 Banned</span>${safeReason ? `<div style="font-size:10.5px;color:#fca5a5;margin-top:2px;">${safeReason}</div>` : ''}`;
+    } else if (v.is_online) {
+      statusHtml = `<span style="color:#10b981;font-weight:700;">🟢 Online Now</span>`;
+    }
+
+    const actionBtn = v.is_banned
+      ? `<button type="button" class="btn btn-secondary btn-xs" data-visitor-unban-ip="${safeIp}">✅ Unban</button>`
+      : `<button type="button" class="btn btn-primary btn-xs" style="background:#ef4444;border-color:#dc2626;" data-visitor-ban-ip="${safeIp}">🚫 Ban IP</button>`;
+
+    return `
+      <tr style="border-top:1px solid var(--border);">
+        <td style="padding:8px 10px;font-family:var(--font-mono);font-weight:700;white-space:nowrap;">${safeIp}</td>
+        <td style="padding:8px 10px;">
+          <div style="font-weight:600;color:var(--text-main);">${safeLoc}</div>
+          <div style="font-size:10.5px;color:var(--text-dim);">${safeIsp}</div>
+        </td>
+        <td style="padding:8px 10px;">
+          <div style="color:var(--text-muted);">${safeDevice}</div>
+          <div style="font-size:10.5px;color:var(--text-dim);">Tab: <span style="font-family:var(--font-mono);">${safeTab}</span> · ${hits} hit${hits === 1 ? '' : 's'}</div>
+        </td>
+        <td style="padding:8px 10px;color:var(--text-dim);white-space:nowrap;">${escapeHtml(formatRelativeVisitorTime(v.last_seen))}</td>
+        <td style="padding:8px 10px;">${statusHtml}</td>
+        <td style="padding:8px 10px;text-align:center;white-space:nowrap;">${actionBtn}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+window.renderAdminVisitors = async function() {
+  const tbody = $('#admin-live-visitors-tbody');
+  if (!tbody || !getActiveAdminToken() || _adminVisitorsRenderInFlight) return;
+  _adminVisitorsRenderInFlight = true;
+  try {
+    const res = await fetchApi(`admin/visitors?_t=${Date.now()}`);
+    if (res && res.ok) {
+      _cachedAdminVisitorsPayload = res;
+      renderAdminVisitorsRows(res);
+    } else if (!_cachedAdminVisitorsPayload) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:18px;color:var(--text-muted);">Unable to load visitor feed right now.</td></tr>`;
+    }
+  } catch (e) {
+    console.warn('Render admin visitors error:', e);
+  } finally {
+    _adminVisitorsRenderInFlight = false;
+  }
+};
+
+window.stopAdminVisitorsLivePoll = function() {
+  if (_adminVisitorsPollTimer) {
+    clearInterval(_adminVisitorsPollTimer);
+    _adminVisitorsPollTimer = null;
+  }
+};
+
+window.startAdminVisitorsLivePoll = function() {
+  const btnRefresh = $('#btn-admin-refresh-visitors');
+  if (btnRefresh && !btnRefresh.dataset.wired) {
+    btnRefresh.dataset.wired = 'true';
+    btnRefresh.addEventListener('click', () => window.renderAdminVisitors());
+  }
+
+  const btnToggle = $('#btn-admin-toggle-visitors');
+  const bodyEl = $('#admin-live-visitors-body');
+  if (btnToggle && bodyEl && !btnToggle.dataset.wired) {
+    btnToggle.dataset.wired = 'true';
+    btnToggle.addEventListener('click', () => {
+      const nextHidden = !bodyEl.hidden;
+      bodyEl.hidden = nextHidden;
+      btnToggle.setAttribute('aria-expanded', nextHidden ? 'false' : 'true');
+      btnToggle.textContent = nextHidden ? '▸' : '▾';
+    });
+  }
+
+  $$('#admin-visitor-filter-row .filter-chip').forEach(chip => {
+    if (chip.dataset.wired) return;
+    chip.dataset.wired = 'true';
+    chip.addEventListener('click', () => {
+      $$('#admin-visitor-filter-row .filter-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      window._adminVisitorFilter = chip.dataset.visitorFilter || 'all';
+      if (_cachedAdminVisitorsPayload) {
+        renderAdminVisitorsRows(_cachedAdminVisitorsPayload);
+      } else {
+        window.renderAdminVisitors();
+      }
+    });
+  });
+
+  if (!window._adminVisitorsVisibilityWired) {
+    window._adminVisitorsVisibilityWired = true;
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && getActiveAdminToken()) {
+        const ws = $('#admin-workspace-screen');
+        const admSec = $('#sec-admin');
+        if (ws && !ws.hidden && admSec && !admSec.hidden) {
+          window.renderAdminVisitors();
+        }
+      }
+    });
+  }
+
+  window.renderAdminVisitors();
+  if (_adminVisitorsPollTimer) return;
+  _adminVisitorsPollTimer = setInterval(() => {
+    if (document.hidden || STATE.isSiteBlocked || !getActiveAdminToken()) return;
+    const ws = $('#admin-workspace-screen');
+    const admSec = $('#sec-admin');
+    if (!ws || ws.hidden || !admSec || admSec.hidden) return;
+    window.renderAdminVisitors();
+  }, 5000);
 };
 
 window.renderAdminBannedIps = async function() {
@@ -17106,6 +17421,18 @@ if (!window._delegatedSiteActionsBound) {
     const btnUnbanIp = target.closest('[data-unban-ip]');
     if (btnUnbanIp) {
       window.adminUnbanIp?.(btnUnbanIp.dataset.unbanIp);
+      return;
+    }
+
+    const btnVisitorBan = target.closest('[data-visitor-ban-ip]');
+    if (btnVisitorBan) {
+      window.adminBanIp?.(btnVisitorBan.dataset.visitorBanIp);
+      return;
+    }
+
+    const btnVisitorUnban = target.closest('[data-visitor-unban-ip]');
+    if (btnVisitorUnban) {
+      window.adminUnbanIp?.(btnVisitorUnban.dataset.visitorUnbanIp);
       return;
     }
 

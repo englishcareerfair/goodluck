@@ -34,7 +34,7 @@
   <script src="guide-avatar.js?v=26.5" defer></script>
   <script src="voicelab.js?v=26.5" defer></script>
   <script src="loader.js?v=26.5"></script>
-  <script src="app.js?v=26.6" defer></script>
+  <script src="app.js?v=26.7" defer></script>
   <!-- Critical Inlined CSS for Instant Loading Screen (Prevents FOUC on First Open) -->
   <style id="loader-critical-css">
     .site-loader {
@@ -1661,6 +1661,55 @@
           <div style="display:flex;gap:8px;">
             <button class="btn btn-secondary btn-sm" id="btn-admin-lock" type="button" title="Lock and show password screen">🔒 Lock Console</button>
             <button class="btn btn-secondary btn-sm" id="btn-admin-logout" type="button">Log Out</button>
+          </div>
+        </div>
+
+        <!-- Realtime Live Visitors & VPN Shield Panel (Excludes Current Admin IP) -->
+        <div id="admin-live-visitors-card" style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px 16px;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span class="badge-pill" id="admin-visitors-live-pill" style="font-size:11px;font-weight:800;background:rgba(16,185,129,0.14);color:#10b981;border:1px solid rgba(16,185,129,0.35);">● LIVE · 5s</span>
+              <h4 style="font-size:15px;font-weight:800;color:var(--text-main);margin:0;">Realtime Visitor IPs &amp; VPN Shield</h4>
+              <span class="badge-pill" id="admin-visitors-self-excluded-pill" style="font-size:10.5px;background:rgba(56,189,248,0.1);color:var(--accent-cyan);border:1px solid rgba(56,189,248,0.28);">🙈 Except Me</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+              <span class="badge-pill" id="admin-visitors-online-count" style="font-size:11px;background:rgba(16,185,129,0.12);color:#34d399;border:1px solid rgba(16,185,129,0.3);">0 Online</span>
+              <span class="badge-pill" id="admin-visitors-vpn-count" style="font-size:11px;background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.3);">0 VPNs Banned</span>
+              <span id="admin-visitors-updated-at" style="font-size:11px;color:var(--text-dim);font-family:var(--font-mono);">Waiting...</span>
+              <button type="button" class="btn btn-secondary btn-xs" id="btn-admin-refresh-visitors" title="Refresh visitor list now">🔄 Refresh</button>
+              <button type="button" class="btn btn-secondary btn-xs" id="btn-admin-toggle-visitors" aria-expanded="true" title="Collapse or expand live visitor monitor">▾</button>
+            </div>
+          </div>
+
+          <div id="admin-live-visitors-body">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+              <div class="filter-row" id="admin-visitor-filter-row" style="margin:0;">
+                <button type="button" class="filter-chip active" data-visitor-filter="all">All Visitors</button>
+                <button type="button" class="filter-chip" data-visitor-filter="online">🟢 Online Now</button>
+                <button type="button" class="filter-chip" data-visitor-filter="vpn">🛡️ VPN Auto-Banned</button>
+              </div>
+              <div style="font-size:11.5px;color:var(--text-muted);">
+                VPNs, Tor exits &amp; proxies are banned instantly on arrival; your admin IP is excluded from this list.
+              </div>
+            </div>
+
+            <div class="table-wrapper" id="admin-live-visitors-table-wrap" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-card);">
+              <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                <thead>
+                  <tr>
+                    <th style="text-align:left;padding:8px 10px;">Visitor IP</th>
+                    <th style="text-align:left;padding:8px 10px;">Location / ISP</th>
+                    <th style="text-align:left;padding:8px 10px;">Device &amp; Section</th>
+                    <th style="text-align:left;padding:8px 10px;">Last Active</th>
+                    <th style="text-align:left;padding:8px 10px;">Shield Status</th>
+                    <th style="text-align:center;padding:8px 10px;">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-live-visitors-tbody">
+                  <tr><td colspan="6" style="text-align:center;padding:18px;color:var(--text-muted);">Waiting for live visitor telemetry...</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 

@@ -284,7 +284,7 @@ async function getBannedIps(db) {
   return banned;
 }
 
-async function blockIpAcrossSite(db, ip) {
+async function blockIpAcrossSite(db, ip, vpnReason = '') {
   const cleanIp = String(ip || '').trim();
   if (!cleanIp || IMMUNE_WHITELIST_IPS.has(cleanIp)) return { banned: [], adminBlocked: [] };
   const [banned, adminBlocked] = await Promise.all([getBannedIps(db), getAdminBlockedIps(db)]);
@@ -292,10 +292,33 @@ async function blockIpAcrossSite(db, ip) {
   if (!adminBlocked.includes(cleanIp)) adminBlocked.push(cleanIp);
   GLOBAL_CACHE.banned_ips = banned;
   GLOBAL_CACHE.admin_blocked_ips = adminBlocked;
+  await removeFromVpnAllowlist(db, cleanIp);
+  await unmarkAdminKnownIp(db, cleanIp);
+
+  if (!GLOBAL_CACHE.live_visitors || typeof GLOBAL_CACHE.live_visitors !== 'object') {
+    GLOBAL_CACHE.live_visitors = {};
+  }
+  if (GLOBAL_CACHE.live_visitors[cleanIp]) {
+    GLOBAL_CACHE.live_visitors[cleanIp].is_banned = 1;
+    if (vpnReason) {
+      GLOBAL_CACHE.live_visitors[cleanIp].is_vpn = 1;
+      GLOBAL_CACHE.live_visitors[cleanIp].vpn_reason = vpnReason;
+    }
+  }
+
   if (db) {
     await ensureDbSchema(db);
     await kvSet(db, 'banned_ips', JSON.stringify(banned));
     await kvSet(db, 'admin_blocked_ips', JSON.stringify(adminBlocked));
+    try {
+      await db.prepare(
+        `UPDATE live_visitors
+         SET is_banned = 1,
+             is_vpn = CASE WHEN ? != '' THEN 1 ELSE is_vpn END,
+             vpn_reason = CASE WHEN ? != '' THEN ? ELSE vpn_reason END
+         WHERE ip = ?`
+      ).bind(vpnReason, vpnReason, vpnReason, cleanIp).run();
+    } catch {}
   }
   return { banned, adminBlocked };
 }
@@ -524,7 +547,7 @@ async function pruneExpiredDdosBans(db) {
 async function checkRequestFlood(req, db, path, method) {
   const upperMethod = String(method || 'GET').toUpperCase();
   const isRead = upperMethod === 'GET' || upperMethod === 'HEAD';
-  if (isRead && path === '/admin/user-title') {
+  if ((isRead && path === '/admin/user-title') || (upperMethod === 'POST' && path === '/visitor/heartbeat')) {
     return { banned: false };
   }
 
@@ -604,14 +627,515 @@ async function unblockIpAcrossSite(db, ip) {
     GLOBAL_CACHE.brute_force_bans = bans;
   }
 
+  if (cleanIp && !isImmuneAdminIp(cleanIp)) {
+    await addToVpnAllowlist(db, cleanIp);
+  }
+  if (GLOBAL_CACHE.live_visitors && GLOBAL_CACHE.live_visitors[cleanIp]) {
+    GLOBAL_CACHE.live_visitors[cleanIp].is_banned = 0;
+  }
+
   if (db) {
     await ensureDbSchema(db);
     await kvSet(db, 'banned_ips', JSON.stringify(banned));
     await kvSet(db, 'admin_blocked_ips', JSON.stringify(adminBlocked));
     await kvSet(db, 'brute_force_tracker', JSON.stringify(tracker));
     await kvSet(db, 'brute_force_bans', JSON.stringify(bans));
+    try {
+      await db.prepare(`UPDATE live_visitors SET is_banned = 0 WHERE ip = ?`).bind(cleanIp).run();
+    } catch {}
   }
   return { banned, adminBlocked };
+}
+
+// ─── Instant VPN Detection & Realtime Visitor IP Shield ───────────────────
+const ADMIN_KNOWN_IP_TTL_MS = 24 * 60 * 60 * 1000;
+const VISITOR_ONLINE_WINDOW_MS = 90 * 1000;
+const VISITOR_WRITE_THROTTLE = new Map(); // ip -> { ts, tab, path, isVpn, isBanned }
+const ADMIN_KNOWN_WRITE_THROTTLE = new Map(); // ip -> ts
+
+const API_KNOWN_VPN_ASNS = new Set([
+  9009, 60068, 212238, 136787, 209103, 211298, 39351, 198093, 397723,
+  209854, 209446, 199610, 396356, 62041, 397423, 46562, 394711, 33438,
+  39572, 208323, 398493, 202425, 206238, 44907, 49981, 53667, 60781,
+  28753, 14061, 20473, 24940, 16276, 63949, 51167, 31898, 16509, 14618,
+  8075, 45102, 132203, 396982, 47583, 36352, 8100, 36007, 50673, 46844,
+  11878, 21859, 12876, 202053, 8560, 398324, 204957, 62240
+]);
+
+const API_RESIDENTIAL_ISP_ALLOWLIST = /\b(jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
+const API_VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton\s*(vpn|ag)|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs)\b/i;
+
+const TIMEZONE_COUNTRY_HINTS = {
+  'asia/kolkata': 'IN',
+  'asia/calcutta': 'IN',
+  'asia/dubai': 'AE',
+  'asia/singapore': 'SG',
+  'europe/london': 'GB',
+  'america/toronto': 'CA',
+  'asia/tokyo': 'JP',
+  'europe/berlin': 'DE',
+  'europe/paris': 'FR'
+};
+
+function isPrivateOrDevIp(ip) {
+  const s = String(ip || '').trim().toLowerCase();
+  if (!s || s === 'localhost' || s === 'local / unknown' || s === '::1') return true;
+  if (s.startsWith('127.') || s.startsWith('10.') || s.startsWith('192.168.') || s.startsWith('169.254.')) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(s)) return true;
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(s)) return true;
+  if (s.startsWith('fc') || s.startsWith('fd') || s.startsWith('fe80:')) return true;
+  return false;
+}
+
+function isIpv4(ip) {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(String(ip || '').trim());
+}
+
+function ipv4Slash16(ip) {
+  return String(ip || '').trim().split('.').slice(0, 2).join('.');
+}
+
+function inferCountryFromTz(tz) {
+  const clean = String(tz || '').trim().toLowerCase();
+  if (!clean) return '';
+  if (TIMEZONE_COUNTRY_HINTS[clean]) return TIMEZONE_COUNTRY_HINTS[clean];
+  if (clean.startsWith('australia/')) return 'AU';
+  return '';
+}
+
+async function getVpnAllowlistIps(db) {
+  let list = [];
+  if (db) {
+    try {
+      const raw = await kvGet(db, 'vpn_allowlist_ips', '');
+      if (raw) list = JSON.parse(raw);
+    } catch {}
+  } else {
+    list = Array.isArray(GLOBAL_CACHE.vpn_allowlist_ips) ? GLOBAL_CACHE.vpn_allowlist_ips : [];
+  }
+  if (!Array.isArray(list)) list = [];
+  GLOBAL_CACHE.vpn_allowlist_ips = list;
+  return list;
+}
+
+async function addToVpnAllowlist(db, ip) {
+  const cleanIp = String(ip || '').trim();
+  if (!cleanIp) return;
+  const list = await getVpnAllowlistIps(db);
+  if (!list.includes(cleanIp)) {
+    list.push(cleanIp);
+    const trimmed = list.slice(-500);
+    GLOBAL_CACHE.vpn_allowlist_ips = trimmed;
+    if (db) {
+      try { await kvSet(db, 'vpn_allowlist_ips', JSON.stringify(trimmed)); } catch {}
+    }
+  }
+}
+
+async function removeFromVpnAllowlist(db, ip) {
+  const cleanIp = String(ip || '').trim();
+  if (!cleanIp) return;
+  const list = await getVpnAllowlistIps(db);
+  if (list.includes(cleanIp)) {
+    const next = list.filter(x => x !== cleanIp);
+    GLOBAL_CACHE.vpn_allowlist_ips = next;
+    if (db) {
+      try { await kvSet(db, 'vpn_allowlist_ips', JSON.stringify(next)); } catch {}
+    }
+  }
+}
+
+async function getAdminKnownIps(db) {
+  const now = Date.now();
+  let map = {};
+  if (db) {
+    try {
+      const raw = await kvGet(db, 'admin_known_ips', '');
+      if (raw) map = JSON.parse(raw);
+    } catch {}
+  } else {
+    map = GLOBAL_CACHE.admin_known_ips && typeof GLOBAL_CACHE.admin_known_ips === 'object' ? GLOBAL_CACHE.admin_known_ips : {};
+  }
+  if (!map || typeof map !== 'object' || Array.isArray(map)) map = {};
+  const cleaned = {};
+  for (const [k, ts] of Object.entries(map)) {
+    const clean = String(k || '').trim();
+    if (clean && Number(ts || 0) > 0 && (now - Number(ts)) < ADMIN_KNOWN_IP_TTL_MS) {
+      cleaned[clean] = Number(ts);
+    }
+  }
+  GLOBAL_CACHE.admin_known_ips = cleaned;
+  return cleaned;
+}
+
+async function markAdminIp(db, ip) {
+  const cleanIp = String(ip || '').trim();
+  if (!cleanIp) return;
+  const now = Date.now();
+  if (!GLOBAL_CACHE.admin_known_ips || typeof GLOBAL_CACHE.admin_known_ips !== 'object') {
+    GLOBAL_CACHE.admin_known_ips = {};
+  }
+  GLOBAL_CACHE.admin_known_ips[cleanIp] = now;
+  if (GLOBAL_CACHE.live_visitors && GLOBAL_CACHE.live_visitors[cleanIp]) {
+    GLOBAL_CACHE.live_visitors[cleanIp].is_admin = 1;
+  }
+
+  const lastMarked = ADMIN_KNOWN_WRITE_THROTTLE.get(cleanIp) || 0;
+  if (db && (now - lastMarked >= 5 * 60 * 1000)) {
+    ADMIN_KNOWN_WRITE_THROTTLE.set(cleanIp, now);
+    const map = await getAdminKnownIps(db);
+    map[cleanIp] = now;
+    GLOBAL_CACHE.admin_known_ips = map;
+    try {
+      await kvSet(db, 'admin_known_ips', JSON.stringify(map));
+      await db.prepare(`UPDATE live_visitors SET is_admin = 1 WHERE ip = ?`).bind(cleanIp).run();
+    } catch {}
+  }
+}
+
+async function unmarkAdminKnownIp(db, ip) {
+  const cleanIp = String(ip || '').trim();
+  if (!cleanIp || isImmuneAdminIp(cleanIp)) return;
+  ADMIN_KNOWN_WRITE_THROTTLE.delete(cleanIp);
+  if (GLOBAL_CACHE.admin_known_ips && GLOBAL_CACHE.admin_known_ips[cleanIp]) {
+    delete GLOBAL_CACHE.admin_known_ips[cleanIp];
+  }
+  if (db) {
+    try {
+      const map = await getAdminKnownIps(db);
+      if (map[cleanIp]) {
+        delete map[cleanIp];
+        GLOBAL_CACHE.admin_known_ips = map;
+        await kvSet(db, 'admin_known_ips', JSON.stringify(map));
+      }
+    } catch {}
+  }
+}
+
+function detectVpnOrProxy(req, clientIp, clientSignals = null) {
+  const cf = req.cf || {};
+  const asn = Number(cf.asn || 0);
+  const asOrg = String(cf.asOrganization || cf.as_organization || '').trim();
+  const country = String(cf.country || '').toUpperCase();
+  const city = String(cf.city || '').trim();
+  const region = String(cf.region || '').trim();
+  const base = { isVpn: false, reason: '', asn, asOrg, country, city, region };
+
+  if (!clientIp || isPrivateOrDevIp(clientIp) || isImmuneAdminIp(clientIp)) {
+    return base;
+  }
+
+  const via = String(req.headers.get('via') || '');
+  if (
+    req.headers.has('x-tor') ||
+    req.headers.has('x-vpn') ||
+    req.headers.has('x-proxy-id') ||
+    req.headers.has('x-anonymizer') ||
+    req.headers.has('forwarded-for-proxy') ||
+    /\b(tor|vpn|proxy|squid|privoxy|hola|urban|psiphon|warp)\b/i.test(via)
+  ) {
+    return { ...base, isVpn: true, reason: 'VPN / Proxy Header Detected' };
+  }
+
+  if (country === 'T1') {
+    return { ...base, isVpn: true, reason: 'Tor Exit Network (T1)' };
+  }
+
+  const isResidential = Boolean(asOrg && API_RESIDENTIAL_ISP_ALLOWLIST.test(asOrg));
+  if (!isResidential) {
+    if (asn && API_KNOWN_VPN_ASNS.has(asn)) {
+      return {
+        ...base,
+        isVpn: true,
+        reason: `VPN / Proxy Network (AS${asn}${asOrg ? ' · ' + asOrg : ''})`
+      };
+    }
+    if (asOrg && API_VPN_ORG_REGEX.test(asOrg)) {
+      return {
+        ...base,
+        isVpn: true,
+        reason: `VPN / Anonymizer Network (${asOrg})`
+      };
+    }
+  }
+
+  // Layer B: Browser split-tunnel / WebRTC & timezone mismatch checks
+  if (clientSignals && typeof clientSignals === 'object') {
+    const tz = String(clientSignals.tz || '').trim();
+    const expectedCountry = inferCountryFromTz(tz);
+    const countryMismatch = Boolean(expectedCountry && country && country.length === 2 && country !== expectedCountry);
+    const webrtcIps = Array.isArray(clientSignals.webrtcIps) ? clientSignals.webrtcIps : [];
+
+    if (isIpv4(clientIp) && webrtcIps.length > 0) {
+      const edgePrefix = ipv4Slash16(clientIp);
+      for (const rawRtcIp of webrtcIps) {
+        const rIp = String(rawRtcIp || '').trim();
+        if (isIpv4(rIp) && !isPrivateOrDevIp(rIp) && ipv4Slash16(rIp) !== edgePrefix) {
+          if (!isResidential || countryMismatch) {
+            return {
+              ...base,
+              isVpn: true,
+              reason: `VPN WebRTC Split-Tunnel Leak (${rIp} vs ${clientIp}${countryMismatch ? ' · ' + tz + ' in ' + country : ''})`
+            };
+          }
+        }
+      }
+    }
+
+    if (countryMismatch && !isResidential && (asn === 13335 || /\b(cloud|host|vps|server|colo|transit|cdn|datacenter|virtual|proxy|vpn|warp)\b/i.test(asOrg))) {
+      return {
+        ...base,
+        isVpn: true,
+        reason: `VPN Tunnel / Geo Mismatch (${tz} vs ${country}${asOrg ? ' via ' + asOrg : ''})`
+      };
+    }
+  }
+
+  return base;
+}
+
+async function recordLiveVisitor(req, db, opts = {}) {
+  const clientIp = getClientIp(req);
+  if (!clientIp || isImmuneAdminIp(clientIp)) return;
+
+  const adminKnown = await getAdminKnownIps(db);
+  if (opts.isAdmin || adminKnown[clientIp]) {
+    await markAdminIp(db, clientIp);
+    return;
+  }
+
+  const cf = req.cf || {};
+  const country = String(cf.country || opts.country || '').toUpperCase().slice(0, 12);
+  const city = String(cf.city || opts.city || '').trim().slice(0, 60);
+  const region = String(cf.region || opts.region || '').trim().slice(0, 60);
+  const asn = Number(cf.asn || opts.asn || 0);
+  const isp = String(cf.asOrganization || cf.as_organization || opts.isp || '').trim().slice(0, 100);
+  const device = summarizeUserAgent(req.headers.get('user-agent') || '');
+  const reqUrl = (() => { try { return new URL(req.url); } catch { return null; } })();
+  const currentPath = String(opts.currentPath || (reqUrl ? reqUrl.pathname : '/')).trim().slice(0, 120) || '/';
+  const activeTab = String(opts.activeTab || (opts.isVpn ? 'blocked' : 'overview')).trim().slice(0, 48) || 'overview';
+  const isVpn = opts.isVpn ? 1 : 0;
+  const vpnReason = String(opts.vpnReason || '').trim().slice(0, 200);
+  const isBanned = opts.isBanned ? 1 : 0;
+  const now = Date.now();
+
+  if (!GLOBAL_CACHE.live_visitors || typeof GLOBAL_CACHE.live_visitors !== 'object') {
+    GLOBAL_CACHE.live_visitors = {};
+  }
+  const prev = GLOBAL_CACHE.live_visitors[clientIp];
+  if (prev && prev.is_admin === 1) return;
+
+  GLOBAL_CACHE.live_visitors[clientIp] = {
+    ip: clientIp,
+    country: country || prev?.country || '',
+    city: city || prev?.city || '',
+    region: region || prev?.region || '',
+    asn: asn || prev?.asn || 0,
+    isp: isp || prev?.isp || '',
+    device,
+    current_path: currentPath,
+    active_tab: activeTab,
+    hits: (prev?.hits || 0) + 1,
+    is_vpn: isVpn || prev?.is_vpn || 0,
+    vpn_reason: vpnReason || prev?.vpn_reason || '',
+    is_banned: isBanned ? 1 : (prev?.is_banned || 0),
+    is_admin: 0,
+    first_seen: prev?.first_seen || now,
+    last_seen: now
+  };
+
+  if (VISITOR_WRITE_THROTTLE.size > 1500) VISITOR_WRITE_THROTTLE.clear();
+  const lastW = VISITOR_WRITE_THROTTLE.get(clientIp);
+  const changedMeta = !lastW || lastW.tab !== activeTab || lastW.path !== currentPath || lastW.isVpn !== isVpn || lastW.isBanned !== isBanned;
+  const shouldWrite = Boolean(db && (opts.force || changedMeta || (now - lastW.ts) >= 15000));
+
+  if (db && shouldWrite) {
+    VISITOR_WRITE_THROTTLE.set(clientIp, { ts: now, tab: activeTab, path: currentPath, isVpn, isBanned });
+    try {
+      await ensureDbSchema(db);
+      await db.prepare(
+        `INSERT INTO live_visitors (ip, country, city, region, asn, isp, device, current_path, active_tab, hits, is_vpn, vpn_reason, is_banned, is_admin, first_seen, last_seen)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, ?, ?)
+         ON CONFLICT(ip) DO UPDATE SET
+           country = CASE WHEN excluded.country != '' THEN excluded.country ELSE live_visitors.country END,
+           city = CASE WHEN excluded.city != '' THEN excluded.city ELSE live_visitors.city END,
+           region = CASE WHEN excluded.region != '' THEN excluded.region ELSE live_visitors.region END,
+           asn = CASE WHEN excluded.asn > 0 THEN excluded.asn ELSE live_visitors.asn END,
+           isp = CASE WHEN excluded.isp != '' THEN excluded.isp ELSE live_visitors.isp END,
+           device = excluded.device,
+           current_path = excluded.current_path,
+           active_tab = excluded.active_tab,
+           hits = live_visitors.hits + 1,
+           is_vpn = CASE WHEN excluded.is_vpn = 1 THEN 1 ELSE live_visitors.is_vpn END,
+           vpn_reason = CASE WHEN excluded.vpn_reason != '' THEN excluded.vpn_reason ELSE live_visitors.vpn_reason END,
+           is_banned = CASE WHEN live_visitors.is_admin = 1 THEN 0 WHEN excluded.is_banned = 1 THEN 1 ELSE live_visitors.is_banned END,
+           is_admin = CASE WHEN live_visitors.is_admin = 1 THEN 1 ELSE 0 END,
+           last_seen = excluded.last_seen`
+      ).bind(
+        clientIp, country, city, region, asn, isp, device,
+        currentPath, activeTab, isVpn, vpnReason, isBanned, now, now
+      ).run();
+    } catch {}
+  }
+}
+
+async function banVpnVisitor(req, db, ip, vpnInfo, opts = {}) {
+  const cleanIp = String(ip || '').trim();
+  if (!cleanIp || isImmuneAdminIp(cleanIp) || isPrivateOrDevIp(cleanIp)) return false;
+  const adminKnown = await getAdminKnownIps(db);
+  const allowlist = await getVpnAllowlistIps(db);
+  if (adminKnown[cleanIp] || allowlist.includes(cleanIp)) return false;
+
+  const reason = String(vpnInfo?.reason || 'VPN / Proxy Detected').slice(0, 200);
+  await blockIpAcrossSite(db, cleanIp, reason);
+  await recordBruteForceBan(db, cleanIp, reason, 1, req.headers.get('user-agent') || '');
+  await recordLiveVisitor(req, db, {
+    ...opts,
+    country: vpnInfo?.country || '',
+    city: vpnInfo?.city || '',
+    region: vpnInfo?.region || '',
+    asn: vpnInfo?.asn || 0,
+    isp: vpnInfo?.asOrg || '',
+    isVpn: true,
+    vpnReason: reason,
+    isBanned: true,
+    force: true
+  });
+  return true;
+}
+
+async function hasValidAdminSessionHeader(req, db, env) {
+  const auth = req.headers.get('Authorization') || '';
+  const token = auth.replace(/^Bearer\s+/i, '').trim();
+  if (!token || !token.startsWith('adm_sess_')) return false;
+  try {
+    const sess = await validateAdminSessionToken(db, token, env);
+    return Boolean(sess);
+  } catch {
+    return false;
+  }
+}
+
+async function getVisitorsForAdminDashboard(db, callerIp) {
+  const now = Date.now();
+  const [adminKnown, bannedIps, adminBlockedIps, bfBans] = await Promise.all([
+    getAdminKnownIps(db),
+    getBannedIps(db),
+    getAdminBlockedIps(db),
+    getBruteForceBans(db)
+  ]);
+
+  const blockedSet = new Set([...bannedIps, ...adminBlockedIps]);
+  const byIp = new Map();
+
+  const shouldExclude = (ip, isAdminFlag = 0) => {
+    const clean = String(ip || '').trim();
+    if (!clean) return true;
+    if (isAdminFlag === 1) return true;
+    if (isImmuneAdminIp(clean)) return true;
+    if (callerIp && clean === callerIp) return true;
+    if (adminKnown[clean]) return true;
+    return false;
+  };
+
+  if (db) {
+    try {
+      // Prune stale unbanned visitor rows older than 24h cleanly
+      await db.prepare(`DELETE FROM live_visitors WHERE is_banned = 0 AND is_admin = 0 AND last_seen < ?`)
+        .bind(now - ADMIN_KNOWN_IP_TTL_MS).run();
+      const rows = await db.prepare(
+        `SELECT ip, country, city, region, asn, isp, device, current_path, active_tab, hits, is_vpn, vpn_reason, is_banned, is_admin, first_seen, last_seen
+         FROM live_visitors
+         WHERE is_admin = 0
+         ORDER BY last_seen DESC
+         LIMIT 200`
+      ).all();
+      for (const r of (rows?.results || [])) {
+        if (shouldExclude(r.ip, r.is_admin)) continue;
+        byIp.set(r.ip, r);
+      }
+    } catch {}
+  }
+
+  for (const [ip, memRow] of Object.entries(GLOBAL_CACHE.live_visitors || {})) {
+    if (!memRow || shouldExclude(ip, memRow.is_admin)) continue;
+    const prev = byIp.get(ip);
+    if (!prev || Number(memRow.last_seen || 0) >= Number(prev.last_seen || 0)) {
+      byIp.set(ip, memRow);
+    }
+  }
+
+  for (const bIp of blockedSet) {
+    if (shouldExclude(bIp, 0) || byIp.has(bIp)) continue;
+    const bf = bfBans[bIp] || null;
+    const isVpnFlag = Boolean(bf?.vpn || /\b(vpn|tor|proxy|anonymiz|split-tunnel)/i.test(String(bf?.reason || '')));
+    byIp.set(bIp, {
+      ip: bIp,
+      country: '',
+      city: '',
+      region: '',
+      asn: 0,
+      isp: '',
+      device: bf?.device || 'Blocked Client',
+      current_path: '/',
+      active_tab: 'blocked',
+      hits: bf?.attempts || 1,
+      is_vpn: isVpnFlag ? 1 : 0,
+      vpn_reason: bf?.reason || 'Blocked by Admin / Firewall',
+      is_banned: 1,
+      is_admin: 0,
+      first_seen: bf?.banned_at || now,
+      last_seen: bf?.banned_at || now
+    });
+  }
+
+  const visitors = [];
+  for (const v of byIp.values()) {
+    const cleanIp = String(v.ip || '').trim();
+    if (shouldExclude(cleanIp, v.is_admin)) continue;
+    const bf = bfBans[cleanIp] || null;
+    const isBanned = blockedSet.has(cleanIp) || Number(v.is_banned || 0) === 1;
+    const vpnReason = String(v.vpn_reason || (isBanned ? bf?.reason : '') || '').trim();
+    const isVpn = Number(v.is_vpn || 0) === 1 || Boolean(bf?.vpn) || /\b(vpn|tor|proxy|anonymiz|split-tunnel)/i.test(vpnReason);
+    const lastSeen = Number(v.last_seen || now);
+    const isOnline = !isBanned && (now - lastSeen) <= VISITOR_ONLINE_WINDOW_MS;
+    visitors.push({
+      ip: cleanIp,
+      country: v.country || '',
+      city: v.city || '',
+      region: v.region || '',
+      asn: Number(v.asn || 0),
+      isp: v.isp || '',
+      device: v.device || 'Browser',
+      current_path: v.current_path || '/',
+      active_tab: v.active_tab || 'overview',
+      hits: Number(v.hits || 1),
+      is_vpn: isVpn,
+      vpn_reason: vpnReason,
+      is_banned: isBanned,
+      is_online: isOnline,
+      first_seen: Number(v.first_seen || lastSeen),
+      last_seen: lastSeen
+    });
+  }
+
+  visitors.sort((a, b) => {
+    if (a.is_online !== b.is_online) return a.is_online ? -1 : 1;
+    return (b.last_seen || 0) - (a.last_seen || 0);
+  });
+
+  const limited = visitors.slice(0, 150);
+  const onlineCount = limited.filter(v => v.is_online).length;
+  const vpnBannedCount = limited.filter(v => v.is_banned && v.is_vpn).length;
+  return {
+    ok: true,
+    online_count: onlineCount,
+    total_count: limited.length,
+    vpn_banned_count: vpnBannedCount,
+    updated_at: now,
+    excluded_self: true,
+    visitors: limited
+  };
 }
 
 async function getAdminDevices(db) {
@@ -1127,6 +1651,7 @@ async function verifyAuth(req, env, db, requiredScope = null, url = null) {
       }
     }
     await clearFailedAuthAttempts(db, clientIp);
+    await markAdminIp(db, clientIp);
     await recordAdminDeviceAccess(req, db, clientIp, Boolean(url && url.pathname.endsWith('/admin/ping')));
     return { ok: true, admin: true, session: true, scopes: ['*'], ip: clientIp || 'Local / Unknown' };
   }
@@ -1271,6 +1796,9 @@ const GLOBAL_CACHE = {
   admin_devices: [],
   admin_blocked_ips: [],
   banned_ips: [],
+  vpn_allowlist_ips: [],
+  admin_known_ips: {},
+  live_visitors: {},
   brute_force_tracker: {},
   brute_force_bans: {}
 };
@@ -1351,7 +1879,26 @@ async function ensureDbSchema(db) {
     `CREATE INDEX IF NOT EXISTS idx_feedback_ts ON feedback(ts DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)`,
     `CREATE INDEX IF NOT EXISTS idx_telemetry_created ON telemetry_sessions(created_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_user_issues_status ON user_issues(status)`
+    `CREATE INDEX IF NOT EXISTS idx_user_issues_status ON user_issues(status)`,
+    `CREATE TABLE IF NOT EXISTS live_visitors (
+      ip TEXT PRIMARY KEY,
+      country TEXT DEFAULT '',
+      city TEXT DEFAULT '',
+      region TEXT DEFAULT '',
+      asn INTEGER DEFAULT 0,
+      isp TEXT DEFAULT '',
+      device TEXT DEFAULT '',
+      current_path TEXT DEFAULT '/',
+      active_tab TEXT DEFAULT 'overview',
+      hits INTEGER DEFAULT 1,
+      is_vpn INTEGER DEFAULT 0,
+      vpn_reason TEXT DEFAULT '',
+      is_banned INTEGER DEFAULT 0,
+      is_admin INTEGER DEFAULT 0,
+      first_seen INTEGER NOT NULL,
+      last_seen INTEGER NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_live_visitors_last_seen ON live_visitors(last_seen DESC)`
   ];
   if (typeof db.batch === 'function') {
     try {
@@ -1543,7 +2090,7 @@ export async function onRequest(ctx) {
   // Ensure admin password is encrypted in D1 vault & purged of any plaintext key
   if (db) {
     try {
-      await ensureEncryptedAdminAuth(db);
+      await ensureEncryptedAdminAuth(db, env);
     } catch {}
   }
 
@@ -1574,28 +2121,61 @@ export async function onRequest(ctx) {
   }
 
 
-  // ── Site-Wide IP Ban & Anti-Brute-Force Enforcement (blocks across ALL routes) ──
+  // ── Site-Wide IP Ban, Instant VPN Shield & Anti-Brute-Force Enforcement ──
   const clientIp = getClientIp(request);
+  let requestIsAdminSession = false;
   if (clientIp && !isImmuneAdminIp(clientIp)) {
     const [bannedIps, adminBlockedIps] = await Promise.all([
       getBannedIps(db),
       getAdminBlockedIps(db)
     ]);
     if (bannedIps.includes(clientIp) || adminBlockedIps.includes(clientIp)) {
+      const bfBans = await getBruteForceBans(db);
+      const bf = bfBans[clientIp] || null;
       return json({
-        error: `Access Denied: Your IP address (${clientIp}) has been blocked across this site by administrators.`,
+        error: bf?.reason
+          ? `Access Denied: ${bf.reason}. Your IP address (${clientIp}) has been blocked across this site.`
+          : `Access Denied: Your IP address (${clientIp}) has been blocked across this site by administrators.`,
         banned: true,
+        vpn_banned: Boolean(bf?.vpn),
+        vpn_reason: bf?.vpn ? bf.reason : undefined,
         admin_revoked: true
       }, 403);
     }
-    const floodCheck = await checkRequestFlood(request, db, path, method);
-    if (floodCheck.banned) {
-      return json({
-        error: `Access Denied: ${floodCheck.reason}. Your IP address (${clientIp}) has been automatically banned across this site.`,
-        banned: true,
-        brute_force_banned: true,
-        admin_revoked: true
-      }, 403);
+
+    requestIsAdminSession = await hasValidAdminSessionHeader(request, db, env);
+    if (requestIsAdminSession) {
+      await markAdminIp(db, clientIp);
+    } else if (!isPrivateOrDevIp(clientIp)) {
+      const [adminKnownIps, vpnAllowlist] = await Promise.all([
+        getAdminKnownIps(db),
+        getVpnAllowlistIps(db)
+      ]);
+      if (!adminKnownIps[clientIp] && !vpnAllowlist.includes(clientIp)) {
+        const vpnCheck = detectVpnOrProxy(request, clientIp);
+        if (vpnCheck.isVpn) {
+          await banVpnVisitor(request, db, clientIp, vpnCheck, { currentPath: url.pathname });
+          return json({
+            error: `Access Denied: ${vpnCheck.reason}. Your IP address (${clientIp}) has been banned immediately.`,
+            banned: true,
+            vpn_banned: true,
+            vpn_reason: vpnCheck.reason,
+            admin_revoked: true
+          }, 403);
+        }
+      }
+    }
+
+    if (!requestIsAdminSession) {
+      const floodCheck = await checkRequestFlood(request, db, path, method);
+      if (floodCheck.banned) {
+        return json({
+          error: `Access Denied: ${floodCheck.reason}. Your IP address (${clientIp}) has been automatically banned across this site.`,
+          banned: true,
+          brute_force_banned: true,
+          admin_revoked: true
+        }, 403);
+      }
     }
   }
 
@@ -1662,6 +2242,10 @@ export async function onRequest(ctx) {
       topScore = GLOBAL_CACHE.scores.reduce((m, s) => Math.max(m, Number(s.acc || 0)), 0);
     }
 
+    if (!requestIsAdminSession) {
+      await recordLiveVisitor(request, db, { activeTab: 'overview', currentPath: '/' });
+    }
+
     return json({
       pass,
       banner,
@@ -1685,6 +2269,51 @@ export async function onRequest(ctx) {
       avg_feedback: avgFeedback,
       top_score: topScore
     });
+  }
+
+  // ── 1b. POST /visitor/heartbeat (Realtime Visitor Telemetry + Client WebRTC/VPN Shield) ──
+  if (path === '/visitor/heartbeat' && method === 'POST') {
+    let body = {};
+    try { body = await request.json(); } catch {}
+    const activeTab = String(body?.tab || 'overview').trim().slice(0, 48) || 'overview';
+    const currentPath = String(body?.path || '/').trim().slice(0, 120) || '/';
+
+    if (requestIsAdminSession) {
+      await markAdminIp(db, clientIp);
+      return json({ ok: true, excluded: true, is_admin: true });
+    }
+
+    if (clientIp && !isImmuneAdminIp(clientIp) && !isPrivateOrDevIp(clientIp)) {
+      const [adminKnownIps, vpnAllowlist] = await Promise.all([
+        getAdminKnownIps(db),
+        getVpnAllowlistIps(db)
+      ]);
+      if (adminKnownIps[clientIp]) {
+        await markAdminIp(db, clientIp);
+        return json({ ok: true, excluded: true, is_admin: true });
+      }
+      if (!vpnAllowlist.includes(clientIp)) {
+        const vpnCheck = detectVpnOrProxy(request, clientIp, body);
+        if (vpnCheck.isVpn) {
+          await banVpnVisitor(request, db, clientIp, vpnCheck, { activeTab, currentPath });
+          return json({
+            error: `Access Denied: ${vpnCheck.reason}. Your IP address (${clientIp}) has been banned immediately.`,
+            banned: true,
+            vpn_banned: true,
+            vpn_reason: vpnCheck.reason,
+            admin_revoked: true
+          }, 403);
+        }
+      }
+    }
+
+    await recordLiveVisitor(request, db, {
+      activeTab,
+      currentPath,
+      force: body?.reason === 'boot' || body?.reason === 'tab'
+    });
+    const adminKnownAfter = await getAdminKnownIps(db);
+    return json({ ok: true, excluded: Boolean(isImmuneAdminIp(clientIp) || adminKnownAfter[clientIp]) });
   }
 
   // ── 2a. GET /admin/config (Authenticated admin configuration & key sync across all devices) ────
@@ -2006,6 +2635,10 @@ export async function onRequest(ctx) {
       }
     }
 
+    if (!requestIsAdminSession) {
+      await recordLiveVisitor(request, db, { activeTab: 'practice', currentPath: '/practice' });
+    }
+
     return json({
       transcript,
       acc,
@@ -2254,6 +2887,10 @@ export async function onRequest(ctx) {
           fbObj.ts
         ).run();
       } catch (e) {}
+    }
+
+    if (!requestIsAdminSession) {
+      await recordLiveVisitor(request, db, { activeTab: 'feedback', currentPath: '/feedback' });
     }
 
     return json({ ok: true, message: 'Thank you for your feedback!' });
@@ -3169,6 +3806,7 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       }, 401);
     }
     await clearFailedAuthAttempts(db, clientIp);
+    await markAdminIp(db, clientIp);
     await recordAdminDeviceAccess(request, db, clientIp, true);
     const sessionToken = await createAdminSession(request, db, check.authRec?.epoch || 1, clientIp);
     return json({ ok: true, sessionToken, ip: clientIp || 'Local / Unknown' }, 200, { 'Cache-Control': 'no-store' });
@@ -3195,6 +3833,15 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       }, authCheck.status);
     }
     return json({ ok: true, ip: authCheck.ip || getClientIp(request) || 'Local / Unknown' });
+  }
+
+  if (path === '/admin/visitors' && method === 'GET') {
+    const authCheck = await verifyAuth(request, env, db, 'manage:config', url);
+    if (!authCheck.ok) return json({ error: authCheck.error, admin_revoked: Boolean(authCheck.admin_revoked) }, authCheck.status);
+    const callerIp = getClientIp(request);
+    await markAdminIp(db, callerIp);
+    const payload = await getVisitorsForAdminDashboard(db, callerIp);
+    return json(payload, 200, { 'Cache-Control': 'no-store' });
   }
 
   if (path === '/admin/devices' && method === 'GET') {
