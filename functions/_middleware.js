@@ -6,44 +6,21 @@
  * - DDoS Protection: Burst (>30 page or >50 API reqs in 1s) & Sustained (300 reqs in 60s) per IP.
  * - If exceeded, drops the connection with 429 and temporary 2h ban with 0 payload/D1 reads.
  * - Scanner probe trap: Immediate drop for malicious bots (.env, wp-login, etc.)
- * - Whitelist: Protected Administrator IP bypasses all rate limits.
+ * - Zero permanent IP bypasses: All public client IPs are subject to identical rate limits & security checks.
  */
 
 // ── In-Memory Edge State (persists across requests on the same Cloudflare Edge isolate) ──
 const IP_RATE_LIMITS = new Map(); // ip -> { count, resetAt, burstCount, burstResetAt, apiBurstCount, apiBurstResetAt, bootCount, bootResetAt }
 const AUTO_BANNED_IPS = new Map(); // ip -> banExpiresAt (timestamp)
 
-function ipHash32Edge(str, seed) {
-  let h = seed >>> 0;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-    h ^= (h >>> 16);
-    h = Math.imul(h, 0x85ebca6b) >>> 0;
-  }
-  return (h >>> 0);
-}
-
-function isImmuneAdminIp(ip) {
-  if (!ip) return false;
-  const clean = String(ip).trim();
-  if (!clean) return false;
-  const S1 = 0x9e3779b9, S2 = 0x7f4a7c15;
-  const e1 = ipHash32Edge('e:' + clean, S1), e2 = ipHash32Edge('e:' + clean, S2);
-  // Matches secured administrator IP (103.216.69.89 via dual-seed hash)
-  return (e1 === 0xd594a08a && e2 === 0x2ef72df1);
-}
-
 const VPN_BANNED_IPS = new Map(); // ip -> { reason, bannedAt }
 
 let CACHED_SECURITY_STATE = {
   blockedSet: new Set(),
-  allowlistSet: new Set(),
-  adminKnownSet: new Set()
+  allowlistSet: new Set()
 };
 let LAST_BLOCKED_FETCH_MS = 0;
 const CACHE_TTL_MS = 15 * 1000; // 15s memory cache for D1 security lists
-const ADMIN_KNOWN_TTL_MS = 24 * 60 * 60 * 1000;
 
 // ── VPN, Tor, Proxy & Hosting/Datacenter Detection Tables ──
 const KNOWN_VPN_ASNS = new Set([
@@ -148,7 +125,7 @@ function detectEdgeVpn(req, clientIp) {
   const city = String(cf.city || '').trim();
   const region = String(cf.region || '').trim();
 
-  if (!clientIp || isPrivateOrDevIp(clientIp) || isImmuneAdminIp(clientIp)) {
+  if (!clientIp || isPrivateOrDevIp(clientIp)) {
     return { isVpn: false, reason: '', asn, asOrg, country, city, region };
   }
 
@@ -288,11 +265,10 @@ async function getEdgeSecurityCache(db, force = false) {
 
   try {
     const rows = await db
-      .prepare("SELECT k, v FROM kv WHERE k IN ('banned_ips', 'admin_blocked_ips', 'vpn_allowlist_ips', 'admin_known_ips')")
+      .prepare("SELECT k, v FROM kv WHERE k IN ('banned_ips', 'admin_blocked_ips', 'vpn_allowlist_ips')")
       .all();
     const blockedSet = new Set();
     const allowlistSet = new Set();
-    const adminKnownSet = new Set();
     for (const row of (rows?.results || [])) {
       if (!row?.v) continue;
       try {
@@ -302,17 +278,10 @@ async function getEdgeSecurityCache(db, force = false) {
             const clean = typeof ip === 'string' ? ip.trim() : '';
             if (clean) allowlistSet.add(clean);
           }
-        } else if (row.k === 'admin_known_ips' && parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          for (const [ip, ts] of Object.entries(parsed)) {
-            const clean = String(ip || '').trim();
-            if (clean && Number(ts || 0) > 0 && (now - Number(ts)) < ADMIN_KNOWN_TTL_MS) {
-              adminKnownSet.add(clean);
-            }
-          }
         } else if (Array.isArray(parsed)) {
           for (const ip of parsed) {
             const clean = typeof ip === 'string' ? ip.trim() : '';
-            if (clean && !isImmuneAdminIp(clean)) blockedSet.add(clean);
+            if (clean) blockedSet.add(clean);
           }
         }
       } catch {}
@@ -321,11 +290,8 @@ async function getEdgeSecurityCache(db, force = false) {
     for (const ip of allowlistSet) {
       VPN_BANNED_IPS.delete(ip);
     }
-    for (const ip of adminKnownSet) {
-      VPN_BANNED_IPS.delete(ip);
-    }
 
-    CACHED_SECURITY_STATE = { blockedSet, allowlistSet, adminKnownSet };
+    CACHED_SECURITY_STATE = { blockedSet, allowlistSet };
     LAST_BLOCKED_FETCH_MS = now;
   } catch {
     // Fail silently, keep existing cached sets
@@ -337,7 +303,7 @@ async function getEdgeSecurityCache(db, force = false) {
  * Persist an edge-detected VPN ban and visitor telemetry row to D1 asynchronously.
  */
 async function persistEdgeVpnBan(db, clientIp, vpnInfo, request, pathname) {
-  if (!db || !clientIp || isImmuneAdminIp(clientIp)) return;
+  if (!db || !clientIp) return;
   try {
     await db.prepare(`CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)`).run();
     await db.prepare(
@@ -364,12 +330,11 @@ async function persistEdgeVpnBan(db, clientIp, vpnInfo, request, pathname) {
     const now = Date.now();
     const deviceLabel = summarizeEdgeUa(request.headers.get('user-agent') || '');
     const rows = await db
-      .prepare("SELECT k, v FROM kv WHERE k IN ('banned_ips', 'brute_force_bans', 'vpn_allowlist_ips', 'admin_known_ips')")
+      .prepare("SELECT k, v FROM kv WHERE k IN ('banned_ips', 'brute_force_bans', 'vpn_allowlist_ips')")
       .all();
     let banned = [];
     let bfBans = {};
     let allowlist = [];
-    let adminKnown = {};
     for (const r of (rows?.results || [])) {
       if (!r?.v) continue;
       try {
@@ -377,11 +342,10 @@ async function persistEdgeVpnBan(db, clientIp, vpnInfo, request, pathname) {
         if (r.k === 'banned_ips' && Array.isArray(parsed)) banned = parsed;
         if (r.k === 'brute_force_bans' && parsed && typeof parsed === 'object') bfBans = parsed;
         if (r.k === 'vpn_allowlist_ips' && Array.isArray(parsed)) allowlist = parsed;
-        if (r.k === 'admin_known_ips' && parsed && typeof parsed === 'object') adminKnown = parsed;
       } catch {}
     }
 
-    if (allowlist.includes(clientIp) || (adminKnown[clientIp] && (now - Number(adminKnown[clientIp])) < ADMIN_KNOWN_TTL_MS)) {
+    if (allowlist.includes(clientIp)) {
       return;
     }
 
@@ -417,7 +381,8 @@ async function persistEdgeVpnBan(db, clientIp, vpnInfo, request, pathname) {
          hits = live_visitors.hits + 1,
          is_vpn = 1,
          vpn_reason = excluded.vpn_reason,
-         is_banned = CASE WHEN live_visitors.is_admin = 1 THEN 0 ELSE 1 END,
+         is_banned = 1,
+         is_admin = 0,
          last_seen = excluded.last_seen`
     ).bind(
       clientIp,
@@ -447,12 +412,6 @@ export async function onRequest(context) {
   const url = new URL(request.url);
   const pathname = url.pathname;
   const lowerPath = pathname.toLowerCase();
-
-  // Only explicitly whitelisted immune admin IPs bypass edge throttling & auto-bans.
-  // Never bypass on spoofable headers or blanket /api/admin/* paths (login must stay rate-limited).
-  if (isImmuneAdminIp(clientIp)) {
-    return next();
-  }
 
   const now = Date.now();
 
@@ -534,7 +493,7 @@ export async function onRequest(context) {
         );
       }
 
-      const isExemptFromAutoVpn = secState.allowlistSet.has(clientIp) || secState.adminKnownSet.has(clientIp);
+      const isExemptFromAutoVpn = secState.allowlistSet.has(clientIp);
       if (!isExemptFromAutoVpn && !isPrivateOrDevIp(clientIp)) {
         const memVpnBan = VPN_BANNED_IPS.get(clientIp);
         if (memVpnBan) {

