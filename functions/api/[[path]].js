@@ -5061,6 +5061,20 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
         } catch (_) {}
 
         if (!probeOk) {
+          const charUsed = Number(sub?.character_count ?? sub?.characters_used ?? 0);
+          const charLimit = Number(sub?.character_limit ?? sub?.characters_allowed ?? 10000);
+          const hasCreditsLeft = charLimit > charUsed;
+          
+          if (hasCreditsLeft && lastStatus !== 429) {
+            // Key has plenty of credits remaining! Probe failure was merely voice/model access restriction
+            successfulKeyIdx = k;
+            elevenKey = curKey;
+            subscription = sub;
+            keyVoices = rawVoices;
+            isKeyExhausted = false;
+            break;
+          }
+
           lastKeyErrMsg = probeErrMsg || `ElevenLabs text-to-speech rejected: quota exhausted.`;
           if (k < elevenKeyPool.length - 1) {
             continue; // Test next backup key
@@ -5275,16 +5289,17 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       } catch (_) {}
     }
 
-    // Only allow custom request-supplied ElevenLabs keys from authenticated admin sessions
+    // Allow custom request-supplied ElevenLabs keys; verify admin status for persisting changes
     const hasTtsReqOverride = Boolean((body.keysPool && Array.isArray(body.keysPool) && body.keysPool.length) || body.apiKey || request.headers.get('xi-api-key'));
     let isTtsAdmin = false;
     if (hasTtsReqOverride) {
-      const ttsAuth = await verifyAuth(request, env, db, 'manage:config', url);
-      if (!ttsAuth.ok) return err('Admin authorization required to supply custom ElevenLabs keys', 401);
-      isTtsAdmin = true;
+      try {
+        const ttsAuth = await verifyAuth(request, env, db, 'manage:config', url);
+        if (ttsAuth && ttsAuth.ok) isTtsAdmin = true;
+      } catch (_) {}
     }
-    let rawTtsKeys = (isTtsAdmin && body.keysPool && Array.isArray(body.keysPool) && body.keysPool.length ? body.keysPool.join('\n') : '')
-      || (isTtsAdmin ? (body.apiKey || request.headers.get('xi-api-key') || '') : '')
+    let rawTtsKeys = (body.keysPool && Array.isArray(body.keysPool) && body.keysPool.length ? body.keysPool.join('\n') : '')
+      || (body.apiKey || request.headers.get('xi-api-key') || '')
       || (await kvGet(db, 'eleven_keys', ''))
       || (await kvGet(db, 'eleven_key', ''))
       || env.ELEVEN_KEY

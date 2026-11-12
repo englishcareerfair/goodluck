@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="styles.css?v=28.1">
+  <link rel="stylesheet" href="styles.css?v=28.2">
   <script src="/qrcode.min.js" defer></script>
   <script>
     if ('serviceWorker' in navigator) {
@@ -28,13 +28,13 @@
       });
     }
   </script>
-  <script src="dossier-pdf.js?v=28.1" defer></script>
-  <script src="dopamine-engine.js?v=28.1" defer></script>
-  <script src="game-completion-detector.js?v=28.1" defer></script>
-  <script src="offline-stt.js?v=28.1" defer></script>
-  <script src="guide-avatar.js?v=28.1" defer></script>
-  <script src="loader.js?v=28.1"></script>
-  <script src="app.js?v=28.1" defer></script>
+  <script src="dossier-pdf.js?v=28.2" defer></script>
+  <script src="dopamine-engine.js?v=28.2" defer></script>
+  <script src="game-completion-detector.js?v=28.2" defer></script>
+  <script src="offline-stt.js?v=28.2" defer></script>
+  <script src="guide-avatar.js?v=28.2" defer></script>
+  <script src="loader.js?v=28.2"></script>
+  <script src="app.js?v=28.2" defer></script>
   <!-- Critical Inlined CSS for Instant Loading Screen (Prevents FOUC on First Open) -->
   <style id="loader-critical-css">
     .site-loader {
@@ -1527,12 +1527,12 @@
 
           <div style="margin:16px 0;">
             <label style="font-size:13px;font-weight:600;">School Name Label:</label>
-            <input type="text" id="admin-school-name-input" value="Kanakia International School Mira Road">
+            <input type="text" id="admin-school-name-input" value="Kanakia International School Mira Road" autocomplete="off" spellcheck="false">
           </div>
 
           <div style="margin:16px 0;">
             <label style="font-size:13px;font-weight:600;">Guidance &amp; Directorate Box Text:</label>
-            <input type="text" id="admin-guidance-text-input" placeholder="e.g. Guided by Directorate of Career Guidance · Kanakia International School Mira Road (leave empty to hide)">
+            <input type="text" id="admin-guidance-text-input" placeholder="e.g. Guided by Directorate of Career Guidance · Kanakia International School Mira Road (leave empty to hide)" autocomplete="off" spellcheck="false">
             <div style="font-size:11.5px;color:var(--text-dim);margin-top:4px;">Controls the footer guidance pill. Leave blank to hide/remove it.</div>
           </div>
 

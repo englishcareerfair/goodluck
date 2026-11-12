@@ -187,9 +187,7 @@ function makeEdgeForbiddenResponse(lowerPath, message, extra = {}) {
       }
     );
   }
-  const safeMsg = escapeHtmlEdge(message);
-  const title = extra.vpn_banned ? 'VPN / Proxy Access Blocked' : 'Site Access Blocked';
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head><body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#070b14;color:#e2e8f0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:24px;box-sizing:border-box;"><div style="max-width:480px;width:100%;background:#0f172a;border:1px solid rgba(239,68,68,0.45);border-radius:16px;padding:32px 28px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.6);"><div style="font-size:48px;margin-bottom:12px;">${extra.vpn_banned ? '🛡️' : '🚫'}</div><h1 style="margin:0 0 10px 0;font-size:22px;color:#f87171;">${title}</h1><p style="margin:0;font-size:14.5px;line-height:1.55;color:#94a3b8;">${safeMsg}</p></div></body></html>`;
+  const html = `<!DOCTYPE html><html><head><title>403 Forbidden</title></head><body style="font-family:monospace;margin:40px;text-align:center;background:#fff;color:#000;"><h1>403 Forbidden</h1><p>Access Denied</p><hr><small>cloudflare</small></body></html>`;
   return new Response(html, {
     status: 403,
     statusText: 'Forbidden',

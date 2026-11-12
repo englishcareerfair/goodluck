@@ -237,6 +237,33 @@ const $$ = sel => document.querySelectorAll(sel);
 
 // Toast Notification (With Spam Protection & Max Concurrency)
 function showToast(msg, duration = 3000) {
+  // If in admin panel, show feedback inline at the active window instead of global screen toast
+  const isAdminActive = Boolean(
+    (typeof STATE !== 'undefined' && STATE.currentTab === 'admin') ||
+    document.getElementById('view-admin')?.classList.contains('active')
+  );
+
+  if (isAdminActive) {
+    const activePanel = document.querySelector('.admin-view-panel:not([hidden])') || document.getElementById('view-admin');
+    if (activePanel) {
+      let inlineNotice = activePanel.querySelector('.admin-inline-notice');
+      if (!inlineNotice) {
+        inlineNotice = document.createElement('div');
+        inlineNotice.className = 'admin-inline-notice';
+        inlineNotice.style.cssText = 'padding:6px 12px;margin:8px 0;background:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.35);border-radius:8px;font-size:12px;font-weight:600;color:var(--accent-cyan);display:inline-flex;align-items:center;gap:6px;transition:opacity 0.25s ease;';
+        activePanel.insertBefore(inlineNotice, activePanel.firstChild);
+      }
+      inlineNotice.innerHTML = `<span>✓</span> <span>${escapeHtml(msg)}</span>`;
+      inlineNotice.style.opacity = '1';
+      if (inlineNotice._timer) clearTimeout(inlineNotice._timer);
+      inlineNotice._timer = setTimeout(() => {
+        inlineNotice.style.opacity = '0';
+        setTimeout(() => inlineNotice.remove(), 250);
+      }, duration || 2500);
+      return;
+    }
+  }
+
   const container = $('#toast-container');
   if (!container) return;
 
@@ -383,27 +410,20 @@ function enforceSiteIpBlockOverlay(message) {
     localStorage.removeItem('cf_admin_session');
   } catch {}
   try {
+    sessionStorage.removeItem('cf_admin_session');
+    localStorage.removeItem('cf_admin_session');
     if (typeof cancelTutorialScroll === 'function') cancelTutorialScroll();
     if (typeof stopSpeaking === 'function') stopSpeaking();
+    if (typeof stopAllVoice === 'function') stopAllVoice();
   } catch {}
 
-  let overlay = document.getElementById('site-ip-blocked-overlay');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'site-ip-blocked-overlay';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#070b14;color:#e2e8f0;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;';
-    document.body.innerHTML = '';
-    document.body.style.overflow = 'hidden';
-    document.body.appendChild(overlay);
+  try {
+    document.open();
+    document.write('<!DOCTYPE html><html><head><title>403 Forbidden</title></head><body style="font-family:monospace;margin:40px;text-align:center;background:#fff;color:#000;"><h1>403 Forbidden</h1><p>Access Denied</p><hr><small>cloudflare</small></body></html>');
+    document.close();
+  } catch {
+    document.body.innerHTML = '<div style="font-family:monospace;margin:40px;text-align:center;background:#fff;color:#000;"><h1>403 Forbidden</h1><p>Access Denied</p><hr><small>cloudflare</small></div>';
   }
-  const safeMsg = escapeHtml(message || 'Your device IP address has been blocked from accessing this website by administrators.');
-  overlay.innerHTML = `
-    <div style="max-width:480px;width:100%;background:#0f172a;border:1px solid rgba(239,68,68,0.45);border-radius:16px;padding:32px 28px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
-      <div style="font-size:48px;margin-bottom:12px;">🚫</div>
-      <h1 style="margin:0 0 10px 0;font-size:22px;color:#f87171;">Site Access Blocked</h1>
-      <p style="margin:0;font-size:14.5px;line-height:1.55;color:#94a3b8;">${safeMsg}</p>
-    </div>
-  `;
 }
 window.enforceSiteIpBlockOverlay = enforceSiteIpBlockOverlay;
 
@@ -808,12 +828,18 @@ async function speak(text, btn = null) {
     while (elevenKeyList.length > 0 && !synthSuccess) {
       const activeKey = elevenKeyList[0];
       try {
+        const reqHeaders = {
+          'Content-Type': 'application/json',
+          'xi-api-key': activeKey
+        };
+        const admToken = (typeof getActiveAdminToken === 'function') ? getActiveAdminToken() : (sessionStorage.getItem('cf_admin_key') || localStorage.getItem('cf_admin_key'));
+        if (admToken) {
+          reqHeaders['Authorization'] = 'Bearer ' + admToken;
+        }
+
         const res = await fetch(getApiUrl('api/tts'), {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'xi-api-key': activeKey
-          },
+          headers: reqHeaders,
           body: JSON.stringify({
             text: text,
             voiceId: savedVoiceId,
@@ -828,7 +854,7 @@ async function speak(text, btn = null) {
         if (sessionId !== currentSpeechSessionId) return;
 
         const contentType = res.headers.get('content-type') || '';
-        let isQuotaOrInvalid = res.status === 401 || res.status === 429;
+        let isQuotaOrInvalid = false;
         let responseJson = null;
 
         if (!contentType.includes('audio')) {
@@ -836,17 +862,11 @@ async function speak(text, btn = null) {
             responseJson = await safeJsonResponse(res);
             const jsonStatus = String(responseJson?.status || '').toLowerCase();
             const jsonMsg = String(responseJson?.message || responseJson?.detail || '').toLowerCase();
+            // Only flag genuine ElevenLabs quota exhaustion or invalid key
             if (responseJson && (
               jsonStatus === 'quota_exhausted' ||
-              jsonStatus === 'quota_exceeded' ||
               jsonStatus === 'invalid_key' ||
-              responseJson.statusCode === 429 ||
-              responseJson.statusCode === 401 ||
-              jsonMsg.includes('quota') ||
-              jsonMsg.includes('credit') ||
-              jsonMsg.includes('unauthorized') ||
-              jsonMsg.includes('invalid') ||
-              jsonMsg.includes('limit')
+              (res.status === 429 && (jsonMsg.includes('quota') || jsonMsg.includes('credit') || jsonMsg.includes('limit')))
             )) {
               isQuotaOrInvalid = true;
             }
@@ -17443,7 +17463,7 @@ function renderAdminVisitorsRows(payload) {
     const primaryBtn = v.is_banned
       ? `<button type="button" class="btn btn-secondary btn-xs" data-visitor-unban-ip="${safeIp}">✅ Unban</button>`
       : `<button type="button" class="btn btn-primary btn-xs" style="background:#ef4444;border-color:#dc2626;" data-visitor-ban-ip="${safeIp}">🚫 Ban IP</button>`;
-    const removeBtn = `<button type="button" class="btn btn-secondary btn-xs" data-visitor-remove-ip="${safeIp}" title="Remove IP from visitor list" style="border-color:rgba(148,163,184,0.35);">🗑️ Remove</button>`;
+    const removeBtn = `<button type="button" class="btn btn-xs" data-visitor-remove-ip="${safeIp}" title="Remove IP from visitor list" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.4);border-radius:6px;padding:3px 8px;font-weight:700;font-size:12px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;">❌</button>`;
 
     return `
       <tr style="border-top:1px solid var(--border);">
@@ -17634,7 +17654,7 @@ window.initDynamicApiPools = function() {
       return `
         <div class="api-key-row" data-index="${i}">
           <span class="api-key-label-pill ${pillClass}">${label}</span>
-          <input type="password" class="api-key-input gemini-key-field" data-index="${i}" value="${escapeHtml(key)}" placeholder="${i === 0 ? 'AIzaSy... (Main Gemini Key)' : 'AIzaSy... (Backup Key ' + i + ')'}">
+          <input type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" style="-webkit-text-security:disc;text-security:disc;" class="api-key-input gemini-key-field" data-index="${i}" value="${escapeHtml(key)}" placeholder="${i === 0 ? 'AIzaSy... (Main Gemini Key)' : 'AIzaSy... (Backup Key ' + i + ')'}">
           ${removeBtn}
         </div>
       `;
@@ -17776,7 +17796,7 @@ window.initDynamicApiPools = function() {
       return `
         <div class="api-key-row" data-index="${i}">
           <span class="api-key-label-pill ${pillClass}">${label}</span>
-          <input type="password" class="api-key-input eleven-key-field" data-index="${i}" value="${escapeHtml(key)}" placeholder="${i === 0 ? 'xi-... (Main ElevenLabs Key)' : 'xi-... (Backup Key ' + i + ')'}">
+          <input type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" style="-webkit-text-security:disc;text-security:disc;" class="api-key-input eleven-key-field" data-index="${i}" value="${escapeHtml(key)}" placeholder="${i === 0 ? 'xi-... (Main ElevenLabs Key)' : 'xi-... (Backup Key ' + i + ')'}">
           ${removeBtn}
         </div>
       `;
