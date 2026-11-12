@@ -390,7 +390,7 @@
 
     // Data resolution
     const state = window.STATE || {};
-    let studentName = (customData?.name || customData?.studentName || state.studentName || state.studentProfile?.name || localStorage.getItem('cf_student_name') || 'Career Fair Student').trim();
+    let studentName = (customData?.name || customData?.studentName || state.studentName || state.studentProfile?.name || 'Career Fair Student').trim();
     let className = String(customData?.grade || customData?.className || customData?.class || state.studentClass || state.studentProfile?.grade || localStorage.getItem('cf_student_class') || '10').trim();
     let chosenCareer = customData?.chosenCareer || (customData?.career ? (typeof customData.career === 'string' ? { title: customData.career } : customData.career) : null) || state.chosenCareer || state.studentProfile?.chosenCareer || null;
 

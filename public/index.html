@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="styles.css?v=27.7">
+  <link rel="stylesheet" href="styles.css?v=27.8">
   <script src="/qrcode.min.js" defer></script>
   <script>
     if ('serviceWorker' in navigator) {
@@ -28,13 +28,13 @@
       });
     }
   </script>
-  <script src="dossier-pdf.js?v=26.5" defer></script>
+  <script src="dossier-pdf.js?v=27.8" defer></script>
   <script src="dopamine-engine.js?v=26.5" defer></script>
   <script src="game-completion-detector.js?v=26.5" defer></script>
-  <script src="offline-stt.js?v=27.7" defer></script>
-  <script src="guide-avatar.js?v=27.7" defer></script>
+  <script src="offline-stt.js?v=27.8" defer></script>
+  <script src="guide-avatar.js?v=27.8" defer></script>
   <script src="loader.js?v=26.5"></script>
-  <script src="app.js?v=27.7" defer></script>
+  <script src="app.js?v=27.8" defer></script>
   <!-- Critical Inlined CSS for Instant Loading Screen (Prevents FOUC on First Open) -->
   <style id="loader-critical-css">
     .site-loader {
@@ -797,7 +797,7 @@
               <label for="speak-student-name" style="font-size:13px;font-weight:700;color:var(--text-main);display:flex;align-items:center;gap:4px;margin-bottom:4px;">
                 Name <span style="color:#ef4444;" title="Mandatory">*</span>
               </label>
-              <input type="text" id="speak-student-name" placeholder="Enter your name" required autocomplete="name" style="margin-top:2px;">
+              <input type="text" id="speak-student-name" placeholder="Enter your name" required autocomplete="off" style="margin-top:2px;">
             </div>
 
             <!-- Speech Recording Controls -->
@@ -847,7 +847,7 @@
               <span>🎙️ Student Name <span style="color:#ef4444;" title="Mandatory for Leaderboard">*</span></span>
               <span style="font-size:11px;color:var(--accent-cyan);font-weight:600;">Leaderboard Ranking</span>
             </label>
-            <input type="text" id="speech-lab-student-name" placeholder="Enter your full name to map score on leaderboard" autocomplete="name" style="width:100%;font-size:14px;font-weight:600;padding:8px 12px;border-radius:var(--radius-sm);background:var(--surface-card);color:var(--text-main);border:1px solid var(--border);transition:all 0.2s ease;">
+            <input type="text" id="speech-lab-student-name" placeholder="Enter your full name to map score on leaderboard" autocomplete="off" style="width:100%;font-size:14px;font-weight:600;padding:8px 12px;border-radius:var(--radius-sm);background:var(--surface-card);color:var(--text-main);border:1px solid var(--border);transition:all 0.2s ease;">
           </div>
 
           <!-- Waveform Canvas -->
@@ -1032,7 +1032,7 @@
           
           <div style="margin-bottom:12px;">
             <label for="anchor-name-input" style="font-size:13px;font-weight:700;">Name <span style="color:#ef4444;">*</span></label>
-            <input type="text" id="anchor-name-input" value="" placeholder="Enter your name" required>
+            <input type="text" id="anchor-name-input" value="" placeholder="Enter your name" required autocomplete="off">
           </div>
 
           <div style="margin-bottom:12px;">
@@ -1253,7 +1253,7 @@
               <label for="fb-name" style="font-size:13px;font-weight:700;display:block;margin-bottom:6px;">
                 Your Name <span style="color:#ef4444;">*</span>
               </label>
-              <input type="text" id="fb-name" required placeholder="Enter your name" autocomplete="name">
+              <input type="text" id="fb-name" required placeholder="Enter your name" autocomplete="off">
             </div>
 
             <div class="feedback-controls-row">
@@ -2057,7 +2057,7 @@
       <div style="display:flex;flex-direction:column;gap:12px;">
         <div>
           <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Your Name / Student ID:</label>
-          <input type="text" id="issue-user-name" placeholder="e.g. Aarav Sharma" style="width:100%;font-size:16px;">
+          <input type="text" id="issue-user-name" placeholder="e.g. Aarav Sharma" autocomplete="off" style="width:100%;font-size:16px;">
         </div>
         <div>
           <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Issue Category:</label>
@@ -2313,7 +2313,7 @@
         <label for="tutorial-student-name-input" style="display:block;font-size:13px;font-weight:700;color:var(--accent-cyan);margin-bottom:6px;">
           👤 Enter Your Name to Personalize Your Booklet &amp; Pass: <span style="color:#ef4444;">*</span>
         </label>
-        <input type="text" id="tutorial-student-name-input" class="form-input" placeholder="Enter Your Full Name (Mandatory *)" autocomplete="name" style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;font-size:16px;font-weight:600;background:rgba(15,23,42,0.7);border:1px solid var(--border-strong);color:#ffffff;" />
+        <input type="text" id="tutorial-student-name-input" class="form-input" placeholder="Enter Your Full Name (Mandatory *)" autocomplete="off" style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;font-size:16px;font-weight:600;background:rgba(15,23,42,0.7);border:1px solid var(--border-strong);color:#ffffff;" />
       </div>
 
       <div class="tutorial-choice-grid">

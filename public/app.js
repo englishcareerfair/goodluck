@@ -2083,16 +2083,6 @@ function syncStudentNameToAllSections(name) {
   name = capitalizeName(name);
   if (!name) return;
   STATE.studentName = name;
-  try {
-    localStorage.setItem('cf_student_name', name);
-    localStorage.setItem('ecf_student_name', name);
-    localStorage.setItem('ecf_bizcard_name', name);
-    try {
-      const saved = JSON.parse(localStorage.getItem('cf_bizcard_data') || '{}');
-      saved.name = name;
-      localStorage.setItem('cf_bizcard_data', JSON.stringify(saved));
-    } catch (_) {}
-  } catch (_) {}
 
   const bcInput = document.getElementById('biz-name') || document.getElementById('bizcard-name-input');
   if (bcInput) {
@@ -2171,9 +2161,6 @@ function startTutorialWithMode(mode) {
     nameInp.style.boxShadow = '';
   }
 
-  localStorage.setItem('ecf_student_name', enteredName);
-  localStorage.setItem('ecf_bizcard_name', enteredName);
-  localStorage.setItem('cf_student_name', enteredName);
   STATE.studentName = enteredName;
   syncStudentNameToAllSections(enteredName);
 
@@ -5451,10 +5438,12 @@ const AI_SENTENCE_LIBRARY = {
 let isSpeakLadderBound = false;
 function initSpeakLadder() {
   const nameInput = $('#speak-student-name');
-  const activeName = STATE.studentName || localStorage.getItem('cf_student_name') || localStorage.getItem('ecf_student_name') || '';
+  const activeName = STATE.studentName || '';
   if (nameInput) {
-    if (!nameInput.value || nameInput.value !== activeName) {
+    if (nameInput.value !== activeName && !nameInput.value) {
       nameInput.value = activeName;
+    } else if (!activeName && !STATE._userTypedSpeakName) {
+      nameInput.value = '';
     }
   }
 
@@ -5885,9 +5874,8 @@ async function evaluateSpeakAttempt() {
     return;
   }
 
-  // Persist student name
+  // Keep student name in-memory for current session only (cleared on refresh)
   STATE.studentName = name;
-  localStorage.setItem('cf_student_name', name);
 
   // Persist student score in local storage so it is never lost even if offline or cold start
   try {
@@ -6485,10 +6473,12 @@ function initSpeechLab() {
 
   // Wire Student Name in Speech Lab (Synchronized with Speak Ladder & Leaderboard)
   const labNameInput = $('#speech-lab-student-name');
-  const activeLabName = STATE.studentName || localStorage.getItem('cf_student_name') || localStorage.getItem('ecf_student_name') || '';
+  const activeLabName = STATE.studentName || '';
   if (labNameInput) {
-    if (!labNameInput.value || labNameInput.value !== activeLabName) {
+    if (activeLabName && labNameInput.value !== activeLabName) {
       labNameInput.value = activeLabName;
+    } else if (!activeLabName && !STATE._userTypedLabName) {
+      labNameInput.value = '';
     }
     if (!labNameInput.dataset.bound) {
       labNameInput.dataset.bound = 'true';
@@ -6506,8 +6496,8 @@ function initSpeechLab() {
         labNameInput.style.boxShadow = '';
         const cap = capitalizeName(labNameInput.value);
         if (cap !== labNameInput.value && labNameInput.value.length === 1) labNameInput.value = cap;
+        STATE._userTypedLabName = true;
         STATE.studentName = labNameInput.value.trim();
-        try { localStorage.setItem('cf_student_name', STATE.studentName); } catch (_) {}
         const otherInput = $('#speak-student-name');
         if (otherInput && otherInput.value !== labNameInput.value) otherInput.value = labNameInput.value;
       });
@@ -6515,7 +6505,6 @@ function initSpeechLab() {
         const cap = capitalizeName(labNameInput.value);
         labNameInput.value = cap;
         STATE.studentName = cap;
-        try { localStorage.setItem('cf_student_name', cap); } catch (_) {}
         const otherInput = $('#speak-student-name');
         if (otherInput) otherInput.value = cap;
         // If an evaluation was pending student name, map it immediately to leaderboard
@@ -6972,7 +6961,6 @@ function analyzeSpeechLabSample(snapshot = null, options = {}) {
   if (speechLabNameInput) speechLabNameInput.value = name;
   if ($('#speak-student-name')) $('#speak-student-name').value = name;
   STATE.studentName = name;
-  try { localStorage.setItem('cf_student_name', name); } catch (_) {}
 
   // Save attempt to local scores so it is reflected immediately
   const wpmVal = parseInt($('#wpm-value-label')?.textContent, 10) || 130;
@@ -7789,7 +7777,7 @@ function initTeleprompter() {
   };
 
   // Prepare initial script & keep prompter stationary until started by user
-  if (nameInput && !nameInput.value) nameInput.value = (STATE.studentName || localStorage.getItem('cf_student_name') || localStorage.getItem('ecf_student_name') || '');
+  if (nameInput && !nameInput.value) nameInput.value = STATE.studentName || '';
   applyScript(scriptSelect?.value || '');
   teleprompterState.isPrompterPaused = true;
   teleprompterState.prompterStarted = false;
@@ -12416,12 +12404,7 @@ function renderFutureBusinessCard(mount) {
     } catch (_) { return {}; }
   })();
 
-  const studentName = STATE.studentName 
-    || savedBizData.name 
-    || localStorage.getItem('cf_student_name') 
-    || localStorage.getItem('ecf_student_name') 
-    || localStorage.getItem('ecf_bizcard_name') 
-    || '';
+  const studentName = STATE.studentName || '';
   // Determine initial selected career: either existing student targetCareer or Commercial Airline Pilot
   const initialCareer = (STATE.targetCareer && CAREER_CREDENTIALS_MAP[STATE.targetCareer]) 
     ? STATE.targetCareer 
@@ -12470,7 +12453,7 @@ function renderFutureBusinessCard(mount) {
             <span>Your Name:</span>
             <span style="font-size:11.5px;color:#f87171;font-weight:700;padding:1px 6px;background:rgba(239,68,68,0.1);border-radius:4px;">Mandatory *</span>
           </label>
-          <input type="text" id="biz-name" value="${escapeHtml(studentName)}" placeholder="Enter your full name">
+          <input type="text" id="biz-name" value="${escapeHtml(studentName)}" placeholder="Enter your full name" autocomplete="off">
         </div>
 
         <div style="margin-bottom:12px;">
@@ -12697,20 +12680,8 @@ function renderFutureBusinessCard(mount) {
       verifyUrl += `&p=${encodeURIComponent(phone)}`;
     }
 
-    // Persist active business card information so Booklet PDF and QR code stay 100% in sync
+    // Persist active business card configuration in session
     try {
-      localStorage.setItem('cf_bizcard_data', JSON.stringify({
-        name,
-        career,
-        creds,
-        email,
-        phone,
-        verifyUrl
-      }));
-      if (name && name !== 'Explorer') {
-        localStorage.setItem('cf_student_name', name);
-        if (window.STATE) window.STATE.studentName = name;
-      }
       if (career) {
         if (window.STATE) window.STATE.targetCareer = career;
       }
@@ -15881,6 +15852,28 @@ document.addEventListener('visibilitychange', () => {
 
 // ─── 13. APP BOOTSTRAP INITIALIZER ───────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  // Purge any previously cached student/user name so all name inputs are empty on page refresh
+  try {
+    localStorage.removeItem('cf_student_name');
+    localStorage.removeItem('ecf_student_name');
+    localStorage.removeItem('ecf_bizcard_name');
+    sessionStorage.removeItem('cf_student_name');
+    sessionStorage.removeItem('ecf_student_name');
+    const existingBiz = localStorage.getItem('cf_bizcard_data');
+    if (existingBiz) {
+      try {
+        const parsed = JSON.parse(existingBiz);
+        if (parsed && parsed.name) {
+          delete parsed.name;
+          localStorage.setItem('cf_bizcard_data', JSON.stringify(parsed));
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
+  STATE.studentName = '';
+  document.querySelectorAll('#speak-student-name, #speech-lab-student-name, #anchor-name-input, #fb-name, #issue-user-name, #tutorial-student-name-input, #biz-name').forEach(inp => {
+    if (inp) inp.value = '';
+  });
   // Service Worker Registration for PWA caching & offline resilience
   if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
     window.addEventListener('load', () => {
