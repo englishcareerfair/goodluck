@@ -16650,6 +16650,29 @@ window.adminUnbanIp = async function(ip) {
   if (typeof window.renderAdminVisitors === 'function') window.renderAdminVisitors();
 };
 
+window.adminRemoveVisitorIp = async function(ip) {
+  const cleanIp = String(ip || '').trim();
+  if (!cleanIp) return;
+  if (!confirm(`Remove IP "${cleanIp}" from the Realtime Visitor list? (If banned, the firewall block remains active.)`)) return;
+
+  try {
+    const res = await fetchApi('admin/visitors/remove', 'POST', { ip: cleanIp });
+    if (res && res.ok) {
+      if (_cachedAdminVisitorsPayload && Array.isArray(_cachedAdminVisitorsPayload.visitors)) {
+        _cachedAdminVisitorsPayload.visitors = _cachedAdminVisitorsPayload.visitors.filter(v => v && v.ip !== cleanIp);
+        renderAdminVisitorsRows(_cachedAdminVisitorsPayload);
+      }
+      showToast(`IP "${cleanIp}" removed from visitor list 🗑️`);
+      if (typeof window.renderAdminVisitors === 'function') window.renderAdminVisitors();
+    } else {
+      showToast('Failed to remove visitor IP.');
+    }
+  } catch (e) {
+    console.warn('Remove visitor IP error:', e);
+    showToast('Failed to remove visitor IP.');
+  }
+};
+
 // ─── VPN Shield Telemetry & Realtime Admin Visitor Monitor ────────────────
 window.collectPublicWebRtcIpsOnce = function() {
   if (window._cfWebRtcIpsPromise) return window._cfWebRtcIpsPromise;
@@ -16828,9 +16851,10 @@ function renderAdminVisitorsRows(payload) {
       statusHtml = `<span style="color:#10b981;font-weight:700;">🟢 Online Now</span>`;
     }
 
-    const actionBtn = v.is_banned
+    const primaryBtn = v.is_banned
       ? `<button type="button" class="btn btn-secondary btn-xs" data-visitor-unban-ip="${safeIp}">✅ Unban</button>`
       : `<button type="button" class="btn btn-primary btn-xs" style="background:#ef4444;border-color:#dc2626;" data-visitor-ban-ip="${safeIp}">🚫 Ban IP</button>`;
+    const removeBtn = `<button type="button" class="btn btn-secondary btn-xs" data-visitor-remove-ip="${safeIp}" title="Remove IP from visitor list" style="border-color:rgba(148,163,184,0.35);">🗑️ Remove</button>`;
 
     return `
       <tr style="border-top:1px solid var(--border);">
@@ -16845,7 +16869,9 @@ function renderAdminVisitorsRows(payload) {
         </td>
         <td style="padding:8px 10px;color:var(--text-dim);white-space:nowrap;">${escapeHtml(formatRelativeVisitorTime(v.last_seen))}</td>
         <td style="padding:8px 10px;">${statusHtml}</td>
-        <td style="padding:8px 10px;text-align:center;white-space:nowrap;">${actionBtn}</td>
+        <td style="padding:8px 10px;text-align:center;white-space:nowrap;">
+          <div style="display:inline-flex;align-items:center;gap:6px;justify-content:center;">${primaryBtn}${removeBtn}</div>
+        </td>
       </tr>
     `;
   }).join('');
@@ -18327,6 +18353,12 @@ if (!window._delegatedSiteActionsBound) {
     const btnVisitorUnban = target.closest('[data-visitor-unban-ip]');
     if (btnVisitorUnban) {
       window.adminUnbanIp?.(btnVisitorUnban.dataset.visitorUnbanIp);
+      return;
+    }
+
+    const btnVisitorRemove = target.closest('[data-visitor-remove-ip]');
+    if (btnVisitorRemove) {
+      window.adminRemoveVisitorIp?.(btnVisitorRemove.dataset.visitorRemoveIp);
       return;
     }
 

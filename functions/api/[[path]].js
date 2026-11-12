@@ -641,6 +641,7 @@ async function unblockIpAcrossSite(db, ip) {
 
   if (cleanIp) {
     await addToVpnAllowlist(db, cleanIp);
+    await removeDismissedVisitorIp(db, cleanIp);
   }
   if (GLOBAL_CACHE.live_visitors && GLOBAL_CACHE.live_visitors[cleanIp]) {
     GLOBAL_CACHE.live_visitors[cleanIp].is_banned = 0;
@@ -756,6 +757,48 @@ async function removeFromVpnAllowlist(db, ip) {
   }
 }
 
+async function getDismissedVisitorIps(db) {
+  let list = [];
+  if (db) {
+    try {
+      const raw = await kvGet(db, 'dismissed_visitor_ips', '');
+      if (raw) list = JSON.parse(raw);
+    } catch {}
+  } else {
+    list = Array.isArray(GLOBAL_CACHE.dismissed_visitor_ips) ? GLOBAL_CACHE.dismissed_visitor_ips : [];
+  }
+  if (!Array.isArray(list)) list = [];
+  GLOBAL_CACHE.dismissed_visitor_ips = list;
+  return list;
+}
+
+async function addDismissedVisitorIp(db, ip) {
+  const cleanIp = String(ip || '').trim();
+  if (!cleanIp) return;
+  const list = await getDismissedVisitorIps(db);
+  if (!list.includes(cleanIp)) {
+    list.push(cleanIp);
+    const trimmed = list.slice(-500);
+    GLOBAL_CACHE.dismissed_visitor_ips = trimmed;
+    if (db) {
+      try { await kvSet(db, 'dismissed_visitor_ips', JSON.stringify(trimmed)); } catch {}
+    }
+  }
+}
+
+async function removeDismissedVisitorIp(db, ip) {
+  const cleanIp = String(ip || '').trim();
+  if (!cleanIp) return;
+  const list = await getDismissedVisitorIps(db);
+  if (list.includes(cleanIp)) {
+    const next = list.filter(x => x !== cleanIp);
+    GLOBAL_CACHE.dismissed_visitor_ips = next;
+    if (db) {
+      try { await kvSet(db, 'dismissed_visitor_ips', JSON.stringify(next)); } catch {}
+    }
+  }
+}
+
 function detectVpnOrProxy(req, clientIp, clientSignals = null) {
   const cf = req.cf || {};
   const asn = Number(cf.asn || 0);
@@ -841,6 +884,9 @@ function detectVpnOrProxy(req, clientIp, clientSignals = null) {
 async function recordLiveVisitor(req, db, opts = {}) {
   const clientIp = getClientIp(req);
   if (!clientIp) return;
+  if (opts.clearDismissed) {
+    await removeDismissedVisitorIp(db, clientIp);
+  }
 
   const cf = req.cf || {};
   const country = String(cf.country || opts.country || '').toUpperCase().slice(0, 12);
@@ -954,19 +1000,22 @@ async function hasValidAdminSessionHeader(req, db, env) {
 
 async function getVisitorsForAdminDashboard(db, callerIp) {
   const now = Date.now();
-  const [bannedIps, adminBlockedIps, bfBans] = await Promise.all([
+  const [bannedIps, adminBlockedIps, bfBans, dismissedIps] = await Promise.all([
     getBannedIps(db),
     getAdminBlockedIps(db),
-    getBruteForceBans(db)
+    getBruteForceBans(db),
+    getDismissedVisitorIps(db)
   ]);
 
   const blockedSet = new Set([...bannedIps, ...adminBlockedIps]);
+  const dismissedSet = new Set(dismissedIps);
   const byIp = new Map();
 
   const shouldExclude = (ip) => {
     const clean = String(ip || '').trim();
     if (!clean) return true;
     if (callerIp && clean === callerIp) return true;
+    if (dismissedSet.has(clean)) return true;
     return false;
   };
 
@@ -1733,6 +1782,7 @@ const GLOBAL_CACHE = {
   admin_blocked_ips: [],
   banned_ips: [],
   vpn_allowlist_ips: [],
+  dismissed_visitor_ips: [],
   live_visitors: {},
   brute_force_tracker: {},
   brute_force_bans: {}
@@ -2220,7 +2270,8 @@ export async function onRequest(ctx) {
     await recordLiveVisitor(request, db, {
       activeTab,
       currentPath,
-      force: body?.reason === 'boot' || body?.reason === 'tab'
+      force: body?.reason === 'boot' || body?.reason === 'tab',
+      clearDismissed: body?.reason === 'boot'
     });
     return json({ ok: true, excluded: false });
   }
@@ -3848,6 +3899,28 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     const callerIp = getClientIp(request);
     const payload = await getVisitorsForAdminDashboard(db, callerIp);
     return json(payload, 200, { 'Cache-Control': 'no-store' });
+  }
+
+  if (path === '/admin/visitors/remove' && method === 'POST') {
+    const authCheck = await verifyAuth(request, env, db, 'manage:config', url);
+    if (!authCheck.ok) return json({ error: authCheck.error, admin_revoked: Boolean(authCheck.admin_revoked) }, authCheck.status);
+    let body;
+    try { body = await request.json(); } catch { return err('Invalid JSON'); }
+    const targetIp = String(body?.ip || '').trim();
+    if (!targetIp) return err('Missing visitor IP address', 400);
+
+    VISITOR_WRITE_THROTTLE.delete(targetIp);
+    if (GLOBAL_CACHE.live_visitors && GLOBAL_CACHE.live_visitors[targetIp]) {
+      delete GLOBAL_CACHE.live_visitors[targetIp];
+    }
+    await addDismissedVisitorIp(db, targetIp);
+    if (db) {
+      try {
+        await ensureDbSchema(db);
+        await db.prepare(`DELETE FROM live_visitors WHERE ip = ?`).bind(targetIp).run();
+      } catch {}
+    }
+    return json({ ok: true, ip: targetIp }, 200, { 'Cache-Control': 'no-store' });
   }
 
   if (path === '/admin/devices' && method === 'GET') {
