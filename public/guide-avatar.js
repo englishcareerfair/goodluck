@@ -573,16 +573,92 @@
       }
     }
 
-    toggleMic() {
+    async toggleMic() {
       if (this.isListening) {
-        if (this.recognition) this.recognition.stop();
+        if (this.recognition) {
+          try { this.recognition.stop(); } catch {}
+        }
+        if (this._whisperRecorder && this._whisperRecorder.state !== 'inactive') {
+          try { this._whisperRecorder.stop(); } catch {}
+          this.isListening = false;
+          const micBtn = document.getElementById('dg-btn-mic');
+          if (micBtn) {
+            micBtn.classList.remove('active');
+            micBtn.textContent = '⏳ Whisper...';
+          }
+          return;
+        }
         this.isListening = false;
         document.getElementById('dg-btn-mic')?.classList.remove('active');
         return;
       }
 
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRecognition) {
+      const sttStrategy = window.CareerFairSTT
+        ? window.CareerFairSTT.resolveSttStrategy()
+        : {
+            activeEngine: SpeechRecognition ? 'browser-native' : 'manual',
+            useRealtimeWebSpeech: Boolean(SpeechRecognition),
+            useAudioRecorder: false
+          };
+
+      // Use MediaRecorder + Offline Whisper / Adaptive STT when Web Speech is unavailable or router selects Whisper/offline
+      if (!SpeechRecognition || !sttStrategy.useRealtimeWebSpeech) {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder && window.CareerFairSTT) {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            this._whisperStream = stream;
+            const chunks = [];
+            let mimeType = '';
+            if (typeof MediaRecorder.isTypeSupported === 'function') {
+              if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mimeType = 'audio/webm;codecs=opus';
+              else if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
+              else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
+            }
+            const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+            this._whisperRecorder = rec;
+            rec.ondataavailable = (e) => {
+              if (e.data && e.data.size > 0) chunks.push(e.data);
+            };
+            rec.onstop = async () => {
+              try { stream.getTracks().forEach(t => t.stop()); } catch {}
+              this._whisperStream = null;
+              this._whisperRecorder = null;
+              this.isListening = false;
+              const micBtn = document.getElementById('dg-btn-mic');
+              const capEl = document.getElementById('dg-caption-text');
+              const blob = chunks.length ? new Blob(chunks, { type: mimeType || 'audio/webm' }) : null;
+              if (blob && blob.size >= 300) {
+                if (capEl) capEl.textContent = 'Transcribing via Offline Whisper AI...';
+                const res = await window.CareerFairSTT.transcribeAudioBlob(blob, { strategy: sttStrategy });
+                if (micBtn) {
+                  micBtn.classList.remove('active');
+                  micBtn.textContent = '🎙️ Voice';
+                }
+                if (res && res.ok && window.CareerFairSTT.hasSpeechWords(res.text)) {
+                  await this.handleGeminiVoiceInteraction(res.text);
+                  return;
+                }
+                if (capEl) capEl.textContent = 'No speech detected — tap Voice and speak clearly.';
+              } else {
+                if (micBtn) {
+                  micBtn.classList.remove('active');
+                  micBtn.textContent = '🎙️ Voice';
+                }
+              }
+            };
+            rec.start(350);
+            this.isListening = true;
+            const micBtn = document.getElementById('dg-btn-mic');
+            if (micBtn) {
+              micBtn.classList.add('active');
+              micBtn.textContent = '🔴 Listening...';
+            }
+            const capEl = document.getElementById('dg-caption-text');
+            if (capEl) capEl.textContent = 'Listening via Offline Whisper... Tap Voice again when done.';
+            return;
+          } catch {}
+        }
         if (typeof window.showToast === 'function') {
           window.showToast('Speech recognition not supported in this browser.');
         }
@@ -674,7 +750,15 @@
       if (this.tourTimeout) clearTimeout(this.tourTimeout);
       this.isActive = false;
 
-      // Stop video tracks
+      // Stop video & offline Whisper audio tracks
+      if (this._whisperRecorder && this._whisperRecorder.state !== 'inactive') {
+        try { this._whisperRecorder.stop(); } catch {}
+        this._whisperRecorder = null;
+      }
+      if (this._whisperStream) {
+        try { this._whisperStream.getTracks().forEach(t => t.stop()); } catch {}
+        this._whisperStream = null;
+      }
       if (this.videoStream) {
         this.videoStream.getTracks().forEach(t => t.stop());
         this.videoStream = null;

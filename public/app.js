@@ -201,6 +201,9 @@ const STATE = window.STATE = {
     gemini_key: localStorage.getItem('cf_gemini_keys') || localStorage.getItem('cf_gemini_key') || sessionStorage.getItem('cf_gemini_keys') || '',
     eleven_key: localStorage.getItem('cf_eleven_key') || '',
     eleven_voice: localStorage.getItem('cf_eleven_voice') || '',
+    stt_mode: localStorage.getItem('cf_stt_mode') || 'auto',
+    whisper_model: localStorage.getItem('cf_whisper_model') || 'Xenova/whisper-tiny.en',
+    has_workers_ai: false,
     flags: {
       guide_enabled: true,
       guide_presentation_mode: 'floating',
@@ -5592,21 +5595,137 @@ async function changeSpeechSentence(userTriggered = false) {
   }
 }
 
-function toggleSpeakLadderRecord() {
+let speakMediaStream = null;
+let speakMediaRecorder = null;
+let speakAudioChunks = [];
+
+function updateSpeakSttBadge(label, accent = 'cyan') {
+  const badge = $('#speak-stt-engine-badge');
+  if (!badge) return;
+  if (!label) {
+    badge.style.display = 'none';
+    return;
+  }
+  badge.style.display = 'inline-flex';
+  badge.textContent = label;
+  if (accent === 'green') {
+    badge.style.background = 'rgba(16, 185, 129, 0.14)';
+    badge.style.color = '#34d399';
+    badge.style.borderColor = 'rgba(52, 211, 153, 0.35)';
+  } else {
+    badge.style.background = 'rgba(56, 189, 248, 0.12)';
+    badge.style.color = 'var(--accent-cyan)';
+    badge.style.borderColor = 'rgba(56, 189, 248, 0.3)';
+  }
+}
+
+function stopSpeakMediaCapture() {
+  return new Promise((resolve) => {
+    const rec = speakMediaRecorder;
+    const stream = speakMediaStream;
+    speakMediaRecorder = null;
+    speakMediaStream = null;
+
+    if (!rec || rec.state === 'inactive') {
+      if (stream) {
+        try { stream.getTracks().forEach(t => t.stop()); } catch {}
+      }
+      if (speakAudioChunks.length > 0) {
+        const mime = (rec && rec.mimeType) || 'audio/webm';
+        const blob = new Blob(speakAudioChunks, { type: mime });
+        speakAudioChunks = [];
+        resolve(blob);
+      } else {
+        resolve(null);
+      }
+      return;
+    }
+
+    const prevStop = rec.onstop;
+    rec.onstop = () => {
+      if (typeof prevStop === 'function') {
+        try { prevStop(); } catch {}
+      }
+      const mime = rec.mimeType || 'audio/webm';
+      const blob = speakAudioChunks.length > 0 ? new Blob(speakAudioChunks, { type: mime }) : null;
+      speakAudioChunks = [];
+      if (stream) {
+        try { stream.getTracks().forEach(t => t.stop()); } catch {}
+      }
+      resolve(blob);
+    };
+    try {
+      rec.stop();
+    } catch {
+      if (stream) {
+        try { stream.getTracks().forEach(t => t.stop()); } catch {}
+      }
+      resolve(null);
+    }
+  });
+}
+
+async function toggleSpeakLadderRecord() {
   const orb = $('#speak-record-orb');
   const status = $('#speak-status-text');
   const preview = $('#speak-transcript-preview');
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const sttStrategy = window.CareerFairSTT
+    ? window.CareerFairSTT.resolveSttStrategy()
+    : {
+        activeEngine: SpeechRecognition ? 'browser-native' : 'manual',
+        useAudioRecorder: false,
+        useRealtimeWebSpeech: Boolean(SpeechRecognition),
+        badgeLabel: SpeechRecognition ? '🌐 Browser Web Speech (en-IN)' : '⌨️ Manual Input'
+      };
 
   if (STATE.isRecording) {
     // Stop recording
     STATE.isRecording = false;
     orb.classList.remove('recording');
-    status.textContent = 'Recording complete. Evaluating your spoken accuracy...';
     if (STATE.speechRecognition) {
       try { STATE.speechRecognition.stop(); } catch {}
+      STATE.speechRecognition = null;
     }
+
+    const audioBlob = await stopSpeakMediaCapture();
+    const existingText = stripSpeechNoiseTags(preview ? preview.value : '');
+    const needsAudioTranscription = Boolean(
+      audioBlob &&
+      audioBlob.size >= 300 &&
+      window.CareerFairSTT &&
+      (sttStrategy.activeEngine === 'whisper-offline' || sttStrategy.activeEngine === 'cloud-elevenlabs' || !hasMeaningfulSpeechText(existingText))
+    );
+
+    if (needsAudioTranscription) {
+      if (status) {
+        status.textContent = sttStrategy.activeEngine === 'whisper-offline'
+          ? 'Transcribing speech on-device via Offline Whisper AI...'
+          : 'Transcribing speech via Adaptive STT Router...';
+      }
+      updateSpeakSttBadge('⏳ Processing Speech...', 'cyan');
+      try {
+        const res = await window.CareerFairSTT.transcribeAudioBlob(audioBlob, {
+          strategy: sttStrategy,
+          onProgress: (prog) => {
+            if (prog && prog.status === 'progress' && typeof prog.progress === 'number' && status) {
+              status.textContent = `Loading Offline Whisper AI (${Math.round(prog.progress)}%)...`;
+            }
+          }
+        });
+        if (res && res.ok) {
+          if (res.provider) updateSpeakSttBadge(`🎙️ ${res.provider}`, 'green');
+          if (hasMeaningfulSpeechText(res.text) && preview) {
+            preview.value = res.text;
+          }
+        }
+      } catch (sttErr) {
+        console.warn('Speak studio Whisper/STT fallback error:', sttErr);
+      }
+    }
+
+    if (status) status.textContent = 'Recording complete. Evaluating your spoken accuracy...';
     evaluateSpeakAttempt();
     return;
   }
@@ -5631,46 +5750,100 @@ function toggleSpeakLadderRecord() {
     return;
   }
 
-  if (!SpeechRecognition) {
+  const canUseWebSpeech = Boolean(SpeechRecognition && sttStrategy.useRealtimeWebSpeech);
+  const canUseAudioCapture = Boolean(
+    navigator.mediaDevices &&
+    typeof navigator.mediaDevices.getUserMedia === 'function' &&
+    window.MediaRecorder &&
+    (sttStrategy.useAudioRecorder || sttStrategy.useAudioSegmentWhisper || !canUseWebSpeech)
+  );
+
+  if (!canUseWebSpeech && !canUseAudioCapture) {
     if (preview && preview.value.trim()) {
       evaluateSpeakAttempt();
       return;
     }
-    showToast('Speech Recognition not supported in this browser. You can type your spoken attempt in the text box below and click the microphone orb to evaluate!');
+    showToast('Speech Recognition is unavailable on this browser/device. Type your spoken attempt below and tap the mic orb to evaluate!');
     if (preview) preview.focus();
     return;
   }
 
-  try {
-    const recog = new SpeechRecognition();
-    recog.lang = 'en-IN'; // Indian English acoustic & phonetic recognition
-    recog.continuous = true;
-    recog.interimResults = true;
+  updateSpeakSttBadge(sttStrategy.badgeLabel, sttStrategy.activeEngine === 'whisper-offline' ? 'green' : 'cyan');
+  if (preview) preview.value = '';
 
-    recog.onresult = e => {
-      let full = '';
-      for (let i = 0; i < e.results.length; i++) {
-        full += e.results[i][0].transcript + ' ';
+  let startedAny = false;
+
+  // 1. Audio capture for Offline Whisper / Cloud STT / fallback
+  if (canUseAudioCapture) {
+    try {
+      speakMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let mimeType = '';
+      if (typeof MediaRecorder.isTypeSupported === 'function') {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mimeType = 'audio/webm;codecs=opus';
+        else if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
+        else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
+        else if (MediaRecorder.isTypeSupported('audio/ogg')) mimeType = 'audio/ogg';
       }
-      preview.value = full.trim();
-    };
-
-    recog.onerror = err => {
-      status.textContent = `Mic note: ${err.error}. You can still type your transcript.`;
-    };
-
-    recog.onend = () => {
-      if (STATE.isRecording) {
-        try { recog.start(); } catch {}
+      speakAudioChunks = [];
+      speakMediaRecorder = new MediaRecorder(speakMediaStream, mimeType ? { mimeType } : undefined);
+      speakMediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) speakAudioChunks.push(e.data);
+      };
+      speakMediaRecorder.start(400);
+      startedAny = true;
+    } catch (micErr) {
+      if (!canUseWebSpeech) {
+        if (status) status.textContent = 'Microphone permission required. Check browser settings.';
+        return;
       }
-    };
+    }
+  }
 
-    recog.start();
-    STATE.speechRecognition = recog;
+  // 2. Real-time Browser Speech Recognition (when online & enabled by adaptive router)
+  if (canUseWebSpeech) {
+    try {
+      const recog = new SpeechRecognition();
+      recog.lang = 'en-IN'; // Indian English acoustic & phonetic recognition
+      recog.continuous = true;
+      recog.interimResults = true;
+
+      recog.onresult = e => {
+        let full = '';
+        for (let i = 0; i < e.results.length; i++) {
+          full += e.results[i][0].transcript + ' ';
+        }
+        if (preview) preview.value = full.trim();
+      };
+
+      recog.onerror = err => {
+        if (status) {
+          status.textContent = speakMediaRecorder
+            ? 'Live browser preview paused; capturing audio for Whisper transcription...'
+            : `Mic note: ${err.error}. You can still type your transcript.`;
+        }
+      };
+
+      recog.onend = () => {
+        if (STATE.isRecording) {
+          try { recog.start(); } catch {}
+        }
+      };
+
+      recog.start();
+      STATE.speechRecognition = recog;
+      startedAny = true;
+    } catch {}
+  }
+
+  if (startedAny) {
     STATE.isRecording = true;
     orb.classList.add('recording');
-    status.textContent = 'Listening... Speak clearly into your microphone!';
-  } catch (err) {
+    if (status) {
+      status.textContent = sttStrategy.activeEngine === 'whisper-offline'
+        ? 'Recording for Offline Whisper AI... Speak clearly, then tap orb to transcribe.'
+        : 'Listening... Speak clearly into your microphone!';
+    }
+  } else if (status) {
     status.textContent = 'Microphone permission required. Check browser settings.';
   }
 }
@@ -6247,42 +6420,58 @@ function checkSpeechLabWordsProgress(spokenFullText, source = 'local') {
   }
 }
 
+let speechLabActiveStrategy = null;
+let speechLabPendingSttPromise = null;
+
 async function sendAudioToElevenLabsSTT(audioBlob) {
-  if (!audioBlob || audioBlob.size < 2000) return;
+  if (!audioBlob || audioBlob.size < 400) return;
   if (speechLabRecordingActive && speechLabMediaStream && STATE.analyser && speechLabPeakAudioEnergy > 0 && speechLabPeakAudioEnergy < 8 && speechLabVoicedFrames === 0) {
     return;
   }
+  const badge = $('#speech-lab-stt-engine-badge');
   try {
-    const fd = new FormData();
-    const ext = (audioBlob.type && audioBlob.type.includes('mp4')) ? 'speech.mp4' : (audioBlob.type && audioBlob.type.includes('ogg') ? 'speech.ogg' : 'speech.webm');
-    fd.append('file', audioBlob, ext);
-
-    const headers = {};
-    if (STATE.adminKey) headers['Authorization'] = 'Bearer ' + STATE.adminKey;
-
-    const res = await fetch(getApiUrl('api/stt'), {
-      method: 'POST',
-      body: fd,
-      headers
-    });
-
-    if (res.ok) {
-      const data = await safeJsonResponse(res);
-      if (data && data.ok && hasMeaningfulSpeechText(data.text)) {
-        const cleanStt = stripSpeechNoiseTags(data.text);
-        const badge = $('#speech-lab-stt-engine-badge');
-        if (badge) {
-          badge.style.background = 'rgba(16, 185, 129, 0.15)';
-          badge.style.color = '#34d399';
-          badge.style.borderColor = 'rgba(52, 211, 153, 0.4)';
-          badge.innerHTML = '🎙️ ElevenLabs Scribe STT Active';
+    let data = null;
+    if (window.CareerFairSTT) {
+      data = await window.CareerFairSTT.transcribeAudioBlob(audioBlob, {
+        strategy: speechLabActiveStrategy || window.CareerFairSTT.resolveSttStrategy(),
+        onProgress: (prog) => {
+          if (prog && prog.status === 'progress' && typeof prog.progress === 'number' && badge) {
+            badge.style.display = 'inline-flex';
+            badge.textContent = `⏳ Loading Offline Whisper (${Math.round(prog.progress)}%)...`;
+          }
         }
-        checkSpeechLabWordsProgress(cleanStt, 'elevenlabs');
-        updateRealtimePaceAndFillers(STATE.speechLabTranscript || cleanStt);
+      });
+    } else {
+      const fd = new FormData();
+      const ext = (audioBlob.type && audioBlob.type.includes('mp4')) ? 'speech.mp4' : (audioBlob.type && audioBlob.type.includes('ogg') ? 'speech.ogg' : 'speech.webm');
+      fd.append('file', audioBlob, ext);
+
+      const headers = {};
+      if (STATE.adminKey) headers['Authorization'] = 'Bearer ' + STATE.adminKey;
+
+      const res = await fetch(getApiUrl('api/stt'), {
+        method: 'POST',
+        body: fd,
+        headers
+      });
+      if (res.ok) data = await safeJsonResponse(res);
+    }
+
+    if (data && data.ok && hasMeaningfulSpeechText(data.text)) {
+      const cleanStt = stripSpeechNoiseTags(data.text);
+      if (badge) {
+        badge.style.display = 'inline-flex';
+        badge.style.background = 'rgba(16, 185, 129, 0.15)';
+        badge.style.color = '#34d399';
+        badge.style.borderColor = 'rgba(52, 211, 153, 0.4)';
+        badge.textContent = `🎙️ ${data.provider || 'Adaptive STT Active'}`;
       }
+      const srcTag = String(data.provider || '').toLowerCase().includes('whisper') ? 'whisper' : 'elevenlabs';
+      checkSpeechLabWordsProgress(cleanStt, srcTag);
+      updateRealtimePaceAndFillers(STATE.speechLabTranscript || cleanStt);
     }
   } catch (err) {
-    console.warn('ElevenLabs STT dispatch error:', err);
+    console.warn('Adaptive STT dispatch error:', err);
   }
 }
 
@@ -6429,9 +6618,37 @@ async function startSpeechLabAudio() {
 
     renderSpeechLabWaveform();
 
-    // 1. ElevenLabs Scribe Continuous Segment STT Dispatcher
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    speechLabActiveStrategy = window.CareerFairSTT
+      ? window.CareerFairSTT.resolveSttStrategy()
+      : {
+          activeEngine: 'cloud-elevenlabs',
+          useAudioRecorder: true,
+          useAudioSegmentWhisper: true,
+          useRealtimeWebSpeech: Boolean(SpeechRecognition),
+          badgeLabel: '🎙️ Adaptive Speech Engine Ready'
+        };
+
+    const sttBadge = $('#speech-lab-stt-engine-badge');
+    if (sttBadge) {
+      sttBadge.style.display = 'inline-flex';
+      sttBadge.style.background = speechLabActiveStrategy.activeEngine === 'whisper-offline'
+        ? 'rgba(16, 185, 129, 0.15)'
+        : 'rgba(56, 189, 248, 0.12)';
+      sttBadge.style.color = speechLabActiveStrategy.activeEngine === 'whisper-offline' ? '#34d399' : 'var(--accent-cyan)';
+      sttBadge.style.borderColor = speechLabActiveStrategy.activeEngine === 'whisper-offline'
+        ? 'rgba(52, 211, 153, 0.4)'
+        : 'rgba(56, 189, 248, 0.35)';
+      sttBadge.textContent = speechLabActiveStrategy.badgeLabel;
+    }
+
+    // 1. Adaptive Continuous Segment STT Dispatcher (Cloud ElevenLabs / Edge Whisper / On-Device Offline Whisper)
     let mimeType = '';
-    if (window.MediaRecorder) {
+    const shouldRunSegmentStt = Boolean(
+      window.MediaRecorder &&
+      (speechLabActiveStrategy.useAudioRecorder || speechLabActiveStrategy.useAudioSegmentWhisper || !SpeechRecognition)
+    );
+    if (shouldRunSegmentStt) {
       if (typeof MediaRecorder.isTypeSupported === 'function') {
         if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mimeType = 'audio/webm;codecs=opus';
         else if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
@@ -6440,7 +6657,7 @@ async function startSpeechLabAudio() {
       }
 
       function recordNextSegment() {
-        if (!speechLabMediaStream || !speechLabMediaStream.active) return;
+        if (!speechLabRecordingActive || !speechLabMediaStream || !speechLabMediaStream.active) return;
         try {
           const segRec = new MediaRecorder(speechLabMediaStream, mimeType ? { mimeType } : undefined);
           activeSegmentRecorder = segRec;
@@ -6449,11 +6666,15 @@ async function startSpeechLabAudio() {
             if (e.data && e.data.size > 0) chunks.push(e.data);
           };
           segRec.onstop = async () => {
-            if (chunks.length > 0 && speechLabMediaStream && speechLabMediaStream.active) {
+            if (chunks.length > 0 && (speechLabRecordingActive || speechLabVoicedFrames > 0)) {
               const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
-              await sendAudioToElevenLabsSTT(blob);
+              const job = sendAudioToElevenLabsSTT(blob);
+              speechLabPendingSttPromise = job;
+              try { await job; } finally {
+                if (speechLabPendingSttPromise === job) speechLabPendingSttPromise = null;
+              }
             }
-            if (speechLabMediaStream && speechLabMediaStream.active) {
+            if (speechLabRecordingActive && speechLabMediaStream && speechLabMediaStream.active) {
               recordNextSegment();
             }
           };
@@ -6464,15 +6685,14 @@ async function startSpeechLabAudio() {
             }
           }, 2400);
         } catch (err) {
-          console.warn('ElevenLabs segment recorder error:', err);
+          console.warn('Adaptive STT segment recorder error:', err);
         }
       }
       recordNextSegment();
     }
 
-    // 2. Real-time Browser Speech Recognition (Instant phoneme word-passing feedback)
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
+    // 2. Real-time Browser Speech Recognition (Instant phoneme word-passing feedback when permitted by adaptive router)
+    if (SpeechRecognition && speechLabActiveStrategy.useRealtimeWebSpeech) {
       speechLabRec = new SpeechRecognition();
       speechLabRec.lang = 'en-IN'; // Indian English acoustic & phonetic recognition
       speechLabRec.continuous = true;
@@ -6483,6 +6703,9 @@ async function startSpeechLabAudio() {
         full = full.trim();
         checkSpeechLabWordsProgress(full, 'local');
         updateRealtimePaceAndFillers(STATE.speechLabTranscript || full);
+      };
+      speechLabRec.onerror = () => {
+        // Silent live failover to MediaRecorder Whisper segment pipeline
       };
       speechLabRec.start();
     }
@@ -6531,10 +6754,18 @@ function stopSpeechLabAudio(options = {}) {
   // Never analyze or show "No speech detected" toast when leaving tab or stopping while idle
   if (!wasRecording || options.silent) return;
 
-  // Trigger silent-safe evaluation only after an actual user recording stops
-  setTimeout(() => {
+  // Trigger silent-safe evaluation only after any pending final Whisper/STT segment completes (bounded <= 1.8s)
+  setTimeout(async () => {
+    if (speechLabPendingSttPromise) {
+      try {
+        await Promise.race([
+          speechLabPendingSttPromise,
+          new Promise(r => setTimeout(r, 1800))
+        ]);
+      } catch {}
+    }
     analyzeSpeechLabSample(null, { explicit: false, fromRecordingStop: true });
-  }, 140);
+  }, 160);
 }
 
 function renderSpeechLabWaveform() {
@@ -14423,6 +14654,18 @@ function initAdminWorkspace() {
         STATE.config.eleven_voice = adminCfg.eleven_voice;
         try { localStorage.setItem('cf_eleven_voice', adminCfg.eleven_voice); } catch {}
       }
+      if (adminCfg.stt_mode) {
+        STATE.config.stt_mode = adminCfg.stt_mode;
+        try { localStorage.setItem('cf_stt_mode', adminCfg.stt_mode); } catch {}
+      }
+      if (adminCfg.whisper_model) {
+        STATE.config.whisper_model = adminCfg.whisper_model;
+        try { localStorage.setItem('cf_whisper_model', adminCfg.whisper_model); } catch {}
+      }
+      if (adminCfg.has_workers_ai !== undefined) {
+        STATE.config.has_workers_ai = Boolean(adminCfg.has_workers_ai);
+      }
+      if (typeof window.syncAdminSttRouterControls === 'function') window.syncAdminSttRouterControls();
       if (typeof window.syncAdminGeminiKeyBoxes === 'function') window.syncAdminGeminiKeyBoxes();
       if (typeof window.syncAdminElevenKeyBoxes === 'function') window.syncAdminElevenKeyBoxes();
       if (typeof verifyAndLoadElevenVoices === 'function') verifyAndLoadElevenVoices(true);
@@ -14453,6 +14696,9 @@ function initAdminWorkspace() {
       if (view === 'ai') {
         if (typeof window.initDynamicApiPools === 'function') {
           window.initDynamicApiPools();
+        }
+        if (typeof window.syncAdminSttRouterControls === 'function') {
+          window.syncAdminSttRouterControls();
         }
       }
       if (window.AppRouter) {
@@ -14696,6 +14942,80 @@ function initAdminWorkspace() {
     showToast('⚡ Auto-selected George (Studio Free-Tier Voice)!');
   });
 
+  // Wire Speech-to-Text (STT) & Offline Whisper Adaptive Router Controls
+  window.syncAdminSttRouterControls = function syncAdminSttRouterControls() {
+    const sttSel = $('#admin-stt-engine');
+    const modelSel = $('#admin-whisper-model');
+    const savedMode = (STATE.config.stt_mode || localStorage.getItem('cf_stt_mode') || 'auto').trim();
+    const savedModel = (STATE.config.whisper_model || localStorage.getItem('cf_whisper_model') || 'Xenova/whisper-tiny.en').trim();
+    if (sttSel && Array.from(sttSel.options).some(o => o.value === savedMode)) {
+      sttSel.value = savedMode;
+    }
+    if (modelSel && Array.from(modelSel.options).some(o => o.value === savedModel)) {
+      modelSel.value = savedModel;
+    }
+    if (window.CareerFairSTT) {
+      window.CareerFairSTT.inspectWhisperCache(savedModel)
+        .then(() => window.CareerFairSTT.updateAdminSttRuntimeUi())
+        .catch(() => window.CareerFairSTT.updateAdminSttRuntimeUi());
+    }
+  };
+
+  $('#admin-stt-engine')?.addEventListener('change', async function () {
+    const mode = this.value || 'auto';
+    STATE.config.stt_mode = mode;
+    try { localStorage.setItem('cf_stt_mode', mode); } catch {}
+    if (window.CareerFairSTT) window.CareerFairSTT.updateAdminSttRuntimeUi();
+    if (getActiveAdminToken()) {
+      await fetchApi('admin/config', 'PUT', { stt_mode: mode }).catch(() => {});
+    }
+    const labelText = this.options[this.selectedIndex]?.textContent || mode;
+    showToast(`STT Engine switched to: ${labelText}`);
+  });
+
+  $('#admin-whisper-model')?.addEventListener('change', async function () {
+    const wm = this.value || 'Xenova/whisper-tiny.en';
+    STATE.config.whisper_model = wm;
+    try { localStorage.setItem('cf_whisper_model', wm); } catch {}
+    if (window.CareerFairSTT) {
+      await window.CareerFairSTT.inspectWhisperCache(wm).catch(() => {});
+      window.CareerFairSTT.updateAdminSttRuntimeUi();
+    }
+    if (getActiveAdminToken()) {
+      await fetchApi('admin/config', 'PUT', { whisper_model: wm }).catch(() => {});
+    }
+  });
+
+  $('#btn-preload-whisper')?.addEventListener('click', async function () {
+    if (!window.CareerFairSTT) {
+      showToast('Offline Whisper module not loaded.');
+      return;
+    }
+    const modelId = $('#admin-whisper-model')?.value || STATE.config.whisper_model || 'Xenova/whisper-tiny.en';
+    const statusEl = $('#admin-stt-runtime-status');
+    const prevText = this.textContent;
+    this.disabled = true;
+    this.textContent = '⏳ Caching Whisper...';
+    try {
+      const res = await window.CareerFairSTT.preloadWhisperModel(modelId, (prog) => {
+        if (prog && prog.status === 'progress' && typeof prog.progress === 'number' && statusEl) {
+          statusEl.innerHTML = `<strong>Caching Offline Whisper (${modelId}):</strong> ${Math.round(prog.progress)}% downloaded...`;
+        }
+      });
+      if (res && res.ok) {
+        showToast(`Offline Whisper ready on ${String(res.device || 'WASM').toUpperCase()}!`);
+      } else {
+        showToast(res?.error || 'Could not cache Whisper model on this device.');
+      }
+    } finally {
+      this.disabled = false;
+      this.textContent = prevText;
+      window.CareerFairSTT.updateAdminSttRuntimeUi();
+    }
+  });
+
+  window.syncAdminSttRouterControls();
+
   // Save AI Credentials & Backup Keys Pool
   $('#btn-save-ai')?.addEventListener('click', async () => {
     // 1. Gather Gemini keys from dynamic pool inputs, fallback to storage / config
@@ -14733,6 +15053,16 @@ function initAdminWorkspace() {
     }
     localStorage.setItem('cf_eleven_voice', elevenVoice);
     STATE.config.eleven_voice = elevenVoice;
+
+    const sttMode = ($('#admin-stt-engine')?.value || localStorage.getItem('cf_stt_mode') || STATE.config.stt_mode || 'auto').trim();
+    const whisperModel = ($('#admin-whisper-model')?.value || localStorage.getItem('cf_whisper_model') || STATE.config.whisper_model || 'Xenova/whisper-tiny.en').trim();
+    try {
+      localStorage.setItem('cf_stt_mode', sttMode);
+      localStorage.setItem('cf_whisper_model', whisperModel);
+    } catch {}
+    STATE.config.stt_mode = sttMode;
+    STATE.config.whisper_model = whisperModel;
+    if (window.CareerFairSTT) window.CareerFairSTT.updateAdminSttRuntimeUi();
     
     // Persist Gemini keys
     if (geminiKeys) {
@@ -14776,7 +15106,9 @@ function initAdminWorkspace() {
       gemini_key: geminiKey,
       eleven_keys: elevenKeys,
       eleven_key: elevenKey,
-      eleven_voice: elevenVoice
+      eleven_voice: elevenVoice,
+      stt_mode: sttMode,
+      whisper_model: whisperModel
     });
 
     // Ensure DOM input boxes visually reflect compacted keys pool immediately!
@@ -15472,8 +15804,15 @@ if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     stopAllVoice();
-    if (STATE.isRecording && STATE.speechRecognition) {
-      try { STATE.speechRecognition.stop(); } catch (_) {}
+    if (STATE.isRecording) {
+      STATE.isRecording = false;
+      $('#speak-record-orb')?.classList.remove('recording');
+      if (STATE.speechRecognition) {
+        try { STATE.speechRecognition.stop(); } catch (_) {}
+      }
+      if (typeof stopSpeakMediaCapture === 'function') {
+        stopSpeakMediaCapture().catch(() => {});
+      }
     }
     const heroIframe = $('#hero-youtube-iframe');
     if (heroIframe && heroIframe.contentWindow) {
@@ -15610,6 +15949,29 @@ document.addEventListener('DOMContentLoaded', async () => {
       localStorage.setItem('cf_eleven_voice', cfg.eleven_voice);
     } else if (localElevenVoice) {
       STATE.config.eleven_voice = localElevenVoice;
+    }
+
+    const localSttMode = (localStorage.getItem('cf_stt_mode') || STATE.config.stt_mode || 'auto').trim();
+    const localWhisperModel = (localStorage.getItem('cf_whisper_model') || STATE.config.whisper_model || 'Xenova/whisper-tiny.en').trim();
+    if (cfg.stt_mode) {
+      STATE.config.stt_mode = cfg.stt_mode;
+      try { localStorage.setItem('cf_stt_mode', cfg.stt_mode); } catch {}
+    } else {
+      STATE.config.stt_mode = localSttMode;
+    }
+    if (cfg.whisper_model) {
+      STATE.config.whisper_model = cfg.whisper_model;
+      try { localStorage.setItem('cf_whisper_model', cfg.whisper_model); } catch {}
+    } else {
+      STATE.config.whisper_model = localWhisperModel;
+    }
+    if (cfg.has_workers_ai !== undefined) {
+      STATE.config.has_workers_ai = Boolean(cfg.has_workers_ai);
+    }
+    if (typeof window.syncAdminSttRouterControls === 'function') {
+      window.syncAdminSttRouterControls();
+    } else if (window.CareerFairSTT) {
+      window.CareerFairSTT.updateAdminSttRuntimeUi();
     }
 
     if (cfg.banner) $('#broadcast-text').textContent = cfg.banner;

@@ -2218,6 +2218,9 @@ export async function onRequest(ctx) {
     const has_gemini_key = Boolean(env.GEMINI_API_KEY || env.GEMINI_API_KEYS || (await kvGet(db, 'gemini_keys', '')) || (await kvGet(db, 'gemini_key', '')));
     const eleven_voice = (await kvGet(db, 'eleven_voice', '')) || env.ELEVEN_VOICE_ID || '';
     const has_eleven_key = Boolean(env.ELEVEN_KEY || (await kvGet(db, 'eleven_key', '')) || (await kvGet(db, 'eleven_keys', '')));
+    const stt_mode = (await kvGet(db, 'stt_mode', '')) || 'auto';
+    const whisper_model = (await kvGet(db, 'whisper_model', '')) || 'Xenova/whisper-tiny.en';
+    const has_workers_ai = Boolean(env.AI && typeof env.AI.run === 'function');
 
     let totalScores = 0;
     let totalFeedback = 0;
@@ -2259,6 +2262,9 @@ export async function onRequest(ctx) {
       has_gemini_key,
       eleven_voice,
       has_eleven_key,
+      stt_mode,
+      whisper_model,
+      has_workers_ai,
       db_connected: Boolean(db),
       db_status: db ? 'connected' : 'unbound',
       total_scores: db ? totalScores : (GLOBAL_CACHE.scores?.length || 0),
@@ -2321,6 +2327,9 @@ export async function onRequest(ctx) {
     const gemini_keys = (await kvGet(db, 'gemini_keys', '')) || (await kvGet(db, 'gemini_key', '')) || env.GEMINI_API_KEYS || env.GEMINI_API_KEY || '';
     const eleven_keys = (await kvGet(db, 'eleven_keys', '')) || (await kvGet(db, 'eleven_key', '')) || env.ELEVEN_KEY || env.ELEVEN_API_KEY || '';
     const eleven_voice = (await kvGet(db, 'eleven_voice', '')) || env.ELEVEN_VOICE_ID || '';
+    const stt_mode = (await kvGet(db, 'stt_mode', '')) || 'auto';
+    const whisper_model = (await kvGet(db, 'whisper_model', '')) || 'Xenova/whisper-tiny.en';
+    const has_workers_ai = Boolean(env.AI && typeof env.AI.run === 'function');
 
     let totalScores = 0;
     let totalFeedback = 0;
@@ -2338,6 +2347,9 @@ export async function onRequest(ctx) {
       gemini_keys,
       eleven_keys,
       eleven_voice,
+      stt_mode,
+      whisper_model,
+      has_workers_ai,
       db_connected: Boolean(db),
       db_status: db ? 'connected' : 'unbound',
       total_scores: db ? totalScores : (GLOBAL_CACHE.scores?.length || 0),
@@ -2381,6 +2393,19 @@ export async function onRequest(ctx) {
     if (body.eleven_keys !== undefined) await kvSet(db, 'eleven_keys', String(body.eleven_keys));
     if (body.eleven_key !== undefined) await kvSet(db, 'eleven_key', String(body.eleven_key));
     if (body.eleven_voice !== undefined) await kvSet(db, 'eleven_voice', String(body.eleven_voice));
+    if (body.stt_mode !== undefined) {
+      const allowedStt = ['auto', 'whisper-offline', 'cloud-elevenlabs', 'browser-native'];
+      const cleanStt = allowedStt.includes(String(body.stt_mode).trim()) ? String(body.stt_mode).trim() : 'auto';
+      await kvSet(db, 'stt_mode', cleanStt);
+      GLOBAL_CACHE.kv.stt_mode = cleanStt;
+    }
+    if (body.whisper_model !== undefined) {
+      const allowedModels = ['Xenova/whisper-tiny.en', 'Xenova/whisper-base.en'];
+      const rawWm = String(body.whisper_model || '').trim();
+      const cleanWm = allowedModels.includes(rawWm) ? rawWm : 'Xenova/whisper-tiny.en';
+      await kvSet(db, 'whisper_model', cleanWm);
+      GLOBAL_CACHE.kv.whisper_model = cleanWm;
+    }
 
     for (const p of ['Everyday', 'Journalism', 'Law', 'Academic']) {
       if (body[`pack_${p}`] !== undefined) {
@@ -2672,7 +2697,10 @@ export async function onRequest(ctx) {
       return err('No audio file provided');
     }
 
-    if (elevenKey) {
+    const sttPreference = String(formData.get('mode') || '').trim();
+    let lastError = 'ElevenLabs API key not configured';
+
+    if (elevenKey && sttPreference !== 'edge-whisper') {
       try {
         const sttForm = new FormData();
         sttForm.append('file', audioFile, 'speech.webm');
@@ -2697,14 +2725,39 @@ export async function onRequest(ctx) {
           });
         } else {
           const errText = await sttRes.text().catch(() => '');
-          return json({ ok: false, error: `ElevenLabs STT error: ${errText.slice(0, 100)}` });
+          lastError = `ElevenLabs STT error: ${errText.slice(0, 100)}`;
         }
       } catch (e) {
-        return json({ ok: false, error: e.message });
+        lastError = e.message;
       }
     }
 
-    return json({ ok: false, error: 'ElevenLabs API key not configured' });
+    // Failover: Cloudflare Workers AI Whisper on Edge when ElevenLabs is unavailable or unconfigured
+    if (env.AI && typeof env.AI.run === 'function') {
+      try {
+        const audioBytes = [...new Uint8Array(await audioFile.arrayBuffer())];
+        if (audioBytes.length > 0) {
+          let aiOut = null;
+          try {
+            aiOut = await env.AI.run('@cf/openai/whisper-tiny-en', { audio: audioBytes });
+          } catch {
+            aiOut = await env.AI.run('@cf/openai/whisper', { audio: audioBytes });
+          }
+          const cleanedSttText = stripSpeechNoiseTags(aiOut?.text || '');
+          const hasValidWords = norm(cleanedSttText).length > 0;
+          return json({
+            ok: true,
+            text: hasValidWords ? cleanedSttText : '',
+            words: Array.isArray(aiOut?.words) && hasValidWords ? aiOut.words : [],
+            provider: 'Cloudflare Whisper AI (Edge)'
+          });
+        }
+      } catch (aiErr) {
+        lastError = `${lastError}; Edge Whisper: ${aiErr.message}`;
+      }
+    }
+
+    return json({ ok: false, error: lastError });
   }
 
   // ── 5. GET /random-sentence ────────────────────────────────────────────────

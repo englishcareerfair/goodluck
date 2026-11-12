@@ -1,17 +1,18 @@
 // Career Fair 2026 - Service Worker
-const CACHE_NAME = 'cf-cache-v27.2-fast';
+const CACHE_NAME = 'cf-cache-v27.3-fast';
 
 // Lean app-shell pre-cache (audio MP3s stream/cache on demand so install is fast)
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/styles.css?v=27.2',
+  '/styles.css?v=27.3',
   '/loader.js?v=26.5',
-  '/app.js?v=27.2',
+  '/offline-stt.js?v=27.3',
+  '/app.js?v=27.3',
   '/dopamine-engine.js?v=26.5',
   '/game-completion-detector.js?v=26.5',
   '/dossier-pdf.js?v=26.5',
-  '/guide-avatar.js?v=26.5',
+  '/guide-avatar.js?v=27.3',
   '/qrcode.min.js',
   '/logo.png',
   '/icon-192.png',
@@ -29,11 +30,13 @@ self.addEventListener('install', (event) => {
   );
 });
 
+const PRESERVED_CACHES = new Set([CACHE_NAME, 'transformers-cache', 'cf-whisper-cdn-v1']);
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+        keys.filter((key) => !PRESERVED_CACHES.has(key)).map((key) => caches.delete(key))
       );
     }).then(() => self.clients.claim())
   );
@@ -49,7 +52,23 @@ self.addEventListener('fetch', (event) => {
 
   const isSameOrigin = (url.origin === location.origin);
 
-  // Let browser handle cross-origin CDN scripts, fonts, dictionaries, and embeds directly (preserves SRI/CORS)
+  // Cache-first persistence for @huggingface/transformers & ONNX WASM offline Whisper runtime
+  if (!isSameOrigin && url.hostname === 'cdn.jsdelivr.net' && url.pathname.includes('@huggingface/transformers')) {
+    event.respondWith(
+      caches.open('cf-whisper-cdn-v1').then(async (cache) => {
+        const hit = await cache.match(event.request);
+        if (hit) return hit;
+        const netRes = await fetch(event.request);
+        if (netRes && netRes.ok) {
+          cache.put(event.request, netRes.clone()).catch(() => {});
+        }
+        return netRes;
+      })
+    );
+    return;
+  }
+
+  // Let browser handle other cross-origin CDN scripts, fonts, dictionaries, and embeds directly (preserves SRI/CORS)
   if (!isSameOrigin) {
     return;
   }
