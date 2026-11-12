@@ -503,38 +503,43 @@
     drawCleanBackground(ctx, CW, CH, C);
 
     // 1. Sleek Brand Header with Kanakia International School Logo & Top Portal QR Code
-    const brandTextX = schoolLogoImg ? 162 : 80;
+    const brandTextX = schoolLogoImg ? 172 : 80;
     if (schoolLogoImg) {
       ctx.save();
       // Draw pristine crisp school crest
-      ctx.drawImage(schoolLogoImg, 80, 24, 68, 68);
+      ctx.drawImage(schoolLogoImg, 80, 16, 76, 76);
       ctx.restore();
     }
 
     ctx.font = '800 13px "Space Grotesk", sans-serif';
     ctx.fillStyle = C.textHighlight;
-    ctx.fillText('KANAKIA INTERNATIONAL SCHOOL MIRA ROAD', brandTextX, 48);
+    ctx.fillText('KANAKIA INTERNATIONAL SCHOOL MIRA ROAD', brandTextX, 38);
 
     ctx.font = '800 23px "Plus Jakarta Sans", sans-serif';
     ctx.fillStyle = C.textMain;
-    ctx.fillText('CAREER FAIR 2026 · STUDENT CAREER INTELLIGENCE BOOKLET', brandTextX, 78);
+    ctx.fillText('CAREER FAIR 2026 · STUDENT CAREER INTELLIGENCE BOOKLET', brandTextX, 68);
 
-    // Camera-Scannable Live Portal QR Code Card on Top Right (careerwithenglish.pages.dev)
-    const topQrSize = 72;
+    ctx.font = '600 12px "Space Grotesk", sans-serif';
+    ctx.fillStyle = C.textDim;
+    ctx.fillText('Official Exhibition Performance Credential · Class of 2040 Gateway', brandTextX, 90);
+
+    // Large Camera-Scannable Live Portal QR Code Card on Top Right (careerwithenglish.pages.dev)
+    // Enlarged to 134x134px with crisp high-contrast modules so phone cameras scan instantly without zooming!
+    const topQrSize = 134;
     const topQrX = CW - 80 - topQrSize;
-    const topQrY = 16;
+    const topQrY = 14;
     ctx.save();
     ctx.fillStyle = '#ffffff';
     ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-    ctx.shadowBlur = 10;
-    ctx.shadowOffsetY = 3;
-    drawRoundRect(ctx, topQrX, topQrY, topQrSize, topQrSize, 10, true, false);
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 4;
+    drawRoundRect(ctx, topQrX, topQrY, topQrSize, topQrSize, 12, true, false);
     ctx.restore();
 
     // Render Portal QR Code
     const topPortalUrl = 'https://careerwithenglish.pages.dev';
     const topQrMat = getDynamicQrMatrix(topPortalUrl);
-    const topQrPad = 6;
+    const topQrPad = 8;
     const topQrDrawSize = topQrSize - (topQrPad * 2);
     const topQrModCount = topQrMat.length;
     const topQrModSize = topQrDrawSize / topQrModCount;
@@ -557,33 +562,35 @@
 
     // Portal link & Scan label below QR
     ctx.save();
-    ctx.font = '800 8.5px "JetBrains Mono", monospace';
+    ctx.font = '800 9px "JetBrains Mono", monospace';
     ctx.fillStyle = C.textHighlight;
     ctx.textAlign = 'center';
-    ctx.fillText('SCAN PORTAL', topQrX + topQrSize / 2, topQrY + topQrSize + 11);
+    ctx.fillText('SCAN PORTAL', topQrX + topQrSize / 2, topQrY + topQrSize + 13);
     ctx.restore();
 
-    const topMetaX = topQrX - 16;
+    const topMetaX = topQrX - 18;
     ctx.textAlign = 'right';
     ctx.font = '700 11.5px "JetBrains Mono", monospace';
     ctx.fillStyle = C.textDim;
-    ctx.fillText(`REPORT DATE: ${dateStr.toUpperCase()}  |  DOC ID: ${docId}`, topMetaX, 42);
+    ctx.fillText(`REPORT DATE: ${dateStr.toUpperCase()}  |  DOC ID: ${docId}`, topMetaX, 38);
     ctx.fillStyle = C.textHighlight;
-    ctx.fillText('PORTAL: careerwithenglish.pages.dev ↗', topMetaX, 62);
+    ctx.fillText('PORTAL: careerwithenglish.pages.dev ↗', topMetaX, 58);
     ctx.fillStyle = C.textDim;
-    ctx.fillText(`MODE: ${isDark ? 'DARK EXECUTIVE' : 'LIGHT CORPORATE'}`, topMetaX, 82);
+    ctx.fillText(`MODE: ${isDark ? 'DARK EXECUTIVE' : 'LIGHT CORPORATE'}`, topMetaX, 78);
+    ctx.fillStyle = C.greenPillText;
+    ctx.fillText('AUTHENTICATED CREDENTIAL · CLASS OF 2040', topMetaX, 98);
     ctx.textAlign = 'left';
 
     // Hairline divider
     ctx.strokeStyle = C.cardBorder;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(80, 104);
-    ctx.lineTo(CW - 80, 104);
+    ctx.moveTo(80, 168);
+    ctx.lineTo(CW - 80, 168);
     ctx.stroke();
 
     // 2. Student Metadata Profile Card
-    const metaY = 118;
+    const metaY = 184;
     const metaW = CW - 160;
     const metaH = 96;
     drawCard(ctx, 80, metaY, metaW, metaH, 16, C);
@@ -964,7 +971,7 @@
     ctx.restore();
 
     // Student Name matching .biz-card-name (auto-fit away from QR box)
-    const bcTextMaxW = (bcCardX + bcCardW - 32 - 140 - 24) - bcLeftX;
+    const bcTextMaxW = (bcCardX + bcCardW - 28 - 154 - 20) - bcLeftX;
     const fittedBcName = fitTextToWidth(ctx, bcStudentName.toUpperCase(), bcTextMaxW, '800', 32, 16, '"Plus Jakarta Sans", sans-serif');
     ctx.fillStyle = '#ffffff';
     ctx.fillText(fittedBcName, bcLeftX, bcCardY + 98);
@@ -1009,10 +1016,11 @@
     ctx.fillStyle = '#94a3b8';
     ctx.fillText('🏛️  Kanakia International School Mira Road', bcLeftX, divLineY + 74);
 
-    // Right Column: White Rounded Card with Camera-Scannable Live QR Code
-    const qrBoxW = 140;
-    const qrBoxH = 140;
-    const qrBoxX = bcCardX + bcCardW - qrBoxW - 32;
+    // Right Column: White Rounded Card with Large Camera-Scannable Live QR Code
+    // Enlarged to 154x154px with high contrast for instant phone camera scanning without zoom!
+    const qrBoxW = 154;
+    const qrBoxH = 154;
+    const qrBoxX = bcCardX + bcCardW - qrBoxW - 28;
     const qrBoxY = bcCardY + 28;
 
     // Pure White Card with shadow
@@ -1029,8 +1037,8 @@
     const verifyUrl = bcVerifyUrl || `${targetOrigin}/?verify=2040&id=${encodeURIComponent(docId)}&student=${encodeURIComponent(bcStudentName)}&title=${encodeURIComponent(bcCareerTitle)}&class=${encodeURIComponent(className)}`;
     const qrMatrix = getDynamicQrMatrix(verifyUrl);
 
-    // Render Crisp QR Code inside white card
-    const qrPadding = 12;
+    // Render Crisp High-Contrast QR Code inside white card
+    const qrPadding = 8;
     const qrDrawSize = qrBoxW - (qrPadding * 2);
     const modCount = qrMatrix.length;
     const modSize = qrDrawSize / modCount;
@@ -1051,223 +1059,7 @@
     }
     ctx.restore();
 
-    // 10. WEBSITE PLATFORM CAPABILITIES & FEATURES (Continuing design theme & eliminating blank void)
-    const featSectionY = bcCardY + bcCardH + 18;
-
-    // Header Row with Pill Badges
-    ctx.save();
-    ctx.fillStyle = isDark ? 'rgba(0, 240, 255, 0.12)' : 'rgba(14, 165, 233, 0.1)';
-    ctx.strokeStyle = isDark ? 'rgba(0, 240, 255, 0.4)' : 'rgba(14, 165, 233, 0.35)';
-    ctx.lineWidth = 1;
-    drawRoundRect(ctx, 80, featSectionY, 210, 24, 12, true, true);
-    ctx.font = '800 10.5px "JetBrains Mono", monospace';
-    ctx.fillStyle = isDark ? '#00f0ff' : '#0284c7';
-    ctx.textAlign = 'center';
-    ctx.fillText('🌐 PLATFORM SUITE', 185, featSectionY + 16);
-    ctx.restore();
-
-    ctx.save();
-    ctx.fillStyle = isDark ? 'rgba(255, 42, 133, 0.12)' : 'rgba(225, 29, 72, 0.08)';
-    ctx.strokeStyle = isDark ? 'rgba(255, 42, 133, 0.4)' : 'rgba(225, 29, 72, 0.3)';
-    ctx.lineWidth = 1;
-    drawRoundRect(ctx, CW - 80 - 290, featSectionY, 290, 24, 12, true, true);
-    ctx.font = '800 10.5px "JetBrains Mono", monospace';
-    ctx.fillStyle = isDark ? '#ff2a85' : '#e11d48';
-    ctx.textAlign = 'center';
-    ctx.fillText('⚡ 8 INTERACTIVE LEARNING SUITES', CW - 80 - 145, featSectionY + 16);
-    ctx.restore();
-
-    ctx.font = '800 20px "Plus Jakarta Sans", sans-serif';
-    ctx.fillStyle = C.textMain;
-    ctx.fillText('Career Intelligence & Spoken English Ecosystem · careerwithenglish.pages.dev', 80, featSectionY + 48);
-
-    ctx.font = '600 12.5px "Space Grotesk", sans-serif';
-    ctx.fillStyle = C.textDim;
-    ctx.fillText('Access 24/7 on smartphone, tablet, or desktop to accelerate your career articulation and competitive academic readiness:', 80, featSectionY + 68);
-
-    // 8 Feature Cards (2 Rows x 4 Columns)
-    const featGridY = featSectionY + 80;
-    const featColW = (heroW - (3 * 16)) / 4; // (1440 - 48) / 4 = 348px
-    const featCardH = 152;
-    const featRowGap = 12;
-
-    const platformFeatures = [
-      {
-        icon: '🎯',
-        title: '32+ Global Careers',
-        tag: 'PATHWAYS',
-        tagColor: '#00f0ff',
-        desc: 'Operational industry profiles for Aviation, AI, Law, Medicine, Media, Finance & 26+ more, mapping spoken fluency to career success.',
-        foot: '✨ 32+ Careers Mapped'
-      },
-      {
-        icon: '🏛️',
-        title: '25+ Top Universities',
-        tag: 'NIRF / NAAC A++',
-        tagColor: '#38bdf8',
-        desc: 'Verified institutional profiles with cutoffs, entrance exam requirements (CUET, CLAT, JEE, NEET), course fees, and rankings.',
-        foot: '🎓 Higher Ed Gateway'
-      },
-      {
-        icon: '🗣️',
-        title: 'Pronunciation Studio',
-        tag: 'PHONETICS',
-        tagColor: '#a78bfa',
-        desc: 'High-precision acoustic analysis across Everyday, Journalism, Legal, and Academic word packs with instant phoneme waveform grading.',
-        foot: '🎧 4 Specialized Vocab Packs'
-      },
-      {
-        icon: '🎙️',
-        title: '6D AI Speech Coach',
-        tag: 'NEURAL AI',
-        tagColor: '#34d399',
-        desc: 'Real-time multi-dimensional diagnostic evaluation measuring Pronunciation, Grammar, Fluency, Vocabulary, Pacing, and Coherence.',
-        foot: '⚡ 6 Speech Dimensions'
-      },
-      {
-        icon: '📺',
-        title: 'News Teleprompter',
-        tag: 'BROADCAST',
-        tagColor: '#fbbf24',
-        desc: 'Live newsroom teleprompter studio with 40-200 WPM speed control, studio audio playback, and broadcast cadence training.',
-        foot: '📰 Live Anchor Drills'
-      },
-      {
-        icon: '🗺️',
-        title: '"My Plan" Roadmap',
-        tag: 'BLUEPRINTS',
-        tagColor: '#f472b6',
-        desc: 'Personalized multi-year academic progression, entrance exam timelines, daily time-boxed habits, and downloadable HD roadmap graphics.',
-        foot: '📍 Chronological Milestones'
-      },
-      {
-        icon: '🎮',
-        title: '8 Fluency Quests',
-        tag: 'ARCADE',
-        tagColor: '#fb923c',
-        desc: 'Gamified English fluency arcade featuring Wordle, Phonics challenges, Career Speed Quests, and live school leaderboard competition.',
-        foot: '🏆 Dopamine Streak Rewards'
-      },
-      {
-        icon: '🪪',
-        title: 'Verified Executive ID',
-        tag: 'PORTFOLIO',
-        tagColor: '#2dd4bf',
-        desc: 'Cryptographically verified student credential with camera-scannable QR verification code and printable exhibition booklet.',
-        foot: '🔐 Tamper-Proof QR ID'
-      }
-    ];
-
-    platformFeatures.forEach((feat, fIdx) => {
-      const col = fIdx % 4;
-      const row = Math.floor(fIdx / 4);
-      const fx = 80 + col * (featColW + 16);
-      const fy = featGridY + row * (featCardH + featRowGap);
-
-      // Card Background
-      drawCard(ctx, fx, fy, featColW, featCardH, 12, C, { shadow: false, bg: C.subSurface, border: C.innerBorder });
-
-      // Top Row of Card: Icon + Title + Tag
-      ctx.save();
-      ctx.font = '700 13.5px "Plus Jakarta Sans", sans-serif';
-      ctx.fillStyle = C.textMain;
-      ctx.textAlign = 'left';
-      ctx.fillText(`${feat.icon} ${feat.title}`, fx + 14, fy + 26);
-
-      // Tag Pill
-      const tagW = ctx.measureText(feat.tag).width + 14;
-      const tagX = fx + featColW - tagW - 14;
-      ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)';
-      ctx.strokeStyle = feat.tagColor;
-      ctx.lineWidth = 0.8;
-      drawRoundRect(ctx, tagX, fy + 12, tagW, 18, 9, true, true);
-      ctx.font = '800 8.5px "JetBrains Mono", monospace';
-      ctx.fillStyle = feat.tagColor;
-      ctx.textAlign = 'center';
-      ctx.fillText(feat.tag, tagX + tagW / 2, fy + 24.5);
-      ctx.restore();
-
-      // Description text (wrapped)
-      ctx.save();
-      ctx.font = '500 11.5px "Plus Jakarta Sans", sans-serif';
-      ctx.fillStyle = C.textDim;
-      wrapText(ctx, feat.desc, fx + 14, fy + 52, featColW - 28, 16.5, 3);
-      ctx.restore();
-
-      // Footer highlight text
-      ctx.save();
-      ctx.font = '700 10.5px "Space Grotesk", sans-serif';
-      ctx.fillStyle = feat.tagColor;
-      ctx.fillText(feat.foot, fx + 14, fy + featCardH - 12);
-      ctx.restore();
-    });
-
-    // Bottom Platform Callout Banner
-    const featBannerY = featGridY + (2 * featCardH) + featRowGap + 12;
-    const featBannerH = 88;
-    drawCard(ctx, 80, featBannerY, heroW, featBannerH, 14, C, { shadow: false, bg: C.cardBg, border: C.cardBorder });
-
-    // Inner glowing outline
-    ctx.save();
-    const bannerBorderGrad = ctx.createLinearGradient(80, featBannerY, CW - 80, featBannerY);
-    bannerBorderGrad.addColorStop(0, '#00f0ff');
-    bannerBorderGrad.addColorStop(0.5, '#a855f7');
-    bannerBorderGrad.addColorStop(1, '#ff2a85');
-    ctx.strokeStyle = bannerBorderGrad;
-    ctx.lineWidth = 1.5;
-    drawRoundRect(ctx, 80, featBannerY, heroW, featBannerH, 14, false, true);
-    ctx.restore();
-
-    // Banner Left Text
-    ctx.font = '800 28px sans-serif';
-    ctx.fillText('🚀', 106, featBannerY + 54);
-
-    ctx.font = '800 15px "Plus Jakarta Sans", sans-serif';
-    ctx.fillStyle = C.textHighlight;
-    ctx.fillText('Start Practicing Today · 100% Free for Kanakia International School Students', 152, featBannerY + 36);
-
-    ctx.font = '500 12.5px "Plus Jakarta Sans", sans-serif';
-    ctx.fillStyle = C.textDim;
-    ctx.fillText('Open careerwithenglish.pages.dev on any mobile browser, tablet, or laptop. No download required — works both online and offline.', 152, featBannerY + 62);
-
-    // Banner Right Pill
-    const bannerPillW = 320;
-    const bannerPillH = 54;
-    const bannerPillX = CW - 80 - bannerPillW - 20;
-    const bannerPillY = featBannerY + 17;
-    ctx.save();
-    ctx.fillStyle = isDark ? 'rgba(0, 240, 255, 0.12)' : 'rgba(14, 165, 233, 0.1)';
-    ctx.strokeStyle = isDark ? '#00f0ff' : '#0284c7';
-    ctx.lineWidth = 1.2;
-    drawRoundRect(ctx, bannerPillX, bannerPillY, bannerPillW, bannerPillH, 12, true, true);
-
-    ctx.font = '700 10.5px "JetBrains Mono", monospace';
-    ctx.fillStyle = C.textDim;
-    ctx.textAlign = 'center';
-    ctx.fillText('SCAN TOP QR OR VISIT PORTAL', bannerPillX + bannerPillW / 2, bannerPillY + 20);
-
-    ctx.font = '800 14px "Space Grotesk", sans-serif';
-    ctx.fillStyle = isDark ? '#00f0ff' : '#0284c7';
-    ctx.fillText('careerwithenglish.pages.dev ↗', bannerPillX + bannerPillW / 2, bannerPillY + 41);
-    ctx.restore();
-
-    // 11. Footer Notice
-    ctx.strokeStyle = C.innerBorder;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(80, CH - 50);
-    ctx.lineTo(CW - 80, CH - 50);
-    ctx.stroke();
-
-    ctx.font = '600 12px "Space Grotesk", sans-serif';
-    ctx.fillStyle = C.textDim;
-    ctx.textAlign = 'left';
-    ctx.fillText('Official Student Career Intelligence Booklet · Career Fair 2026 · Kanakia International School', 80, CH - 26);
-    ctx.textAlign = 'right';
-    ctx.fillText('Page 1 of 1 · Executive Printable Career Booklet', CW - 80, CH - 26);
-    ctx.textAlign = 'left';
-
-    // Add Single Master Page to PDF
+    // Add Single Master Page to PDF (Detachable Student Ambassador Business Card is at the very last with zero text below it)
     const imgDataP1 = canvas.toDataURL('image/jpeg', 0.94);
     doc.addImage(imgDataP1, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
 
