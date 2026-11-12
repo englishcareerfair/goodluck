@@ -212,13 +212,20 @@ function levenshtein(a, b) {
 }
 
 /** Normalize text for phonetic/spelling comparison */
-const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+function stripSpeechNoiseTags(raw) {
+  return String(raw || '')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const norm = s => stripSpeechNoiseTags(s).toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
 
 /** Accuracy percentage calculation (1 - WER / Levenshtein distance ratio) */
 function calculateAccuracy(ref, hyp) {
   const rw = norm(ref);
   const hw = norm(hyp);
-  if (!rw && !hw) return 100;
   if (!rw || !hw) return 0;
   const dist = levenshtein(rw, hw);
   const maxLen = Math.max(rw.length, hw.length);
@@ -2538,32 +2545,45 @@ export async function onRequest(ctx) {
     }
 
     const passThreshold = parseInt(await kvGet(db, 'pass', '70'), 10) || 70;
-    let acc = (inputAcc !== null && !isNaN(inputAcc))
-      ? Math.round(inputAcc)
-      : (target && transcript ? calculateAccuracy(target, transcript) : 0);
-    acc = Math.max(0, Math.min(100, acc));
+    transcript = stripSpeechNoiseTags(transcript);
+    const spokenClean = norm(transcript);
+    const targetClean = norm(target);
+    const hasSpokenSpeech = spokenClean.length > 0;
 
-    let fluency = (inputFluency !== null && !isNaN(inputFluency))
-      ? Math.round(inputFluency)
-      : Math.min(100, acc + 5);
-    fluency = Math.max(0, Math.min(100, fluency));
+    let acc = 0;
+    let fluency = 0;
+    let clarity = 0;
+    let wpm = 0;
+    let passed = false;
 
-    let clarity = (inputClarity !== null && !isNaN(inputClarity))
-      ? Math.round(inputClarity)
-      : Math.min(100, acc + 2);
-    clarity = Math.max(0, Math.min(100, clarity));
+    if (hasSpokenSpeech) {
+      acc = (inputAcc !== null && !isNaN(inputAcc))
+        ? Math.round(inputAcc)
+        : (targetClean ? calculateAccuracy(target, transcript) : 0);
+      acc = Math.max(0, Math.min(100, acc));
 
-    let wpm = (inputWpm !== null && !isNaN(inputWpm))
-      ? Math.round(inputWpm)
-      : 130;
-    wpm = Math.max(0, Math.min(400, wpm));
+      fluency = (inputFluency !== null && !isNaN(inputFluency))
+        ? Math.round(inputFluency)
+        : (acc > 0 ? Math.min(100, acc + 5) : 0);
+      fluency = Math.max(0, Math.min(100, fluency));
+
+      clarity = (inputClarity !== null && !isNaN(inputClarity))
+        ? Math.round(inputClarity)
+        : (acc > 0 ? Math.min(100, acc + 2) : 0);
+      clarity = Math.max(0, Math.min(100, clarity));
+
+      wpm = (inputWpm !== null && !isNaN(inputWpm))
+        ? Math.round(inputWpm)
+        : 130;
+      wpm = Math.max(0, Math.min(400, wpm));
+
+      passed = acc >= passThreshold;
+    }
 
     level = Math.max(1, Math.min(10, level));
 
-    const passed = acc >= passThreshold;
-
-    // Persist score in database & memory
-    if (name) {
+    // Persist score in database & memory only when actual speech was detected with non-zero accuracy
+    if (name && hasSpokenSpeech && acc > 0) {
       const scoreObj = {
         name,
         pack,
@@ -2630,7 +2650,8 @@ export async function onRequest(ctx) {
       passed,
       passThreshold,
       level,
-      name
+      name,
+      noSpeech: !hasSpokenSpeech
     });
   }
 
@@ -2666,10 +2687,12 @@ export async function onRequest(ctx) {
 
         if (sttRes.ok) {
           const sttData = await sttRes.json();
+          const cleanedSttText = stripSpeechNoiseTags(sttData.text || '');
+          const hasValidWords = norm(cleanedSttText).length > 0;
           return json({
             ok: true,
-            text: sttData.text || '',
-            words: sttData.words || [],
+            text: hasValidWords ? cleanedSttText : '',
+            words: hasValidWords ? (sttData.words || []) : [],
             provider: 'ElevenLabs Scribe STT'
           });
         } else {

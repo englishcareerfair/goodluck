@@ -4847,7 +4847,7 @@ function switchTab(tabId, options = {}) {
   const prevActiveTab = document.querySelector('.tab-btn.active')?.dataset?.tab || '';
   if (prevActiveTab && prevActiveTab !== tabId) {
     if (prevActiveTab === 'speechLab' && typeof stopSpeechLabAudio === 'function') {
-      try { stopSpeechLabAudio(); } catch (_) {}
+      try { stopSpeechLabAudio({ silent: true }); } catch (_) {}
     }
     if (prevActiveTab === 'teleprompter' && typeof teleprompterState === 'object' && teleprompterState) {
       if (teleprompterState.prompterAnimId) {
@@ -5568,7 +5568,7 @@ function toggleSpeakLadderRecord() {
 
 async function evaluateSpeakAttempt() {
   const target = $('#speak-target-sentence')?.textContent.trim() || '';
-  const transcript = $('#speak-transcript-preview')?.value.trim() || '';
+  const transcript = stripSpeechNoiseTags($('#speak-transcript-preview')?.value.trim() || '');
   const nameInput = $('#speak-student-name');
   const rawName = (nameInput ? nameInput.value : STATE.studentName || '').trim();
   const name = capitalizeName(rawName);
@@ -5589,13 +5589,25 @@ async function evaluateSpeakAttempt() {
     return;
   }
 
-  if (!transcript) {
+  if (!hasMeaningfulSpeechText(transcript) || !hasMeaningfulSpeechText(target)) {
+    if (resultBox) {
+      resultBox.style.display = 'block';
+      resultBox.innerHTML = `<div style="padding:12px;border-radius:var(--radius-md);background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);color:#fca5a5;font-size:13px;">🎙️ <strong>0% Accuracy — No speech detected.</strong> Please speak clearly into your microphone and try again.</div>`;
+    }
     showToast('No speech was detected. Please try recording again.');
     return;
   }
 
   // Calculate Levenshtein accuracy
   const acc = calculateLevenshteinAccuracy(target, transcript);
+  if (acc <= 0) {
+    if (resultBox) {
+      resultBox.style.display = 'block';
+      resultBox.innerHTML = `<div style="padding:12px;border-radius:var(--radius-md);background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);color:#fcd34d;font-size:13px;">🎯 <strong>0% Accuracy</strong> — Recognized speech did not match the target sentence. Score was not ranked on the leaderboard.</div>`;
+    }
+    showToast('0% accuracy — speak the target sentence clearly to rank on the leaderboard.');
+    return;
+  }
 
   // Persist student name
   STATE.studentName = name;
@@ -5683,11 +5695,22 @@ async function evaluateSpeakAttempt() {
   }
 }
 
+function stripSpeechNoiseTags(raw) {
+  return String(raw || '')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function hasMeaningfulSpeechText(raw) {
+  return stripSpeechNoiseTags(raw).toLowerCase().replace(/[^a-z0-9]/g, '').length > 0;
+}
+
 function calculateLevenshteinAccuracy(ref, hyp) {
-  const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+  const norm = s => stripSpeechNoiseTags(s).toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
   const r = norm(ref);
   const h = norm(hyp);
-  if (!r && !h) return 100;
   if (!r || !h) return 0;
 
   const dp = Array.from({ length: r.length + 1 }, (_, i) =>
@@ -5720,6 +5743,11 @@ let speechLabUsedSentences = new Set();
 let isSpeechLabPassed = false;
 let speechLabPrefetchedSentence = null;
 let speechLabPrefetching = false;
+let speechLabRecordingActive = false;
+let speechLabBrowserTranscript = '';
+let speechLabSttSegments = [];
+let speechLabPeakAudioEnergy = 0;
+let speechLabVoicedFrames = 0;
 
 async function prefetchNextSpeechLabSentence() {
   if (speechLabPrefetchedSentence || speechLabPrefetching) return;
@@ -5854,22 +5882,41 @@ function isWordMatch(spoken, target) {
   return false;
 }
 
+function renderSpeechLabSentenceWords() {
+  const textContainer = $('#speech-lab-sentence-text');
+  if (!textContainer || !speechLabTargetWords.length) return;
+  let nextPointer = 0;
+  while (nextPointer < speechLabTargetWords.length && speechLabPassedIndices.has(nextPointer)) {
+    nextPointer++;
+  }
+  textContainer.innerHTML = speechLabTargetWords.map((w, idx) => {
+    let cls = 'prompter-word';
+    if (speechLabPassedIndices.has(idx)) cls = 'prompter-word spoken passed';
+    else if (idx === nextPointer) cls = 'prompter-word target current-target';
+    return `<span class="${cls}" id="sl-word-${idx}">${escapeHtml(w)}</span>`;
+  }).join(' ');
+}
+
 function changeSpeechLabSentence(userTriggered = false) {
   if (typeof STATE === 'object' && STATE) STATE.speechLabTranscript = '';
+  speechLabBrowserTranscript = '';
+  speechLabSttSegments = [];
+  speechLabPeakAudioEnergy = 0;
+  speechLabVoicedFrames = 0;
   if (typeof speechLabPassedIndices !== 'undefined' && speechLabPassedIndices?.clear) speechLabPassedIndices.clear();
-  if (typeof isSpeechLabPassed !== 'undefined') { try { isSpeechLabPassed = false; } catch (_) {} }
+  isSpeechLabPassed = false;
+  isPassingSentence = false;
   const _liveTrans = document.getElementById('speech-lab-live-transcript');
   if (_liveTrans) _liveTrans.textContent = '';
   stopAllVoice();
-  isSpeechLabPassed = false;
 
   const screen = $('#speech-lab-ai-screen');
   if (screen) screen.classList.remove('speech-lab-screen-complete');
 
-  const textContainer = $('#speech-lab-sentence-text');
   const aiBadge = $('#speech-lab-ai-badge');
   const liveHeard = $('#speech-lab-live-heard');
-
+  const accValEl = $('#speech-lab-accuracy-val');
+  if (accValEl) accValEl.textContent = '0%';
   if (liveHeard) liveHeard.textContent = '🎤 Speak sentence into mic to pass...';
 
   // Load from session storage to avoid repeats
@@ -5879,14 +5926,10 @@ function changeSpeechLabSentence(userTriggered = false) {
   } catch {}
 
   let selectedSentence = '';
-  let sourceBadge = '⚡ Adaptive AI Prompter';
 
   // 1. Instant zero-latency swap: Use prefetched Gemini sentence if ready
   if (speechLabPrefetchedSentence && speechLabPrefetchedSentence.sentence) {
     selectedSentence = speechLabPrefetchedSentence.sentence;
-    if (speechLabPrefetchedSentence.source === 'gemini') {
-      sourceBadge = '';
-    }
     speechLabPrefetchedSentence = null;
   }
 
@@ -5898,12 +5941,14 @@ function changeSpeechLabSentence(userTriggered = false) {
       ...(AI_SENTENCE_LIBRARY.Law || []),
       ...(AI_SENTENCE_LIBRARY.Academic || [])
     ];
-    const available = pools.filter(s => !speechLabUsedSentences.has(s));
+    const available = pools.filter(s => !speechLabUsedSentences.has(s) && s !== currentSpeechLabSentence);
     if (available.length > 0) {
       selectedSentence = available[Math.floor(Math.random() * available.length)];
     } else {
       speechLabUsedSentences.clear();
-      selectedSentence = pools[Math.floor(Math.random() * pools.length)];
+      const nonSame = pools.filter(s => s !== currentSpeechLabSentence);
+      const pickPool = nonSame.length ? nonSame : pools;
+      selectedSentence = pickPool[Math.floor(Math.random() * pickPool.length)];
     }
   }
 
@@ -5918,12 +5963,7 @@ function changeSpeechLabSentence(userTriggered = false) {
   speechLabTargetWords = selectedSentence.split(/\s+/).filter(Boolean);
   speechLabPassedIndices = new Set();
 
-  if (textContainer) {
-    textContainer.innerHTML = speechLabTargetWords.map((w, idx) => {
-      const cls = idx === 0 ? 'prompter-word target' : 'prompter-word';
-      return `<span class="${cls}" id="sl-word-${idx}">${escapeHtml(w)}</span>`;
-    }).join(' ');
-  }
+  renderSpeechLabSentenceWords();
 
   const counterBadge = $('#speech-lab-pass-badge');
   const percentLabel = $('#speech-lab-pass-percent');
@@ -5940,7 +5980,7 @@ function changeSpeechLabSentence(userTriggered = false) {
     showToast('New practice sentence ready! 🎲');
   }
 
-  // Background non-blocking prefetch for next cue so next sentence is always pre-warmed
+  // Background non-blocking prefetch for next cue
   prefetchNextSpeechLabSentence();
 }
 
@@ -5949,74 +5989,110 @@ function passAwaySpeechLabSentence(manualSkip = false) {
   if (isPassingSentence) return;
   isPassingSentence = true;
 
-  const textContainer = $('#speech-lab-sentence-text');
   const screen = $('#speech-lab-ai-screen');
   const counterBadge = $('#speech-lab-pass-badge');
   const percentLabel = $('#speech-lab-pass-percent');
 
-  if (!manualSkip) {
-    speechLabSentencesPassedCount++;
-    if (counterBadge) {
-      counterBadge.className = 'badge-pill badge-global';
-      counterBadge.style.background = 'rgba(16, 185, 129, 0.25)';
-      counterBadge.style.color = '#34d399';
-      counterBadge.style.borderColor = '#10b981';
-      counterBadge.textContent = `${speechLabSentencesPassedCount} ${speechLabSentencesPassedCount === 1 ? 'Sentence' : 'Sentences'} Passed 🎉`;
+  if (manualSkip) {
+    changeSpeechLabSentence(false);
+    isPassingSentence = false;
+    return;
+  }
+
+  // Mark all words green and keep this single completed sentence visible (no auto-advance)
+  speechLabTargetWords.forEach((_, idx) => {
+    speechLabPassedIndices.add(idx);
+    const wordEl = $(`#sl-word-${idx}`);
+    if (wordEl) {
+      wordEl.classList.add('spoken', 'passed');
+      wordEl.classList.remove('target', 'current-target');
     }
-    if (percentLabel) percentLabel.textContent = '100% Passed';
-    if (screen) screen.classList.add('speech-lab-screen-complete');
-    showToast('Sentence Passed! 🚀');
+  });
 
-    // Automatically trigger speech analysis and leaderboard sync upon passing
-    setTimeout(() => {
-      const _speechSnap = {
-    transcript: STATE.speechLabTranscript || '',
-    passedCount: speechLabPassedIndices ? speechLabPassedIndices.size : 0
-  };
-  if (!manualSkip && _speechSnap.transcript.trim()) {
-    analyzeSpeechLabSample(_speechSnap);
+  speechLabSentencesPassedCount++;
+  if (counterBadge) {
+    counterBadge.className = 'badge-pill badge-global';
+    counterBadge.style.background = 'rgba(16, 185, 129, 0.25)';
+    counterBadge.style.color = '#34d399';
+    counterBadge.style.borderColor = '#10b981';
+    counterBadge.textContent = `${speechLabSentencesPassedCount} ${speechLabSentencesPassedCount === 1 ? 'Sentence' : 'Sentences'} Passed 🎉`;
   }
-    }, 120);
-  }
+  if (percentLabel) percentLabel.textContent = '100% Match';
+  if (screen) screen.classList.add('speech-lab-screen-complete');
+  showToast('Sentence Passed! 🎉');
 
-  // Instantaneous zero-delay cue swap: new sentence renders immediately without even 1ms delay
-  changeSpeechLabSentence(false);
-  isPassingSentence = false;
+  setTimeout(() => {
+    const _speechSnap = {
+      transcript: STATE.speechLabTranscript || '',
+      passedCount: speechLabPassedIndices ? speechLabPassedIndices.size : 0
+    };
+    if (hasMeaningfulSpeechText(_speechSnap.transcript)) {
+      analyzeSpeechLabSample(_speechSnap, { explicit: false });
+    }
+    isPassingSentence = false;
+  }, 120);
+}
+
+function matchTargetWordAt(spokenTokens, tokIdx, targetWord) {
+  const spoken = spokenTokens[tokIdx] || '';
+  const targetClean = cleanSpeechWord(targetWord);
+  if (isWordMatch(spoken, targetClean)) return 1;
+  // Handle hyphenated target words (e.g. "decision-making" -> "decision making")
+  const subParts = String(targetWord || '').split(/[-–—/]+/).map(cleanSpeechWord).filter(Boolean);
+  if (subParts.length > 1 && tokIdx + subParts.length <= spokenTokens.length) {
+    const allMatch = subParts.every((part, offset) => isWordMatch(spokenTokens[tokIdx + offset], part));
+    if (allMatch) return subParts.length;
+  }
+  return 0;
 }
 
 function checkSpeechLabWordsProgress(spokenFullText, source = 'local') {
   if (!speechLabTargetWords.length || isPassingSentence) return;
+  const cleanedIncoming = stripSpeechNoiseTags(spokenFullText);
+  if (!hasMeaningfulSpeechText(cleanedIncoming)) return;
 
-  STATE.speechLabTranscript = ((STATE.speechLabTranscript || '') + ' ' + spokenFullText).trim();
-  const spokenTokens = spokenFullText.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
+  if (!$('#sl-word-0')) {
+    renderSpeechLabSentenceWords();
+  }
 
-  // In-line sequential advancement: words MUST be completed sequentially in a line.
-  // Never jump ahead into the middle of the sentence when previous words have not been spoken.
+  if (source === 'elevenlabs') {
+    const prev = speechLabSttSegments[speechLabSttSegments.length - 1] || '';
+    if (cleanedIncoming !== prev) speechLabSttSegments.push(cleanedIncoming);
+  } else {
+    speechLabBrowserTranscript = cleanedIncoming;
+  }
+
+  const combined = [speechLabBrowserTranscript, ...speechLabSttSegments].filter(Boolean).join(' ').trim();
+  STATE.speechLabTranscript = combined;
+
+  const spokenTokens = combined.toLowerCase().replace(/[^\w\s]/g, ' ').split(/\s+/).filter(Boolean);
+  if (!spokenTokens.length) return;
+
+  // Rescan sequentially from start using accumulated clean transcript + forward resync window
   let targetPointer = 0;
+  let tokIdx = 0;
+  while (tokIdx < spokenTokens.length && targetPointer < speechLabTargetWords.length) {
+    let matchedAdvance = 0;
+    for (let ahead = 0; ahead <= 3 && targetPointer + ahead < speechLabTargetWords.length; ahead++) {
+      const consumed = matchTargetWordAt(spokenTokens, tokIdx, speechLabTargetWords[targetPointer + ahead]);
+      if (consumed > 0) {
+        for (let fill = 0; fill <= ahead; fill++) {
+          speechLabPassedIndices.add(targetPointer + fill);
+        }
+        targetPointer += ahead + 1;
+        tokIdx += consumed;
+        matchedAdvance = 1;
+        break;
+      }
+    }
+    if (!matchedAdvance) tokIdx++;
+  }
+
   while (targetPointer < speechLabTargetWords.length && speechLabPassedIndices.has(targetPointer)) {
     targetPointer++;
   }
 
-  for (const spoken of spokenTokens) {
-    if (targetPointer >= speechLabTargetWords.length) break;
-
-    // Check exact current expected target word
-    const currentClean = cleanSpeechWord(speechLabTargetWords[targetPointer]);
-    if (isWordMatch(spoken, currentClean)) {
-      speechLabPassedIndices.add(targetPointer);
-      targetPointer++;
-    } else if (targetPointer + 1 < speechLabTargetWords.length) {
-      // Natural speech forgiveness: allow at most a 1-word lookahead (e.g. if a tiny connector like "a" or "to" was softly whispered)
-      const nextClean = cleanSpeechWord(speechLabTargetWords[targetPointer + 1]);
-      if (isWordMatch(spoken, nextClean)) {
-        speechLabPassedIndices.add(targetPointer);     // Count skipped connector as satisfied
-        speechLabPassedIndices.add(targetPointer + 1); // Mark current matched word
-        targetPointer += 2;
-      }
-    }
-  }
-
-  // Update DOM word spans in strict line order
+  // Update DOM word spans reliably in strict line order
   speechLabTargetWords.forEach((_, idx) => {
     const wordEl = $(`#sl-word-${idx}`);
     if (wordEl) {
@@ -6048,13 +6124,14 @@ function checkSpeechLabWordsProgress(spokenFullText, source = 'local') {
     percentLabel.textContent = `${pct}% Match`;
   }
 
-  if (heardLabel && spokenTokens.length) {
-    const recent = spokenTokens.slice(-4).join(' ');
+  const incomingTokens = cleanedIncoming.toLowerCase().replace(/[^\w\s]/g, ' ').split(/\s+/).filter(Boolean);
+  if (heardLabel && incomingTokens.length) {
+    const recent = incomingTokens.slice(-4).join(' ');
     const tag = source === 'elevenlabs' ? '⚡ ElevenLabs' : '🎤 Heard';
     heardLabel.textContent = `${tag}: "${recent}"`;
   }
 
-  // Completion: When the sentence has been completed in line, transition immediately without delay
+  // Completion: Mark complete and keep green words visible without moving to next sentence
   if (targetPointer >= total && total > 0 && !isPassingSentence && !isSpeechLabPassed) {
     isSpeechLabPassed = true;
     passAwaySpeechLabSentence(false);
@@ -6063,6 +6140,9 @@ function checkSpeechLabWordsProgress(spokenFullText, source = 'local') {
 
 async function sendAudioToElevenLabsSTT(audioBlob) {
   if (!audioBlob || audioBlob.size < 2000) return;
+  if (speechLabRecordingActive && speechLabMediaStream && STATE.analyser && speechLabPeakAudioEnergy > 0 && speechLabPeakAudioEnergy < 8 && speechLabVoicedFrames === 0) {
+    return;
+  }
   try {
     const fd = new FormData();
     const ext = (audioBlob.type && audioBlob.type.includes('mp4')) ? 'speech.mp4' : (audioBlob.type && audioBlob.type.includes('ogg') ? 'speech.ogg' : 'speech.webm');
@@ -6079,7 +6159,8 @@ async function sendAudioToElevenLabsSTT(audioBlob) {
 
     if (res.ok) {
       const data = await safeJsonResponse(res);
-      if (data && data.ok && data.text) {
+      if (data && data.ok && hasMeaningfulSpeechText(data.text)) {
+        const cleanStt = stripSpeechNoiseTags(data.text);
         const badge = $('#speech-lab-stt-engine-badge');
         if (badge) {
           badge.style.background = 'rgba(16, 185, 129, 0.15)';
@@ -6087,8 +6168,8 @@ async function sendAudioToElevenLabsSTT(audioBlob) {
           badge.style.borderColor = 'rgba(52, 211, 153, 0.4)';
           badge.innerHTML = '🎙️ ElevenLabs Scribe STT Active';
         }
-        checkSpeechLabWordsProgress(data.text, 'elevenlabs');
-        updateRealtimePaceAndFillers(data.text);
+        checkSpeechLabWordsProgress(cleanStt, 'elevenlabs');
+        updateRealtimePaceAndFillers(STATE.speechLabTranscript || cleanStt);
       }
     }
   } catch (err) {
@@ -6100,12 +6181,14 @@ function initSpeechLab() {
   // Always stop previous voices when entering
   stopAllVoice();
 
-  // 1. Refresh Speech Coach Suggestion dynamically EVERY time it is opened!
+  // 1. Refresh Speech Coach Suggestion dynamically EVERY time it is opened
   refreshSpeechCoachTip(false);
 
-  // 2. Setup AI Sentence Teleprompter Screen
-  if (!currentSpeechLabSentence) {
+  // 2. Setup single AI Sentence Teleprompter Screen (changes on re-entry after pass or if un-tokenized)
+  if (!currentSpeechLabSentence || isSpeechLabPassed || !$('#sl-word-0')) {
     changeSpeechLabSentence(false);
+  } else {
+    renderSpeechLabSentenceWords();
   }
 
   // Wire Student Name in Speech Lab (Synchronized with Speak Ladder & Leaderboard)
@@ -6121,7 +6204,9 @@ function initSpeechLab() {
         if (e.key === 'Enter') {
           e.preventDefault();
           labNameInput.blur();
-          analyzeSpeechLabSample();
+          if (hasMeaningfulSpeechText(STATE.speechLabTranscript) || STATE.speechLabPendingEval) {
+            analyzeSpeechLabSample(null, { explicit: false });
+          }
         }
       });
       labNameInput.addEventListener('input', () => {
@@ -6143,7 +6228,7 @@ function initSpeechLab() {
         if (otherInput) otherInput.value = cap;
         // If an evaluation was pending student name, map it immediately to leaderboard
         if (STATE.speechLabPendingEval && cap) {
-          analyzeSpeechLabSample();
+          analyzeSpeechLabSample(null, { explicit: false });
         }
       });
     }
@@ -6153,7 +6238,6 @@ function initSpeechLab() {
   const recBtn = $('#btn-speech-lab-record');
   const stopBtn = $('#btn-speech-lab-stop');
   const analyzeBtn = $('#btn-speech-lab-analyze');
-  const newSentBtn = $('#btn-speech-lab-new-sentence');
   const listenSentBtn = $('#btn-speech-lab-listen');
   const refreshTipBtn = $('#btn-refresh-speech-coach');
 
@@ -6161,20 +6245,15 @@ function initSpeechLab() {
     recBtn.dataset.bound = 'true';
     recBtn.addEventListener('click', () => {
       startSpeechLabAudio();
-      // Do not auto-advance: student must have ample time to speak and review scores
     });
   }
   if (stopBtn && !stopBtn.dataset.bound) {
     stopBtn.dataset.bound = 'true';
-    stopBtn.addEventListener('click', stopSpeechLabAudio);
+    stopBtn.addEventListener('click', () => stopSpeechLabAudio({ silent: false }));
   }
   if (analyzeBtn && !analyzeBtn.dataset.bound) {
     analyzeBtn.dataset.bound = 'true';
-    analyzeBtn.addEventListener('click', analyzeSpeechLabSample);
-  }
-  if (newSentBtn && !newSentBtn.dataset.bound) {
-    newSentBtn.dataset.bound = 'true';
-    newSentBtn.addEventListener('click', () => passAwaySpeechLabSentence(true));
+    analyzeBtn.addEventListener('click', () => analyzeSpeechLabSample(null, { explicit: true }));
   }
   if (listenSentBtn && !listenSentBtn.dataset.bound) {
     listenSentBtn.dataset.bound = 'true';
@@ -6201,10 +6280,30 @@ async function startSpeechLabAudio() {
   stopAllVoice();
   const status = $('#speech-session-state');
 
+  // If the current single sentence was already completed, load a fresh single sentence when starting a new recording
+  if (isSpeechLabPassed || !currentSpeechLabSentence || !$('#sl-word-0')) {
+    changeSpeechLabSentence(false);
+  } else {
+    speechLabPassedIndices.clear();
+    isSpeechLabPassed = false;
+    isPassingSentence = false;
+    renderSpeechLabSentenceWords();
+    const pctEl = $('#speech-lab-pass-percent');
+    if (pctEl) pctEl.textContent = '0% Match';
+  }
+
+  STATE.speechLabTranscript = '';
+  STATE.speechLabPendingEval = null;
+  speechLabBrowserTranscript = '';
+  speechLabSttSegments = [];
+  speechLabPeakAudioEnergy = 0;
+  speechLabVoicedFrames = 0;
+
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     STATE.audioStream = stream;
     speechLabMediaStream = stream;
+    speechLabRecordingActive = true;
 
     // Web Audio API Waveform Visualizer
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -6274,7 +6373,7 @@ async function startSpeechLabAudio() {
         for (let i = 0; i < e.results.length; i++) full += e.results[i][0].transcript + ' ';
         full = full.trim();
         checkSpeechLabWordsProgress(full, 'local');
-        updateRealtimePaceAndFillers(full);
+        updateRealtimePaceAndFillers(STATE.speechLabTranscript || full);
       };
       speechLabRec.start();
     }
@@ -6287,11 +6386,15 @@ async function startSpeechLabAudio() {
     $('#btn-speech-lab-record').disabled = true;
     $('#btn-speech-lab-stop').disabled = false;
   } catch (err) {
+    speechLabRecordingActive = false;
     showToast('Microphone access denied or not available. Please allow microphone permissions.');
   }
 }
 
-function stopSpeechLabAudio() {
+function stopSpeechLabAudio(options = {}) {
+  const wasRecording = speechLabRecordingActive;
+  speechLabRecordingActive = false;
+
   if (window._speechLabWaveAnimId) {
     cancelAnimationFrame(window._speechLabWaveAnimId);
     window._speechLabWaveAnimId = null;
@@ -6313,30 +6416,44 @@ function stopSpeechLabAudio() {
     speechLabRec = null;
   }
   const _sSt = $('#speech-session-state'); if (_sSt) _sSt.textContent = 'Prompter Idle';
-  $('#btn-speech-lab-record').disabled = false;
-  $('#btn-speech-lab-stop').disabled = true;
+  const recBtn = $('#btn-speech-lab-record'); if (recBtn) recBtn.disabled = false;
+  const stopBtn = $('#btn-speech-lab-stop'); if (stopBtn) stopBtn.disabled = true;
 
-  // Automatically trigger speech analysis and leaderboard sync upon stopping recording
+  // Never analyze or show "No speech detected" toast when leaving tab or stopping while idle
+  if (!wasRecording || options.silent) return;
+
+  // Trigger silent-safe evaluation only after an actual user recording stops
   setTimeout(() => {
-    analyzeSpeechLabSample();
-  }, 120);
+    analyzeSpeechLabSample(null, { explicit: false, fromRecordingStop: true });
+  }, 140);
 }
 
-if (window._speechLabWaveAnimId) {
-    cancelAnimationFrame(window._speechLabWaveAnimId);
-    window._speechLabWaveAnimId = null;
-  }
 function renderSpeechLabWaveform() {
   const canvas = $('#speech-lab-waveform');
   if (!canvas || !STATE.analyser) return;
+  if (window._speechLabWaveAnimId) {
+    cancelAnimationFrame(window._speechLabWaveAnimId);
+    window._speechLabWaveAnimId = null;
+  }
   const ctx = canvas.getContext('2d');
   const bufferLength = STATE.analyser.frequencyBinCount;
   const dataArray = new Uint8Array(bufferLength);
 
   function draw() {
-    if (!STATE.analyser) return;
-    requestAnimationFrame(draw);
+    if (!STATE.analyser || !speechLabRecordingActive) return;
+    window._speechLabWaveAnimId = requestAnimationFrame(draw);
     STATE.analyser.getByteFrequencyData(dataArray);
+
+    let frameMax = 0;
+    let frameSum = 0;
+    for (let i = 0; i < bufferLength; i++) {
+      const v = dataArray[i];
+      if (v > frameMax) frameMax = v;
+      frameSum += v;
+    }
+    const frameAvg = bufferLength ? (frameSum / bufferLength) : 0;
+    if (frameMax > speechLabPeakAudioEnergy) speechLabPeakAudioEnergy = frameMax;
+    if (frameMax >= 24 || frameAvg >= 6) speechLabVoicedFrames++;
 
     ctx.fillStyle = '#07090e';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -6383,51 +6500,79 @@ function updateRealtimePaceAndFillers(text) {
   }
 }
 
-function analyzeSpeechLabSample(snapshot = null) {
+function analyzeSpeechLabSample(snapshot = null, options = {}) {
   const rawTranscript = snapshot ? snapshot.transcript : STATE.speechLabTranscript;
-  const text = (rawTranscript || '').trim();
-  if (!text) {
-    const diagBox = $('#speech-lab-diagnostic-box');
+  const text = stripSpeechNoiseTags(rawTranscript);
+  const hasSpoken = hasMeaningfulSpeechText(text);
+  const words = hasSpoken ? text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean) : [];
+
+  // Guard: If microphone recording detected only dead silence and browser recognition heard zero words, reject phantom noise
+  const isDeadSilence = Boolean(
+    options.fromRecordingStop
+    && !hasMeaningfulSpeechText(speechLabBrowserTranscript)
+    && speechLabPeakAudioEnergy > 0
+    && speechLabPeakAudioEnergy < 8
+    && speechLabVoicedFrames === 0
+  );
+
+  const resetZeroUI = (showPromptToast) => {
+    const accValEl = $('#speech-lab-accuracy-val');
+    if (accValEl) accValEl.textContent = '0%';
     const overallEl = $('#speech-lab-overall-score');
     if (overallEl) overallEl.textContent = '0%';
-    ['#dim-pronunciation', '#dim-fluency', '#dim-clarity', '#dim-pace', '#dim-vocab', '#dim-confidence'].forEach(sel => {
+    ['#dim-pronunciation', '#dim-fluency', '#dim-clarity', '#dim-pace', '#dim-vocab', '#dim-grammar', '#dim-confidence'].forEach(sel => {
       const el = $(sel);
-      if (el) el.textContent = '0%';
+      if (el) el.textContent = '0';
     });
+    const diagBox = $('#speech-lab-diagnostic-box');
     if (diagBox) {
       diagBox.innerHTML = '<strong>🎙️ No Speech Detected</strong><br>Press <strong>Start Speaking &amp; Analyze</strong> and read the prompt clearly into your microphone to generate a real 6D diagnostic score.';
     }
-    if (typeof showToast === 'function') showToast('No speech detected yet — speak clearly before analyzing.');
-    return;
-  }
-  if (!text) {
-    showToast('Please record speech first to evaluate.');
+    const lbStatus = $('#speech-lab-leaderboard-status');
+    if (lbStatus) lbStatus.textContent = '🎙️ Speak clearly into mic to rank on Leaderboard';
+    if (typeof drawSpiderRadar === 'function') drawSpiderRadar([0, 0, 0, 0, 0, 0]);
+    if (showPromptToast && typeof showToast === 'function') {
+      showToast('No speech detected yet — speak clearly before analyzing.');
+    }
+  };
+
+  if (!hasSpoken || !words.length || isDeadSilence) {
+    resetZeroUI(Boolean(options && options.explicit));
     return;
   }
 
-  const words = text.split(/\s+/).filter(Boolean);
   const sentences = text.split(/[.!?]+/).filter(Boolean);
   const fillers = (text.match(/\b(um+|uh+|erm+|like|you know|actually|basically|literally)\b/gi) || []).length;
-  const uniqueWords = new Set(words.map(w => w.toLowerCase())).size;
 
-  // Passed ratio from word screen
-  const totalTargetWords = speechLabTargetWords.length || words.length;
+  // Genuine word match ratio & Levenshtein phonetic similarity (no fake minimum score floors)
+  const targetForAcc = hasMeaningfulSpeechText(currentSpeechLabSentence)
+    ? currentSpeechLabSentence
+    : (speechLabTargetWords.length ? speechLabTargetWords.join(' ') : '');
+  const totalTargetWords = speechLabTargetWords.length || (targetForAcc ? targetForAcc.split(/\s+/).filter(Boolean).length : 0);
   const passedWords = snapshot ? Number(snapshot.passedCount || 0) : speechLabPassedIndices.size;
-  const passRatio = Math.min(1, Math.max(0.4, passedWords / Math.max(1, totalTargetWords)));
+  const levAcc = targetForAcc ? calculateLevenshteinAccuracy(targetForAcc, text) : 0;
+  const passRatio = totalTargetWords > 0
+    ? Math.min(1, Math.max(0, passedWords / totalTargetWords))
+    : Math.min(1, Math.max(0, levAcc / 100));
 
-  // 6-Dimension Score Synthesis
-  const fluency = Math.min(100, Math.max(45, Math.round((94 - fillers * 5) * passRatio)));
-  const clarity = Math.min(100, Math.max(50, Math.round((88 + Math.min(10, sentences.length * 3) - fillers * 3) * passRatio)));
-  const pronunciation = Math.min(100, Math.max(50, Math.round((90 - fillers * 2) * passRatio)));
-  // Pace & Cadence: rate of speech and natural pausing (replaces AI-provided vocabulary)
-  const pace = Math.min(100, Math.max(50, Math.round(((fluency * 0.6) + (clarity * 0.4)) * passRatio)));
-  const grammar = Math.min(100, Math.max(50, 80 + (text.length > 50 ? 15 : 5)));
-  const confidence = Math.min(100, Math.max(50, Math.round((fluency + clarity) / 2)));
-
-  // Accuracy calculation: combines word articulation ratio and phonetic/Levenshtein similarity
   const wordAcc = Math.round(passRatio * 100);
-  const levAcc = currentSpeechLabSentence ? calculateLevenshteinAccuracy(currentSpeechLabSentence, text) : wordAcc;
-  const accuracy = Math.min(100, Math.max(50, Math.round((wordAcc * 0.6) + (levAcc * 0.4))));
+  const accuracy = Math.min(100, Math.max(0, Math.round((wordAcc * 0.6) + (levAcc * 0.4))));
+  const effectiveRatio = Math.max(passRatio, accuracy / 100);
+
+  if (accuracy <= 0) {
+    resetZeroUI(false);
+    const accEl = $('#speech-lab-accuracy-val');
+    if (accEl) accEl.textContent = '0%';
+    return;
+  }
+
+  // Genuine 6-Dimension Score Synthesis proportional to actual spoken accuracy
+  const fluency = Math.min(100, Math.max(0, Math.round((94 - fillers * 5) * effectiveRatio)));
+  const clarity = Math.min(100, Math.max(0, Math.round((88 + Math.min(10, sentences.length * 3) - fillers * 3) * effectiveRatio)));
+  const pronunciation = Math.min(100, Math.max(0, Math.round((90 - fillers * 2) * effectiveRatio)));
+  const pace = Math.min(100, Math.max(0, Math.round(((fluency * 0.6) + (clarity * 0.4)) * effectiveRatio)));
+  const grammar = Math.min(100, Math.max(0, Math.round((80 + (text.length > 50 ? 15 : 5)) * effectiveRatio)));
+  const confidence = Math.min(100, Math.max(0, Math.round((fluency + clarity) / 2)));
 
   // Update UI Elements
   const accValEl = $('#speech-lab-accuracy-val');
