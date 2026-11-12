@@ -14631,7 +14631,7 @@ function setAdminSecurityTabUnlocked(unlocked, opts = {}) {
     if (secBtn) secBtn.classList.remove('active');
     if (secPanel) secPanel.hidden = true;
     if (typeof window.stopAdminVisitorsLivePoll === 'function') window.stopAdminVisitorsLivePoll();
-    const anyActive = $$('#admin-tab-row .filter-chip').some(b => !b.hidden && b.classList.contains('active'));
+    const anyActive = Array.from($$('#admin-tab-row .filter-chip')).some(b => !b.hidden && b.classList.contains('active'));
     if (!anyActive) {
       const streamBtn = $('#admin-tab-row .filter-chip[data-admin-view="stream"]');
       if (streamBtn) streamBtn.classList.add('active');
@@ -14662,6 +14662,14 @@ function wireSecretAdminSecurityShortcut() {
 }
 
 function initAdminWorkspace() {
+  const bindAdminOnce = (el, evt, fn, key = evt) => {
+    if (!el || typeof el.addEventListener !== 'function') return;
+    const flag = 'adminWired_' + String(key || evt).replace(/[^a-zA-Z0-9_]/g, '_');
+    if (el.dataset[flag]) return;
+    el.dataset[flag] = '1';
+    el.addEventListener(evt, fn);
+  };
+
   setAdminSecurityTabUnlocked(false);
   wireSecretAdminSecurityShortcut();
   if (typeof initAdminImportControls === 'function') initAdminImportControls();
@@ -14718,7 +14726,7 @@ function initAdminWorkspace() {
 
   // Admin tabs switching
   $$('#admin-tab-row .filter-chip').forEach(btn => {
-    btn.addEventListener('click', () => {
+    bindAdminOnce(btn, 'click', () => {
       const view = btn.dataset.adminView;
       if (view === 'security' && !STATE.adminSecurityTabUnlocked) return;
       $$('#admin-tab-row .filter-chip').forEach(b => b.classList.remove('active'));
@@ -14744,15 +14752,15 @@ function initAdminWorkspace() {
       if (window.AppRouter) {
         window.AppRouter.navigate('/admin', { silent: true });
       }
-    });
+    }, 'tab');
   });
 
   // Render Feature Flags
   renderAdminFeatureFlags();
 
   // Wire API Keys panel controls
-  $('#btn-refresh-api-keys')?.addEventListener('click', renderAdminKeys);
-  $('#btn-generate-api-key')?.addEventListener('click', async () => {
+  bindAdminOnce($('#btn-refresh-api-keys'), 'click', renderAdminKeys, 'keys_refresh');
+  bindAdminOnce($('#btn-generate-api-key'), 'click', async () => {
     const label = ($('#admin-new-key-label')?.value || '').trim() || 'API Key';
     const scopes = [];
     if ($('#scope-read-leaderboard')?.checked) scopes.push('read:leaderboard');
@@ -14770,9 +14778,9 @@ function initAdminWorkspace() {
     } else {
       showToast('Error generating API key: ' + (res?.error || 'Unknown error'));
     }
-  });
+  }, 'keys_gen');
 
-  $('#btn-copy-new-key')?.addEventListener('click', () => {
+  bindAdminOnce($('#btn-copy-new-key'), 'click', () => {
     const keyTxt = $('#admin-new-key-text')?.textContent || '';
     if (keyTxt) {
       navigator.clipboard.writeText(keyTxt).then(() => {
@@ -14781,11 +14789,11 @@ function initAdminWorkspace() {
         showToast('Could not copy automatically. Please select and copy.');
       });
     }
-  });
+  }, 'keys_copy');
 
   // Wire Telemetry panel controls
-  $('#btn-refresh-telemetry')?.addEventListener('click', renderAdminTelemetry);
-  $('#btn-refresh-issues')?.addEventListener('click', window.renderAdminIssues);
+  bindAdminOnce($('#btn-refresh-telemetry'), 'click', renderAdminTelemetry, 'telem_refresh');
+  bindAdminOnce($('#btn-refresh-issues'), 'click', window.renderAdminIssues, 'issues_refresh');
 
 
   // Load existing AI Keys Pool
@@ -14820,8 +14828,8 @@ function initAdminWorkspace() {
       }
       updateGeminiKeyStatus(v);
     };
-    geminiInput.addEventListener('input', persistGemini);
-    geminiInput.addEventListener('change', persistGemini);
+    bindAdminOnce(geminiInput, 'input', persistGemini, 'gemini_in');
+    bindAdminOnce(geminiInput, 'change', persistGemini, 'gemini_chg');
   }
 
   // ElevenLabs Voice Verification & Loader
@@ -14937,8 +14945,8 @@ function initAdminWorkspace() {
       localStorage.setItem('cf_eleven_key', v);
       STATE.config.eleven_key = v;
     };
-    elevenInput.addEventListener('input', persistEleven);
-    elevenInput.addEventListener('change', persistEleven);
+    bindAdminOnce(elevenInput, 'input', persistEleven, 'eleven_in');
+    bindAdminOnce(elevenInput, 'change', persistEleven, 'eleven_chg');
   }
 
   if (elevenVoiceInput) {
@@ -14949,11 +14957,11 @@ function initAdminWorkspace() {
       localStorage.setItem('cf_eleven_voice', v);
       STATE.config.eleven_voice = v;
     };
-    elevenVoiceInput.addEventListener('input', persistVoice);
-    elevenVoiceInput.addEventListener('change', persistVoice);
+    bindAdminOnce(elevenVoiceInput, 'input', persistVoice, 'voice_in');
+    bindAdminOnce(elevenVoiceInput, 'change', persistVoice, 'voice_chg');
   }
 
-  $('#admin-eleven-voice-select')?.addEventListener('change', function() {
+  bindAdminOnce($('#admin-eleven-voice-select'), 'change', function() {
     const v = this.value;
     if (elevenVoiceInput) {
       elevenVoiceInput.value = v;
@@ -14962,13 +14970,13 @@ function initAdminWorkspace() {
     }
     updateGreetingButtonTitle();
     if (typeof updateTutorialVoiceBadge === 'function') updateTutorialVoiceBadge();
-  });
+  }, 'voice_sel');
 
-  $('#btn-verify-eleven')?.addEventListener('click', () => {
+  bindAdminOnce($('#btn-verify-eleven'), 'click', () => {
     verifyAndLoadElevenVoices(false);
-  });
+  }, 'verify_eleven');
 
-  $('#btn-quick-select-free-voice')?.addEventListener('click', () => {
+  bindAdminOnce($('#btn-quick-select-free-voice'), 'click', () => {
     // Select George (JBFqnCBsd6RMkjVDRZzb) or first premade studio voice
     const bestVoice = 'JBFqnCBsd6RMkjVDRZzb'; // George (Warm, Articulate)
     if (elevenVoiceInput) elevenVoiceInput.value = bestVoice;
@@ -14980,7 +14988,7 @@ function initAdminWorkspace() {
     localStorage.setItem('cf_eleven_voice', bestVoice);
     STATE.config.eleven_voice = bestVoice;
     showToast('⚡ Auto-selected George (Studio Free-Tier Voice)!');
-  });
+  }, 'quick_free_voice');
 
   // Wire Speech-to-Text (STT) & Offline Whisper Adaptive Router Controls
   window.syncAdminSttRouterControls = function syncAdminSttRouterControls() {
@@ -15001,7 +15009,7 @@ function initAdminWorkspace() {
     }
   };
 
-  $('#admin-stt-engine')?.addEventListener('change', async function () {
+  bindAdminOnce($('#admin-stt-engine'), 'change', async function () {
     const mode = this.value || 'auto';
     STATE.config.stt_mode = mode;
     try { localStorage.setItem('cf_stt_mode', mode); } catch {}
@@ -15011,9 +15019,9 @@ function initAdminWorkspace() {
     }
     const labelText = this.options[this.selectedIndex]?.textContent || mode;
     showToast(`STT Engine switched to: ${labelText}`);
-  });
+  }, 'stt_engine');
 
-  $('#admin-whisper-model')?.addEventListener('change', async function () {
+  bindAdminOnce($('#admin-whisper-model'), 'change', async function () {
     const wm = this.value || 'Xenova/whisper-tiny.en';
     STATE.config.whisper_model = wm;
     try { localStorage.setItem('cf_whisper_model', wm); } catch {}
@@ -15024,9 +15032,9 @@ function initAdminWorkspace() {
     if (getActiveAdminToken()) {
       await fetchApi('admin/config', 'PUT', { whisper_model: wm }).catch(() => {});
     }
-  });
+  }, 'whisper_model');
 
-  $('#btn-preload-whisper')?.addEventListener('click', async function () {
+  bindAdminOnce($('#btn-preload-whisper'), 'click', async function () {
     if (!window.CareerFairSTT) {
       showToast('Offline Whisper module not loaded.');
       return;
@@ -15052,12 +15060,12 @@ function initAdminWorkspace() {
       this.textContent = prevText;
       window.CareerFairSTT.updateAdminSttRuntimeUi();
     }
-  });
+  }, 'preload_whisper');
 
   window.syncAdminSttRouterControls();
 
   // Save AI Credentials & Backup Keys Pool
-  $('#btn-save-ai')?.addEventListener('click', async () => {
+  bindAdminOnce($('#btn-save-ai'), 'click', async () => {
     // 1. Gather Gemini keys from dynamic pool inputs, fallback to storage / config
     const geminiInputs = Array.from(document.querySelectorAll('#gemini-keys-container .gemini-key-field'));
     let geminiKeys = geminiInputs.map(i => i.value.trim()).filter(Boolean).join('\n');
@@ -15159,10 +15167,10 @@ function initAdminWorkspace() {
     if (elevenKey) {
       await verifyAndLoadElevenVoices(true);
     }
-  });
+  }, 'save_ai');
 
   // Test Humanoid Voice button in Admin - tests the EXACT configured Voice ID directly
-  $('#btn-test-tts-voice')?.addEventListener('click', async function() {
+  bindAdminOnce($('#btn-test-tts-voice'), 'click', async function() {
     const testStatus = $('#admin-tts-test-status');
 
     // Auto-compact first: if Main is blank while backups exist, promote Backup 1 to Main immediately on screen!
@@ -15212,7 +15220,7 @@ function initAdminWorkspace() {
       }
       stopAllVoice();
     }
-  });
+  }, 'test_tts');
 
   // Auto-verify ElevenLabs voices on admin load if key exists
   setTimeout(() => {
@@ -15222,7 +15230,7 @@ function initAdminWorkspace() {
   }, 400);
 
   // Broadcast settings save
-  $('#btn-save-broadcast')?.addEventListener('click', async () => {
+  bindAdminOnce($('#btn-save-broadcast'), 'click', async () => {
     const banner = ($('#admin-banner-input')?.value || '').trim();
     const timer = parseInt($('#admin-timer-input')?.value || '0', 10) || 0;
     if (banner) {
@@ -15232,10 +15240,10 @@ function initAdminWorkspace() {
     STATE.config.timer = timer;
     await fetchApi('admin/config', 'PUT', { banner, timer });
     showToast('Broadcast banner updated');
-  });
+  }, 'save_broadcast');
 
   // Branding save
-  $('#btn-save-branding')?.addEventListener('click', async () => {
+  bindAdminOnce($('#btn-save-branding'), 'click', async () => {
     const show = $('#admin-branding-toggle').checked;
     const name = $('#admin-school-name-input').value;
     STATE.config.school_branding = show;
@@ -15244,17 +15252,17 @@ function initAdminWorkspace() {
     $('#school-branding-name').textContent = name;
     await fetchApi('admin/config', 'PUT', { school_branding: show, school_name: name });
     showToast('Branding settings updated');
-  });
+  }, 'save_branding');
 
   // Moderation & Deletion handlers
   renderAdminModeration();
 
-  $('#btn-refresh-admin-feedback')?.addEventListener('click', () => {
+  bindAdminOnce($('#btn-refresh-admin-feedback'), 'click', () => {
     renderAdminModeration();
     showToast('Refreshed visitor reflections');
-  });
+  }, 'refresh_fb');
 
-  $('#btn-clear-all-feedback')?.addEventListener('click', async () => {
+  bindAdminOnce($('#btn-clear-all-feedback'), 'click', async () => {
     if (!confirm('Are you sure you want to delete ALL visitor reflections? This action cannot be undone.')) return;
     try {
       localStorage.setItem('cf_feedback_reset', 'true');
@@ -15271,14 +15279,14 @@ function initAdminWorkspace() {
     if (typeof renderAdminModeration === 'function') {
       await renderAdminModeration();
     }
-  });
+  }, 'clear_fb');
 
-  $('#btn-refresh-admin-scores')?.addEventListener('click', () => {
+  bindAdminOnce($('#btn-refresh-admin-scores'), 'click', () => {
     renderAdminModeration();
     showToast('Refreshed leaderboard scores');
-  });
+  }, 'refresh_scores');
 
-  $('#btn-reset-scores')?.addEventListener('click', async () => {
+  bindAdminOnce($('#btn-reset-scores'), 'click', async () => {
     if (!confirm('Are you sure you want to reset ALL leaderboard scores? All recorded attempts will be erased.')) return;
     try {
       await fetchApi('admin/reset', 'POST', {});
@@ -15289,7 +15297,7 @@ function initAdminWorkspace() {
     showToast('All leaderboard scores reset');
     loadLeaderboard();
     renderAdminModeration();
-  });
+  }, 'reset_scores');
 
   // ── Admin Devices & IP Access Control Wiring ──────────────────────────────
   const btnRefreshDevices = $('#btn-admin-refresh-devices');
@@ -15463,12 +15471,12 @@ function initAdminWorkspace() {
   }
 
   // Export handlers with secure admin session authorization header
-  $('#btn-export-scores-csv')?.addEventListener('click', () => {
+  bindAdminOnce($('#btn-export-scores-csv'), 'click', () => {
     downloadProtectedCsv('admin/export', 'careerfair-scores.csv');
-  });
-  $('#btn-export-feedback-csv')?.addEventListener('click', () => {
+  }, 'export_scores');
+  bindAdminOnce($('#btn-export-feedback-csv'), 'click', () => {
     downloadProtectedCsv('admin/export-feedback', 'careerfair-feedback.csv');
-  });
+  }, 'export_fb');
 
   // ── Admin Live Stream Controls ───────────────────────────────────────────
   const streamUrlInput = $('#admin-stream-url-input');
@@ -15546,11 +15554,11 @@ function initAdminWorkspace() {
     }
   }
 
-  streamUrlInput?.addEventListener('input', e => {
+  bindAdminOnce(streamUrlInput, 'input', e => {
     validateAdminStreamInput(e.target.value);
-  });
+  }, 'stream_url');
 
-  $('#btn-admin-preview-stream')?.addEventListener('click', () => {
+  bindAdminOnce($('#btn-admin-preview-stream'), 'click', () => {
     const val = streamUrlInput ? streamUrlInput.value.trim() : '';
     const id = validateAdminStreamInput(val);
     if (id) {
@@ -15559,9 +15567,9 @@ function initAdminWorkspace() {
     } else {
       showToast('Please enter a valid YouTube video or stream link.');
     }
-  });
+  }, 'preview_stream');
 
-  $('#btn-save-stream')?.addEventListener('click', async () => {
+  bindAdminOnce($('#btn-save-stream'), 'click', async () => {
     const urlVal = streamUrlInput ? streamUrlInput.value.trim() : '';
     const titleVal = streamTitleInput ? streamTitleInput.value.trim() : 'Career Fair 2026 — Live Stage Broadcast';
     const activeVal = streamActiveToggle ? streamActiveToggle.checked : true;
@@ -15590,18 +15598,18 @@ function initAdminWorkspace() {
 
     renderHeroStream();
     showToast('Live stream settings updated and broadcast published!');
-  });
+  }, 'save_stream');
 
-  $('#btn-load-sample-stream')?.addEventListener('click', () => {
+  bindAdminOnce($('#btn-load-sample-stream'), 'click', () => {
     const sample = 'https://www.youtube.com/watch?v=jfKfPfyJRdk';
     if (streamUrlInput) streamUrlInput.value = sample;
     if (streamActiveToggle) streamActiveToggle.checked = true;
     const id = validateAdminStreamInput(sample);
     setAdminPreview(id);
     showToast('Sample stream URL loaded. Click "Save & Publish Stream" to push live.');
-  });
+  }, 'sample_stream');
 
-  $('#btn-turn-off-stream')?.addEventListener('click', async () => {
+  bindAdminOnce($('#btn-turn-off-stream'), 'click', async () => {
     if (streamActiveToggle) streamActiveToggle.checked = false;
     STATE.config.stream_active = false;
     localStorage.setItem('cf_stream_active', 'false');
@@ -15615,7 +15623,7 @@ function initAdminWorkspace() {
       streamStatusPill.style.borderColor = 'rgba(148, 163, 184, 0.3)';
     }
     showToast('Hero stream set to standby mode.');
-  });
+  }, 'off_stream');
 
   // Check initial state for preview if already present
   if (streamUrlInput && streamUrlInput.value) {
