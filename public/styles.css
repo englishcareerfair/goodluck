@@ -6006,6 +6006,106 @@ select.tutorial-button-highlight {
   );
 }
 
+/* ── Modern Glowing Website Perimeter Overlay (Active Throughout Tutorial) ── */
+#tutorial-perimeter-glow {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9992;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  box-shadow:
+    inset 0 0 24px rgba(0, 240, 255, 0.24),
+    inset 0 0 64px rgba(139, 92, 246, 0.14);
+}
+
+body.tutorial-active #tutorial-perimeter-glow {
+  opacity: 1;
+}
+
+#tutorial-perimeter-glow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 3px;
+  background: conic-gradient(
+    from var(--perimeter-angle, 0deg),
+    rgba(0, 240, 255, 0.25) 0%,
+    #00f0ff 18%,
+    #8b5cf6 38%,
+    rgba(16, 185, 129, 0.85) 58%,
+    #00f0ff 78%,
+    rgba(0, 240, 255, 0.25) 100%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: perimeterRotate 5s linear infinite;
+}
+
+[data-theme="light"] #tutorial-perimeter-glow {
+  box-shadow:
+    inset 0 0 22px rgba(2, 132, 199, 0.22),
+    inset 0 0 56px rgba(79, 70, 229, 0.12);
+}
+
+[data-theme="light"] #tutorial-perimeter-glow::before {
+  background: conic-gradient(
+    from var(--perimeter-angle, 0deg),
+    rgba(2, 132, 199, 0.35) 0%,
+    #0284c7 20%,
+    #6366f1 42%,
+    #059669 65%,
+    #0284c7 85%,
+    rgba(2, 132, 199, 0.35) 100%
+  );
+}
+
+/* ── Selective Spotlight Cutout: Darkness Backdrop + Target Brightness Boost ── */
+#tutorial-spotlight-hole {
+  position: fixed;
+  top: -9999px;
+  left: -9999px;
+  width: 0;
+  height: 0;
+  border-radius: 14px;
+  pointer-events: none;
+  z-index: 9991;
+  opacity: 0;
+  box-shadow:
+    0 0 0 9999px rgba(3, 7, 18, 0.64),
+    0 0 0 2.5px rgba(0, 240, 255, 0.85),
+    0 0 26px rgba(0, 240, 255, 0.55);
+  transition: opacity 0.28s ease, border-radius 0.2s ease;
+}
+
+body.tutorial-active.tutorial-spotlight-dim #tutorial-spotlight-hole.visible {
+  opacity: 1;
+}
+
+[data-theme="light"] #tutorial-spotlight-hole {
+  box-shadow:
+    0 0 0 9999px rgba(15, 23, 42, 0.52),
+    0 0 0 2.5px rgba(2, 132, 199, 0.9),
+    0 0 26px rgba(2, 132, 199, 0.45);
+}
+
+.tutorial-spotlight-target-bright {
+  filter: brightness(1.18) contrast(1.06) saturate(1.14) !important;
+  box-shadow:
+    0 0 24px rgba(0, 240, 255, 0.72),
+    0 0 10px rgba(255, 255, 255, 0.42) !important;
+  transition: filter 0.25s ease, box-shadow 0.25s ease !important;
+}
+
+[data-theme="light"] .tutorial-spotlight-target-bright {
+  filter: brightness(1.08) contrast(1.08) saturate(1.15) !important;
+  box-shadow:
+    0 0 24px rgba(2, 132, 199, 0.65),
+    0 0 10px rgba(255, 255, 255, 0.7) !important;
+}
+
 @keyframes tutorialEq {
   0% { transform: scaleY(0.3); }
   100% { transform: scaleY(1); }

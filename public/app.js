@@ -1867,6 +1867,7 @@ function startCollegesTabCycling() {
 
 function startTutorialNarrationGlider(tabKey) {
   if (userInterruptedScrollForStep === currentTutorialStepIndex) return;
+  if (!['hero', 'colleges', 'careers', 'exams', 'speechLab'].includes(tabKey)) return;
   // If already gliding or scheduled for this tab, do not spawn another instance
   if (currentGliderTab === tabKey) return;
   cancelTutorialGlider();
@@ -1910,7 +1911,15 @@ function startTutorialNarrationGlider(tabKey) {
       let targetDistance;
       let v = 210;
 
-      if (tabKey === 'careers') {
+      if (tabKey === 'hero') {
+        // Overview (#sec-hero): Keep hero heading & CTA buttons framed at top on desktop;
+        // on stacked mobile viewports, glide gently only within #sec-hero without overshooting into footer
+        const heroRect = targetSec.getBoundingClientRect();
+        const heroBottomPage = currentScrollY + heroRect.bottom;
+        const heroOverflow = Math.round(heroBottomPage - viewportHeight + 24);
+        targetDistance = heroOverflow > 36 ? Math.min(maxScroll, heroOverflow) : 0;
+        v = 110;
+      } else if (tabKey === 'careers') {
         targetDistance = maxScroll;
         v = 210;
       } else if (tabKey === 'exams') {
@@ -1928,12 +1937,9 @@ function startTutorialNarrationGlider(tabKey) {
         const idealStageTarget = Math.round(stagePageBottom - viewportHeight + 44);
         targetDistance = Math.min(maxScroll, Math.max(280, idealStageTarget));
         v = 360;
-      } else {
-        targetDistance = Math.min(maxScroll, 850);
-        v = 210;
       }
 
-      if (targetDistance <= 12) {
+      if (!targetDistance || targetDistance <= 12) {
         currentGliderTab = null;
         document.documentElement.style.scrollBehavior = '';
         return;
@@ -2089,6 +2095,8 @@ function setHeaderBookletHighlight(active) {
 }
 
 function syncStudentNameToAllSections(name) {
+  if (!name) return;
+  name = capitalizeName(name);
   if (!name) return;
   STATE.studentName = name;
   try {
@@ -2503,6 +2511,84 @@ function triggerTutorialAutoAdvance(actionTitle, confirmationMsg, celebrationTyp
   }, 1350);
 }
 
+// Recommended high-focus action steps where surrounding darkness + button brightness boost clarity
+// (Excluded from scrolling galleries, reading lists, games, and overview so content stays bright & readable)
+const TUTORIAL_SPOTLIGHT_DIM_SECTIONS = new Set([
+  'section_speak',
+  'section_speech',
+  'section_teleprompter'
+]);
+
+let tutorialSpotlightTargetEl = null;
+let tutorialSpotlightRafId = null;
+
+function ensureTutorialVisualOverlays() {
+  if (typeof document === 'undefined' || !document.body) return {};
+  let perimeter = document.getElementById('tutorial-perimeter-glow');
+  if (!perimeter) {
+    perimeter = document.createElement('div');
+    perimeter.id = 'tutorial-perimeter-glow';
+    perimeter.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(perimeter);
+  }
+  let hole = document.getElementById('tutorial-spotlight-hole');
+  if (!hole) {
+    hole = document.createElement('div');
+    hole.id = 'tutorial-spotlight-hole';
+    hole.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(hole);
+  }
+  return { perimeter, hole };
+}
+
+function updateTutorialSpotlightPosition() {
+  const hole = document.getElementById('tutorial-spotlight-hole');
+  if (!isTutorialRunning || !tutorialSpotlightTargetEl || !hole || !document.body.classList.contains('tutorial-spotlight-dim')) {
+    if (hole) hole.classList.remove('visible');
+    tutorialSpotlightRafId = null;
+    return;
+  }
+  const rect = tutorialSpotlightTargetEl.getBoundingClientRect();
+  const inView = rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth;
+  if (inView) {
+    const pad = 8;
+    const isRound = Math.abs(rect.width - rect.height) <= 4 && rect.width <= 140;
+    const cs = window.getComputedStyle(tutorialSpotlightTargetEl);
+    const br = cs && cs.borderRadius ? cs.borderRadius : '';
+    hole.style.top = `${Math.round(rect.top - pad)}px`;
+    hole.style.left = `${Math.round(rect.left - pad)}px`;
+    hole.style.width = `${Math.round(rect.width + pad * 2)}px`;
+    hole.style.height = `${Math.round(rect.height + pad * 2)}px`;
+    hole.style.borderRadius = isRound ? '50%' : (br && br !== '0px' ? `calc(${br} + 4px)` : '14px');
+    hole.classList.add('visible');
+  } else {
+    hole.classList.remove('visible');
+  }
+  tutorialSpotlightRafId = requestAnimationFrame(updateTutorialSpotlightPosition);
+}
+
+function cancelTutorialSpotlight() {
+  if (tutorialSpotlightRafId) {
+    cancelAnimationFrame(tutorialSpotlightRafId);
+    tutorialSpotlightRafId = null;
+  }
+  tutorialSpotlightTargetEl = null;
+  document.body.classList.remove('tutorial-spotlight-dim');
+  document.querySelectorAll('.tutorial-spotlight-target-bright').forEach(el => el.classList.remove('tutorial-spotlight-target-bright'));
+  const hole = document.getElementById('tutorial-spotlight-hole');
+  if (hole) hole.classList.remove('visible');
+}
+
+function applyTutorialSpotlight(targetEl, enableDim) {
+  cancelTutorialSpotlight();
+  if (!isTutorialRunning || !enableDim || !targetEl) return;
+  ensureTutorialVisualOverlays();
+  tutorialSpotlightTargetEl = targetEl;
+  targetEl.classList.add('tutorial-spotlight-target-bright');
+  document.body.classList.add('tutorial-spotlight-dim');
+  updateTutorialSpotlightPosition();
+}
+
 function stopTutorial() {
   if (tutorialAutoAdvanceTimer) {
     clearTimeout(tutorialAutoAdvanceTimer);
@@ -2510,6 +2596,8 @@ function stopTutorial() {
   }
   isTutorialRunning = false;
   isTutorialPaused = false;
+  cancelTutorialSpotlight();
+  document.body.classList.remove('tutorial-active');
   stopAllVoice();
   if (activeTutorialAudio) {
     try {
@@ -2604,6 +2692,11 @@ function renderInSiteTutorialStep(stepIndex) {
     renderGameArena(data.game);
   }
 
+  // Activate perimeter glow throughout the tutorial; clear any prior selective dim spotlight
+  ensureTutorialVisualOverlays();
+  document.body.classList.add('tutorial-active');
+  cancelTutorialSpotlight();
+
   // Remove previous button highlights & pin glows across document
   document.querySelectorAll('.tutorial-button-highlight').forEach(el => el.classList.remove('tutorial-button-highlight'));
   document.querySelectorAll('.tutorial-arena-highlight').forEach(el => el.classList.remove('tutorial-arena-highlight'));
@@ -2614,6 +2707,9 @@ function renderInSiteTutorialStep(stepIndex) {
     const targetEl = document.querySelector(data.targetSelector);
     if (targetEl) {
       targetEl.classList.add('tutorial-button-highlight');
+      if (TUTORIAL_SPOTLIGHT_DIM_SECTIONS.has(data.sectionKey)) {
+        applyTutorialSpotlight(targetEl, true);
+      }
       if (data.tab === 'games' && targetEl.closest('#game-picker-tabs')) {
         targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
       }
@@ -2670,9 +2766,8 @@ function renderInSiteTutorialStep(stepIndex) {
       return;
     }
 
-    if (data.tab === 'careers' || data.tab === 'exams' || data.tab === 'speechLab') {
-      // User request: Smooth downward glide at calibrated 210 px/s pace across careers, exams, and speech lab
-      // Do not interrupt the glide with scrollTutorialTargetIntoView
+    if (data.tab === 'hero' || data.tab === 'careers' || data.tab === 'exams' || data.tab === 'speechLab') {
+      // Overview remains anchored cleanly from top; careers/exams/speechLab use calibrated narration glide
       return;
     }
 
@@ -2693,7 +2788,7 @@ function renderInSiteTutorialStep(stepIndex) {
   window.scrollTo(0, 0);
   document.body.scrollTop = 0;
   htmlEl.scrollTop = 0;
-  if (!['careers', 'exams', 'speechLab'].includes(data.tab)) {
+  if (!['hero', 'careers', 'exams', 'speechLab'].includes(data.tab)) {
     requestAnimationFrame(() => {
       htmlEl.style.scrollBehavior = prevBehavior;
     });
@@ -2719,6 +2814,7 @@ function renderInSiteTutorialStep(stepIndex) {
       const downloadBtn = document.getElementById('btn-header-dossier') || document.getElementById('btn-download-dossier');
       if (downloadBtn) {
         downloadBtn.classList.add('tutorial-button-highlight');
+        applyTutorialSpotlight(downloadBtn, true);
       }
     }, 2400);
   }
@@ -3999,8 +4095,21 @@ function initNavigation() {
     }
   });
   $('#tutorial-student-name-input')?.addEventListener('input', (e) => {
-    e.target.style.borderColor = '';
-    e.target.style.boxShadow = '';
+    const inp = e.target;
+    inp.style.borderColor = '';
+    inp.style.boxShadow = '';
+    const raw = inp.value;
+    const formatted = raw.replace(/(^|\s|-)([a-z])/g, (_, sep, ch) => sep + ch.toUpperCase());
+    if (formatted !== raw) {
+      const pos = inp.selectionStart;
+      inp.value = formatted;
+      try {
+        if (typeof pos === 'number') inp.setSelectionRange(pos, pos);
+      } catch (_) {}
+    }
+  });
+  $('#tutorial-student-name-input')?.addEventListener('blur', (e) => {
+    e.target.value = capitalizeName(e.target.value);
   });
   $('#btn-start-short-tutorial')?.addEventListener('click', () => startTutorialWithMode('short'));
   $('#btn-start-expanded-tutorial')?.addEventListener('click', () => startTutorialWithMode('expanded'));
