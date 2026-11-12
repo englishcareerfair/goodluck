@@ -2047,16 +2047,33 @@ function updateHeaderBookletVisibility() {
   // Admin users get booklet access from the very start
   const isAdmin = Boolean(getActiveAdminToken());
   // For non-admin visitors, booklet is only available during active session after completing tour/feedback,
-  // and is removed once the site is reloaded
+  // and is strictly removed once the site is reloaded
   const isUnlockedInSession = sessionStorage.getItem('cf_booklet_session_unlocked') === 'true';
   const isPdfEnabled = window.STATE?.config?.flags?.pdf_export !== false;
 
   if ((isAdmin || isUnlockedInSession) && isPdfEnabled) {
-    btn.style.display = 'inline-flex';
-    btn.hidden = false;
+    btn.removeAttribute('hidden');
+    btn.style.setProperty('display', 'inline-flex', 'important');
   } else {
-    btn.style.display = 'none';
-    btn.hidden = true;
+    btn.setAttribute('hidden', '');
+    btn.style.setProperty('display', 'none', 'important');
+  }
+}
+
+function updateGuidancePill() {
+  const pill = document.getElementById('footer-school-guidance-pill');
+  const txt = document.getElementById('footer-school-guidance-text');
+  const textVal = (window.STATE?.config && window.STATE.config.guidance_text) ? String(window.STATE.config.guidance_text).trim() : '';
+  if (pill && txt) {
+    if (textVal) {
+      txt.textContent = textVal;
+      pill.removeAttribute('hidden');
+      pill.style.setProperty('display', 'inline-flex', 'important');
+    } else {
+      pill.setAttribute('hidden', '');
+      pill.style.setProperty('display', 'none', 'important');
+      txt.textContent = '';
+    }
   }
 }
 
@@ -14465,16 +14482,8 @@ function applyFeatureFlags() {
     greetingBtn.style.display = 'none';
   }
 
-  // 5. Header Dossier button encapsulation (hidden until user completes tutorial)
-  const dossierBtn = $('#btn-header-dossier');
-  if (dossierBtn) {
-    const isPdfEnabled = flags.pdf_export !== false;
-    const isTutorialDone = localStorage.getItem('cf_tutorial_completed') === 'true' || 
-                           localStorage.getItem('cf_dossier_unlocked') === 'true';
-    const shouldShow = isPdfEnabled && isTutorialDone;
-    dossierBtn.hidden = !shouldShow;
-    dossierBtn.style.display = shouldShow ? 'inline-flex' : 'none';
-  }
+  // 5. Header Dossier button encapsulation (centralized single source of truth)
+  updateHeaderBookletVisibility();
 
   // 6. Header Tutorial button encapsulation
   const tutorialBtn = $('#btn-header-tutorial');
@@ -14683,6 +14692,11 @@ function initAdminWorkspace() {
       if (adminCfg.has_workers_ai !== undefined) {
         STATE.config.has_workers_ai = Boolean(adminCfg.has_workers_ai);
       }
+      if (adminCfg.guidance_text !== undefined) {
+        STATE.config.guidance_text = adminCfg.guidance_text;
+        if ($('#admin-guidance-text-input')) $('#admin-guidance-text-input').value = adminCfg.guidance_text;
+        updateGuidancePill();
+      }
       if (typeof window.syncAdminSttRouterControls === 'function') window.syncAdminSttRouterControls();
       if (typeof window.syncAdminGeminiKeyBoxes === 'function') window.syncAdminGeminiKeyBoxes();
       if (typeof window.syncAdminElevenKeyBoxes === 'function') window.syncAdminElevenKeyBoxes();
@@ -14809,14 +14823,16 @@ function initAdminWorkspace() {
     const selectEl = $('#admin-eleven-voice-select');
     const hintEl = $('#admin-eleven-voice-hint');
     const customVoiceInput = $('#admin-eleven-voice');
-    // Gather active key from dynamic pool inputs -> localStorage -> STATE
+
+    // Gather all active keys from dynamic pool inputs -> localStorage -> STATE
     const dynamicElevenInputs = Array.from(document.querySelectorAll('#eleven-keys-container .eleven-key-field'));
-    const dynamicKey = dynamicElevenInputs.map(i => i.value.trim()).filter(Boolean)[0] || '';
-    const keyVal = (dynamicKey || elevenInput?.value || localStorage.getItem('cf_eleven_key') || (localStorage.getItem('cf_eleven_keys') || '').split(/[\r\n,]+/)[0].trim() || STATE.config.eleven_key || '').trim();
-    const effectiveKey = (keyVal && keyVal !== 'configured') ? keyVal : '';
+    const dynamicKeys = dynamicElevenInputs.map(i => i.value.trim()).filter(Boolean);
+    const poolKeys = (localStorage.getItem('cf_eleven_keys') || '').split(/[\r\n,]+/).map(k => k.trim()).filter(Boolean);
+    const combinedKeys = Array.from(new Set([...dynamicKeys, ...poolKeys])).filter(Boolean);
+    const effectiveKey = (dynamicKeys[0] || poolKeys[0] || elevenInput?.value || localStorage.getItem('cf_eleven_key') || STATE.config.eleven_key || '').trim();
 
     // Check if user entered a Key ID instead of the secret API key
-    if (effectiveKey && (effectiveKey.startsWith('key_') || effectiveKey.length < 24)) {
+    if (effectiveKey && (effectiveKey.startsWith('key_') || (effectiveKey.length < 24 && effectiveKey !== 'configured'))) {
       if (statusEl) {
         statusEl.innerHTML = '<span style="color:var(--accent-amber, #f59e0b);font-weight:600;">⚠️ You entered the "Key ID" instead of the Secret API Key.<br>In ElevenLabs (Settings → API Keys), please copy the secret key from the Actions column.</span>';
       }
@@ -14824,28 +14840,41 @@ function initAdminWorkspace() {
       return;
     }
 
+    if (!effectiveKey && combinedKeys.length === 0) {
+      if (statusEl) {
+        statusEl.innerHTML = '<span style="color:var(--text-dim);">⚠️ No ElevenLabs key entered. Studio voice synthesizes via high-fidelity Indian English (en-IN) neural voice!</span>';
+      }
+      return;
+    }
+
     if (statusEl && !silent) {
-      statusEl.innerHTML = '<span style="color:var(--accent-cyan);">⏳ Verifying ElevenLabs credentials & voices...</span>';
+      statusEl.innerHTML = '<span style="color:var(--accent-cyan);">⏳ Verifying ElevenLabs credentials & credits...</span>';
     }
 
     try {
-      const vHeaders = effectiveKey ? { 'xi-api-key': effectiveKey } : {};
+      const vHeaders = { 'Content-Type': 'application/json' };
       const _adminTok = (typeof getActiveAdminToken === 'function') ? getActiveAdminToken() : '';
       if (_adminTok) vHeaders['Authorization'] = 'Bearer ' + _adminTok;
-      const res = await fetch(getApiUrl('api/tts/voices') + (effectiveKey ? `?key=${encodeURIComponent(effectiveKey)}` : ''), {
-        headers: vHeaders
+      if (effectiveKey && effectiveKey !== 'configured') vHeaders['xi-api-key'] = effectiveKey;
+
+      const keysToSend = combinedKeys.length ? combinedKeys : (effectiveKey && effectiveKey !== 'configured' ? [effectiveKey] : []);
+      const res = await fetch(getApiUrl('api/tts/voices'), {
+        method: 'POST',
+        headers: vHeaders,
+        body: JSON.stringify({ keysPool: keysToSend })
       });
 
       const data = await safeJsonResponse(res);
 
-      if (data && data.ok) {
+      if (data && data.ok && !data.quota_exhausted) {
         const charCount = Number(data.subscription?.character_count ?? data.character_count ?? 0);
         const charLimit = Number(data.subscription?.character_limit ?? data.character_limit ?? 10000);
-        const quotaStr = ` · ${charCount.toLocaleString()} / ${charLimit.toLocaleString()} credits`;
+        const remaining = Number(data.remaining_credits ?? Math.max(0, charLimit - charCount));
+        const keyCount = keysToSend.length || 1;
+        const poolStr = keyCount > 1 ? ` · Failover Pool: ${keyCount} keys active` : '';
+
         if (statusEl) {
-          const keyCount = (localStorage.getItem('cf_eleven_keys') || '').split(/[\r\n,]+/).map(k => k.trim()).filter(Boolean).length || (effectiveKey ? 1 : 0);
-          const poolStr = keyCount > 1 ? ` · Failover Pool: ${keyCount} keys active` : '';
-          statusEl.innerHTML = `<span style="color:var(--accent-green, #10b981);font-weight:600;">✅ ElevenLabs Connected (${data.total || 0} voices available${quotaStr}${poolStr})</span>`;
+          statusEl.innerHTML = `<span style="color:var(--accent-green, #10b981);font-weight:600;">✅ ElevenLabs Connected (${data.total || 0} voices available · ${remaining.toLocaleString()} credits remaining of ${charLimit.toLocaleString()}${poolStr})</span>`;
         }
 
         if (selectEl && Array.isArray(data.voices)) {
@@ -14882,10 +14911,14 @@ function initAdminWorkspace() {
 
         if (!silent) showToast('✅ ElevenLabs verified successfully!');
       } else {
-        const errMsg = data.message || 'ElevenLabs key not active.';
+        const isQuota = Boolean(data?.quota_exhausted || data?.status === 'quota_exhausted' || (data?.message && (data.message.toLowerCase().includes('quota') || data.message.toLowerCase().includes('credit') || data.message.toLowerCase().includes('exhausted'))));
+        const errMsg = data?.message || (isQuota ? 'ElevenLabs API credits exhausted / API Over.' : 'ElevenLabs key not active.');
+        const charCount = Number(data?.subscription?.character_count ?? data?.character_count ?? 0);
+        const charLimit = Number(data?.subscription?.character_limit ?? data?.character_limit ?? 10000);
+
         // Auto-promote backup key if this key is invalid or quota exhausted!
         const keyPool = (localStorage.getItem('cf_eleven_keys') || '').split(/[\r\n,]+/).map(k => k.trim()).filter(Boolean);
-        if (keyPool.length > 1 && (data.status === 'invalid_key' || data.statusCode === 401 || data.statusCode === 429 || errMsg.includes('Invalid') || errMsg.includes('quota') || errMsg.includes('unauthorized'))) {
+        if (keyPool.length > 1 && (isQuota || data?.status === 'invalid_key' || data?.statusCode === 401 || data?.statusCode === 429)) {
           if (statusEl) {
             statusEl.innerHTML = `<span style="color:var(--accent-amber, #f59e0b);">🔄 Main key invalid/exhausted. Auto-promoting Backup 1 to Main &amp; re-verifying...</span>`;
           }
@@ -14894,8 +14927,24 @@ function initAdminWorkspace() {
             return verifyAndLoadElevenVoices(silent);
           }
         }
+
         if (statusEl) {
-          statusEl.innerHTML = `<span style="color:var(--accent-amber, #f59e0b);">⚠️ ${escapeHtml(errMsg)} (Fallback: Browser Indian en-IN active)</span>`;
+          if (isQuota) {
+            statusEl.innerHTML = `
+              <div style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.35);border-radius:var(--radius-sm);padding:8px 12px;margin-top:6px;">
+                <span style="color:#ef4444;font-weight:700;">⚠️ ElevenLabs Quota Exhausted / API Over</span>
+                <div style="font-size:11.5px;color:var(--text);margin-top:2px;">
+                  ${escapeHtml(errMsg)}
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                  📊 Credits: <strong>${charCount.toLocaleString()}</strong> / <strong>${charLimit.toLocaleString()}</strong> used · <strong style="color:#ef4444;">0 credits remaining</strong>.<br>
+                  Platform auto-fallback active: <strong>Authentic Indian English (en-IN) Neural Voice</strong>. Add a backup key above to restore ElevenLabs synthesis.
+                </div>
+              </div>
+            `;
+          } else {
+            statusEl.innerHTML = `<span style="color:var(--accent-amber, #f59e0b);">⚠️ ${escapeHtml(errMsg)} (Fallback: Browser Indian en-IN active)</span>`;
+          }
         }
         if (!silent) showToast(`⚠️ ElevenLabs: ${errMsg}`);
       }
@@ -15217,11 +15266,14 @@ function initAdminWorkspace() {
   bindAdminOnce($('#btn-save-branding'), 'click', async () => {
     const show = $('#admin-branding-toggle').checked;
     const name = $('#admin-school-name-input').value;
+    const guidance = ($('#admin-guidance-text-input')?.value || '').trim();
     STATE.config.school_branding = show;
     STATE.config.school_name = name;
+    STATE.config.guidance_text = guidance;
     $('#school-branding-wrap').hidden = !show;
     $('#school-branding-name').textContent = name;
-    await fetchApi('admin/config', 'PUT', { school_branding: show, school_name: name });
+    updateGuidancePill();
+    await fetchApi('admin/config', 'PUT', { school_branding: show, school_name: name, guidance_text: guidance });
     showToast('Branding settings updated');
   }, 'save_branding');
 
@@ -16017,6 +16069,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (cfg.banner) $('#broadcast-text').textContent = cfg.banner;
     if (cfg.school_name) $('#school-branding-name').textContent = cfg.school_name;
+    if (cfg.guidance_text !== undefined) {
+      STATE.config.guidance_text = cfg.guidance_text;
+    }
+    updateGuidancePill();
     const localStreamUrl = (localStorage.getItem('cf_stream_url') || '').trim();
     if (cfg.stream_url && cfg.stream_url.trim()) {
       STATE.config.stream_url = cfg.stream_url.trim();
@@ -16088,17 +16144,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateLeaderboardBadges(cachedScores);
   } catch (e) {}
 
-  // Full website load trigger for SiteLoader
+  // Full website load trigger for SiteLoader: dismiss only when async initialization and rendering are complete
   const signalSiteLoaded = () => {
-    window.SiteLoader?.dismiss();
+    if (window.SiteLoader) {
+      window.SiteLoader.setProgress(100, 'Ready! Entering Career Fair 2026...');
+      window.SiteLoader.dismiss();
+    }
   };
-  if (document.readyState === 'complete') {
-    signalSiteLoaded();
-  } else {
-    window.addEventListener('load', signalSiteLoaded, { once: true });
-    // Safety fallback: dismiss cleanly within 1.5s after DOM ready even if external assets hang
-    setTimeout(signalSiteLoaded, 400);
-  }
+  signalSiteLoaded();
 
   // ─── BACKGROUND MULTI-SYSTEM GLOBAL SYNCHRONIZER & VISITOR TELEMETRY ───
   // Start visitor heartbeat (skipped/self-excluded when admin authenticated)
@@ -17204,6 +17257,12 @@ window.initDynamicApiPools = function() {
         STATE.config.eleven_keys = joined;
         STATE.config.eleven_key = newKeys[0] || '';
         updateElevenStatusBadge(newKeys.length);
+        if (window._elevenVerifyDebounce) clearTimeout(window._elevenVerifyDebounce);
+        window._elevenVerifyDebounce = setTimeout(() => {
+          if (typeof verifyAndLoadElevenVoices === 'function') {
+            verifyAndLoadElevenVoices(true);
+          }
+        }, 750);
       };
       input.addEventListener('input', save);
       input.addEventListener('change', save);

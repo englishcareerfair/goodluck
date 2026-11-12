@@ -2149,6 +2149,7 @@ export async function onRequest(ctx) {
     const theme = await kvGet(db, 'theme', 'light');
     const school_branding = await kvGet(db, 'school_branding', '1') === '1';
     const school_name = await kvGet(db, 'school_name', 'Kanakia International School Mira Road');
+    const guidance_text = (await kvGet(db, 'guidance_text', '')) || GLOBAL_CACHE.kv.guidance_text || '';
 
     let flags = DEFAULT_FLAGS;
     try {
@@ -2218,6 +2219,7 @@ export async function onRequest(ctx) {
       theme,
       school_branding,
       school_name,
+      guidance_text,
       flags,
       packs,
       stream_url,
@@ -2284,6 +2286,7 @@ export async function onRequest(ctx) {
     const gemini_keys = (await kvGet(db, 'gemini_keys', '')) || (await kvGet(db, 'gemini_key', '')) || env.GEMINI_API_KEYS || env.GEMINI_API_KEY || '';
     const eleven_keys = (await kvGet(db, 'eleven_keys', '')) || (await kvGet(db, 'eleven_key', '')) || env.ELEVEN_KEY || env.ELEVEN_API_KEY || '';
     const eleven_voice = (await kvGet(db, 'eleven_voice', '')) || env.ELEVEN_VOICE_ID || '';
+    const guidance_text = (await kvGet(db, 'guidance_text', '')) || GLOBAL_CACHE.kv.guidance_text || '';
     const stt_mode = (await kvGet(db, 'stt_mode', '')) || 'auto';
     const whisper_model = (await kvGet(db, 'whisper_model', '')) || 'Xenova/whisper-tiny.en';
     const has_workers_ai = Boolean(env.AI && typeof env.AI.run === 'function');
@@ -2304,6 +2307,7 @@ export async function onRequest(ctx) {
       gemini_keys,
       eleven_keys,
       eleven_voice,
+      guidance_text,
       stt_mode,
       whisper_model,
       has_workers_ai,
@@ -2327,6 +2331,11 @@ export async function onRequest(ctx) {
     if (body.theme !== undefined) await kvSet(db, 'theme', body.theme);
     if (body.school_branding !== undefined) await kvSet(db, 'school_branding', body.school_branding ? '1' : '0');
     if (body.school_name !== undefined) await kvSet(db, 'school_name', body.school_name);
+    if (body.guidance_text !== undefined) {
+      const gText = String(body.guidance_text || '').trim();
+      await kvSet(db, 'guidance_text', gText);
+      GLOBAL_CACHE.kv.guidance_text = gText;
+    }
     if (body.flags !== undefined) await kvSet(db, 'flags', JSON.stringify(body.flags));
     if (body.stream_url !== undefined && String(body.stream_url).trim() !== '') {
       const cleanUrl = String(body.stream_url).trim();
@@ -4942,36 +4951,159 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
 
     let elevenKey = elevenKeyPool[0];
     let vRes = null;
-    let successfulKeyIdx = 0;
+    let successfulKeyIdx = -1;
+    let subscription = null;
+    let keyVoices = [];
+    let isKeyExhausted = false;
+    let lastKeyErrMsg = '';
+    let lastStatus = 200;
 
     for (let k = 0; k < elevenKeyPool.length; k++) {
       const curKey = elevenKeyPool[k];
       try {
+        // 1. Fetch available voices to verify key authenticity
         const testRes = await fetch('https://api.elevenlabs.io/v1/voices', {
           headers: { 'xi-api-key': curKey }
         });
-        if (testRes.ok) {
-          vRes = testRes;
-          elevenKey = curKey;
-          successfulKeyIdx = k;
-          break;
-        } else if (testRes.status === 401 || testRes.status === 429) {
+        if (!testRes.ok) {
+          lastStatus = testRes.status;
+          if (testRes.status === 401) {
+            lastKeyErrMsg = 'Invalid ElevenLabs API Key. Please verify your key on elevenlabs.io.';
+          } else if (testRes.status === 429) {
+            lastKeyErrMsg = 'ElevenLabs rate/quota limit reached.';
+          } else {
+            lastKeyErrMsg = `ElevenLabs error (${testRes.status})`;
+          }
           if (k < elevenKeyPool.length - 1) {
-            console.warn(`ElevenLabs key ${curKey.slice(0, 6)}... failed (${testRes.status}). Trying backup key ${k + 1}.`);
             continue;
           } else {
             vRes = testRes;
             elevenKey = curKey;
             break;
           }
-        } else {
-          vRes = testRes;
-          elevenKey = curKey;
-          break;
         }
+
+        const vData = await testRes.json();
+        const rawVoices = vData.voices || [];
+
+        // 2. Fetch subscription & check credit quota
+        let sub = null;
+        try {
+          const subRes = await fetch('https://api.elevenlabs.io/v1/user/subscription', {
+            headers: { 'xi-api-key': curKey }
+          });
+          if (subRes.ok) {
+            sub = await subRes.json();
+          } else {
+            const uRes = await fetch('https://api.elevenlabs.io/v1/user', {
+              headers: { 'xi-api-key': curKey }
+            });
+            if (uRes.ok) {
+              const uData = await uRes.json();
+              if (uData.subscription) sub = uData.subscription;
+            }
+          }
+        } catch (_) {}
+
+        const charCount = Number(sub?.character_count ?? sub?.characters_used ?? 0);
+        const charLimit = Number(sub?.character_limit ?? sub?.characters_allowed ?? 10000);
+        const remaining = Math.max(0, charLimit - charCount);
+        const subStatus = String(sub?.status || 'active').toLowerCase();
+
+        const isStatusPastDue = subStatus === 'past_due' || subStatus === 'unpaid' || subStatus === 'canceled' || subStatus === 'refusal';
+        const isCreditsZero = (charLimit > 0 && charCount >= charLimit) || remaining <= 0;
+
+        if (isStatusPastDue || isCreditsZero) {
+          lastStatus = 429;
+          lastKeyErrMsg = isStatusPastDue 
+            ? `ElevenLabs subscription is ${subStatus}. All speech synthesis credits suspended.` 
+            : `All credits exhausted (${charCount.toLocaleString()} / ${charLimit.toLocaleString()} used · 0 remaining).`;
+          if (k < elevenKeyPool.length - 1) {
+            continue; // Test next backup key
+          } else {
+            successfulKeyIdx = k;
+            elevenKey = curKey;
+            vRes = testRes;
+            subscription = sub;
+            keyVoices = rawVoices;
+            isKeyExhausted = true;
+            break;
+          }
+        }
+
+        // 3. Fast TTS Generation Probe (proves whether account can actually synthesize audio)
+        let probeOk = true;
+        let probeErrMsg = '';
+        try {
+          const probeRes = await fetch('https://api.elevenlabs.io/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'xi-api-key': curKey
+            },
+            body: JSON.stringify({
+              text: '.',
+              model_id: 'eleven_turbo_v2_5'
+            })
+          });
+          if (!probeRes.ok) {
+            const errTxt = await probeRes.text().catch(() => '');
+            let parsed = {};
+            try { parsed = JSON.parse(errTxt); } catch {}
+            const detailMsg = parsed.detail?.message || parsed.message || errTxt;
+            const isQuotaError = probeRes.status === 429 || (detailMsg && (detailMsg.toLowerCase().includes('quota') || detailMsg.toLowerCase().includes('credit') || detailMsg.toLowerCase().includes('character limit')));
+            if (isQuotaError || probeRes.status === 401 || probeRes.status === 402) {
+              probeOk = false;
+              probeErrMsg = detailMsg || `Quota exceeded (${probeRes.status})`;
+              lastStatus = probeRes.status;
+            }
+          }
+        } catch (_) {}
+
+        if (!probeOk) {
+          lastKeyErrMsg = probeErrMsg || `ElevenLabs text-to-speech rejected: quota exhausted.`;
+          if (k < elevenKeyPool.length - 1) {
+            continue; // Test next backup key
+          } else {
+            successfulKeyIdx = k;
+            elevenKey = curKey;
+            vRes = testRes;
+            subscription = sub;
+            keyVoices = rawVoices;
+            isKeyExhausted = true;
+            break;
+          }
+        }
+
+        // Key is active and verified!
+        successfulKeyIdx = k;
+        elevenKey = curKey;
+        vRes = testRes;
+        subscription = sub;
+        keyVoices = rawVoices;
+        isKeyExhausted = false;
+        break;
       } catch (err) {
-        if (k === elevenKeyPool.length - 1) throw err;
+        if (k === elevenKeyPool.length - 1) {
+          lastKeyErrMsg = err.message;
+        }
       }
+    }
+
+    if (isKeyExhausted) {
+      const charCount = Number(subscription?.character_count ?? subscription?.characters_used ?? 0);
+      const charLimit = Number(subscription?.character_limit ?? subscription?.characters_allowed ?? 10000);
+      return json({
+        ok: false,
+        status: 'quota_exhausted',
+        quota_exhausted: true,
+        statusCode: 429,
+        character_count: charCount,
+        character_limit: charLimit,
+        remaining_credits: 0,
+        active_key_index: successfulKeyIdx,
+        message: lastKeyErrMsg || `ElevenLabs API quota exhausted / API Over (${charCount.toLocaleString()} / ${charLimit.toLocaleString()} used · 0 remaining).`
+      });
     }
 
     // Update active key pointer only for authenticated admin checks (never overwrite from anonymous caller)
@@ -4994,27 +5126,17 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       }
 
       const vData = await vRes.json();
-      const rawVoices = vData.voices || [];
+      const rawVoices = keyVoices && keyVoices.length ? keyVoices : (vData.voices || []);
 
-      // Check subscription quota & tier with robust fallback to /v1/user
-      let subscription = null;
-      try {
-        const subRes = await fetch('https://api.elevenlabs.io/v1/user/subscription', {
-          headers: { 'xi-api-key': elevenKey }
-        });
-        if (subRes.ok) {
-          subscription = await subRes.json();
-        } else {
-          const uRes = await fetch('https://api.elevenlabs.io/v1/user', {
+      if (!subscription) {
+        try {
+          const subRes = await fetch('https://api.elevenlabs.io/v1/user/subscription', {
             headers: { 'xi-api-key': elevenKey }
           });
-          if (uRes.ok) {
-            const uData = await uRes.json();
-            if (uData.subscription) subscription = uData.subscription;
+          if (subRes.ok) {
+            subscription = await subRes.json();
           }
-        }
-      } catch (err) {
-        console.warn('ElevenLabs subscription check note:', err);
+        } catch (_) {}
       }
 
       const tier = (subscription?.tier || 'free').toLowerCase();
@@ -5052,6 +5174,7 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
 
       const charCount = Number(subscription?.character_count ?? subscription?.characters_used ?? 0);
       const charLimit = Number(subscription?.character_limit ?? subscription?.characters_allowed ?? 10000);
+      const remaining = Math.max(0, charLimit - charCount);
 
       return json({
         ok: true,
@@ -5063,10 +5186,15 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
         recommendedFreeVoice: bestFreeVoice,
         character_count: charCount,
         character_limit: charLimit,
+        remaining_credits: remaining,
+        quota_exhausted: false,
+        promoted: successfulKeyIdx > 0,
+        active_key_index: successfulKeyIdx,
         subscription: {
           tier: subscription?.tier || tier || 'free',
           character_count: charCount,
           character_limit: charLimit,
+          remaining_credits: remaining,
           status: subscription?.status || 'active'
         },
         voices: voices

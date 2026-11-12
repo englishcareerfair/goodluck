@@ -91,6 +91,7 @@
 
     if (progressTimer) clearInterval(progressTimer);
     if (tipCycleTimer) clearInterval(tipCycleTimer);
+    if (window._siteLoaderFallbackTimer) clearTimeout(window._siteLoaderFallbackTimer);
 
     const loader = document.getElementById('site-loader');
     if (loader) {
@@ -197,17 +198,16 @@
       }
     }, 3200);
 
-    // Auto-completion on page load or after max 1.2s
-    const completeAndDismiss = () => {
-      setProgress(100, 'Ready! Entering Career Fair 2026...');
-    };
-
-    if (document.readyState === 'complete') {
-      setTimeout(completeAndDismiss, 600);
-    } else {
-      window.addEventListener('load', () => setTimeout(completeAndDismiss, 400), { once: true });
-      setTimeout(completeAndDismiss, 1200);
-    }
+    // App initialization in app.js explicitly calls window.SiteLoader.setProgress(100) and dismiss()
+    // once all bootstrap, config, and interactive rendering are 100% complete.
+    // A safety fallback guarantees dismissal after 4s in case of unforeseen external asset stall.
+    if (window._siteLoaderFallbackTimer) clearTimeout(window._siteLoaderFallbackTimer);
+    window._siteLoaderFallbackTimer = setTimeout(() => {
+      if (!isDismissed) {
+        setProgress(100, 'Ready! Entering Career Fair 2026...');
+        dismissLoader();
+      }
+    }, 4000);
   }
 
   window.SiteLoader = {

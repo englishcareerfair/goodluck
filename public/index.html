@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="styles.css?v=27.8">
+  <link rel="stylesheet" href="styles.css?v=27.9">
   <script src="/qrcode.min.js" defer></script>
   <script>
     if ('serviceWorker' in navigator) {
@@ -28,13 +28,13 @@
       });
     }
   </script>
-  <script src="dossier-pdf.js?v=27.8" defer></script>
-  <script src="dopamine-engine.js?v=26.5" defer></script>
-  <script src="game-completion-detector.js?v=26.5" defer></script>
-  <script src="offline-stt.js?v=27.8" defer></script>
-  <script src="guide-avatar.js?v=27.8" defer></script>
-  <script src="loader.js?v=26.5"></script>
-  <script src="app.js?v=27.8" defer></script>
+  <script src="dossier-pdf.js?v=27.9" defer></script>
+  <script src="dopamine-engine.js?v=27.9" defer></script>
+  <script src="game-completion-detector.js?v=27.9" defer></script>
+  <script src="offline-stt.js?v=27.9" defer></script>
+  <script src="guide-avatar.js?v=27.9" defer></script>
+  <script src="loader.js?v=27.9"></script>
+  <script src="app.js?v=27.9" defer></script>
   <!-- Critical Inlined CSS for Instant Loading Screen (Prevents FOUC on First Open) -->
   <style id="loader-critical-css">
     .site-loader {
@@ -497,7 +497,7 @@
         </button>
 
         <!-- Official 2-Page Student Career Booklet & Business Card Download Button -->
-        <button class="header-dossier-btn" id="btn-header-dossier" type="button" aria-label="Download official student career booklet" style="display:none;" hidden>
+        <button class="header-dossier-btn" id="btn-header-dossier" type="button" aria-label="Download official student career booklet" style="display:none !important;" hidden>
           <span>📖</span> <span class="dossier-btn-text"><span class="dossier-btn-prefix">Your </span>Booklet</span>
         </button>
 
@@ -1530,6 +1530,12 @@
             <input type="text" id="admin-school-name-input" value="Kanakia International School Mira Road">
           </div>
 
+          <div style="margin:16px 0;">
+            <label style="font-size:13px;font-weight:600;">Guidance &amp; Directorate Box Text:</label>
+            <input type="text" id="admin-guidance-text-input" placeholder="e.g. Guided by Directorate of Career Guidance · Kanakia International School Mira Road (leave empty to hide)">
+            <div style="font-size:11.5px;color:var(--text-dim);margin-top:4px;">Controls the footer guidance pill. Leave blank to hide/remove it.</div>
+          </div>
+
           <button class="btn btn-primary btn-sm" id="btn-save-branding" type="button">Save Branding</button>
         </div>
 
@@ -1964,8 +1970,8 @@
           <p class="footer-tagline">
             Bridging high-school academic preparation with international career articulation. Every modern profession speaks English.
           </p>
-          <div class="footer-school-pill">
-            <span>🏫</span> Guided by Directorate of Career Guidance · Kanakia International School Mira Road
+          <div class="footer-school-pill" id="footer-school-guidance-pill" style="display:none;" hidden>
+            <span>🏫</span> <span id="footer-school-guidance-text"></span>
           </div>
         </div>
 
