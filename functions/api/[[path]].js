@@ -4950,7 +4950,6 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     }
 
     let elevenKey = elevenKeyPool[0];
-    let vRes = null;
     let successfulKeyIdx = -1;
     let subscription = null;
     let keyVoices = [];
@@ -4967,23 +4966,25 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
         });
         if (!testRes.ok) {
           lastStatus = testRes.status;
+          const errDetail = await testRes.text().catch(() => '');
           if (testRes.status === 401) {
-            lastKeyErrMsg = 'Invalid ElevenLabs API Key. Please verify your key on elevenlabs.io.';
+            lastKeyErrMsg = errDetail.includes('API key ID used as API key')
+              ? 'You entered the Key ID instead of the Secret API Key. In ElevenLabs (Settings → API Keys), please copy the actual secret key.'
+              : 'Invalid ElevenLabs API Key. Please verify your key on elevenlabs.io.';
           } else if (testRes.status === 429) {
             lastKeyErrMsg = 'ElevenLabs rate/quota limit reached.';
           } else {
-            lastKeyErrMsg = `ElevenLabs error (${testRes.status})`;
+            lastKeyErrMsg = `ElevenLabs error (${testRes.status}): ${errDetail.slice(0, 100)}`;
           }
           if (k < elevenKeyPool.length - 1) {
             continue;
           } else {
-            vRes = testRes;
             elevenKey = curKey;
             break;
           }
         }
 
-        const vData = await testRes.json();
+        const vData = await testRes.json().catch(() => ({ voices: [] }));
         const rawVoices = vData.voices || [];
 
         // 2. Fetch subscription & check credit quota
@@ -5023,7 +5024,6 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
           } else {
             successfulKeyIdx = k;
             elevenKey = curKey;
-            vRes = testRes;
             subscription = sub;
             keyVoices = rawVoices;
             isKeyExhausted = true;
@@ -5067,7 +5067,6 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
           } else {
             successfulKeyIdx = k;
             elevenKey = curKey;
-            vRes = testRes;
             subscription = sub;
             keyVoices = rawVoices;
             isKeyExhausted = true;
@@ -5078,7 +5077,6 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
         // Key is active and verified!
         successfulKeyIdx = k;
         elevenKey = curKey;
-        vRes = testRes;
         subscription = sub;
         keyVoices = rawVoices;
         isKeyExhausted = false;
@@ -5106,27 +5104,23 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       });
     }
 
+    if (successfulKeyIdx === -1 || !keyVoices || keyVoices.length === 0) {
+      const st = lastStatus || 500;
+      return json({
+        ok: false,
+        status: st === 401 ? 'invalid_key' : 'api_error',
+        statusCode: st,
+        message: lastKeyErrMsg || (st === 401 ? 'Invalid ElevenLabs API Key. Please verify your key on elevenlabs.io.' : `ElevenLabs API error (${st})`)
+      });
+    }
+
     // Update active key pointer only for authenticated admin checks (never overwrite from anonymous caller)
     if (isVoicesAdmin && successfulKeyIdx > 0 && db) {
       await kvSet(db, 'eleven_key', elevenKeyPool[successfulKeyIdx] || '');
     }
 
     try {
-      if (!vRes || !vRes.ok) {
-        const errDetail = vRes ? await vRes.text().catch(() => '') : '';
-        const st = vRes ? vRes.status : 500;
-        return json({
-          ok: false,
-          status: st === 401 ? 'invalid_key' : 'api_error',
-          statusCode: st,
-          message: errDetail.includes('API key ID used as API key') 
-              ? 'You entered the Key ID instead of the Secret API Key. In ElevenLabs (Settings → API Keys), please copy the actual secret key.'
-              : (st === 401 ? 'Invalid ElevenLabs API Key. Please verify your key on elevenlabs.io.' : `ElevenLabs API error (${st}): ${errDetail.slice(0, 120)}`)
-        });
-      }
-
-      const vData = await vRes.json();
-      const rawVoices = keyVoices && keyVoices.length ? keyVoices : (vData.voices || []);
+      const rawVoices = keyVoices;
 
       if (!subscription) {
         try {
