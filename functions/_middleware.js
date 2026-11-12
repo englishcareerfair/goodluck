@@ -330,11 +330,12 @@ async function persistEdgeVpnBan(db, clientIp, vpnInfo, request, pathname) {
     const now = Date.now();
     const deviceLabel = summarizeEdgeUa(request.headers.get('user-agent') || '');
     const rows = await db
-      .prepare("SELECT k, v FROM kv WHERE k IN ('banned_ips', 'brute_force_bans', 'vpn_allowlist_ips')")
+      .prepare("SELECT k, v FROM kv WHERE k IN ('banned_ips', 'brute_force_bans', 'vpn_allowlist_ips', 'admin_devices')")
       .all();
     let banned = [];
     let bfBans = {};
     let allowlist = [];
+    let adminDevices = [];
     for (const r of (rows?.results || [])) {
       if (!r?.v) continue;
       try {
@@ -342,12 +343,33 @@ async function persistEdgeVpnBan(db, clientIp, vpnInfo, request, pathname) {
         if (r.k === 'banned_ips' && Array.isArray(parsed)) banned = parsed;
         if (r.k === 'brute_force_bans' && parsed && typeof parsed === 'object') bfBans = parsed;
         if (r.k === 'vpn_allowlist_ips' && Array.isArray(parsed)) allowlist = parsed;
+        if (r.k === 'admin_devices' && Array.isArray(parsed)) adminDevices = parsed;
       } catch {}
     }
 
     if (allowlist.includes(clientIp)) {
       return;
     }
+
+    if (adminDevices.some(d => d && d.ip === clientIp)) {
+      const cleanedDevices = adminDevices.filter(d => d && d.ip !== clientIp);
+      await db.prepare(`INSERT INTO kv (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`)
+        .bind('admin_devices', JSON.stringify(cleanedDevices))
+        .run();
+    }
+
+    try {
+      const sessRows = await db.prepare("SELECT k, v FROM kv WHERE k LIKE 'admin_sess_%'").all();
+      for (const sr of (sessRows?.results || [])) {
+        if (!sr?.k || !sr?.v) continue;
+        try {
+          const parsed = JSON.parse(sr.v);
+          if (parsed && String(parsed.ip || '').trim() === clientIp) {
+            await db.prepare('DELETE FROM kv WHERE k = ?').bind(sr.k).run();
+          }
+        } catch {}
+      }
+    } catch {}
 
     if (!banned.includes(clientIp)) {
       banned.push(clientIp);

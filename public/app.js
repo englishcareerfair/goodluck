@@ -174,6 +174,7 @@ function applyAdminVerifyOutcome(result, gateScreen, workspaceScreen) {
 
 const STATE = window.STATE = {
   adminLockedInSession: false,
+  adminSecurityTabUnlocked: false,
   theme: initialResolvedTheme,
   activeTab: 'hero',
   studentName: '',
@@ -2504,6 +2505,8 @@ const TUTORIAL_SPOTLIGHT_DIM_SECTIONS = new Set([
 
 let tutorialSpotlightTargetEl = null;
 let tutorialSpotlightRafId = null;
+let tutorialSpotlightClickTarget = null;
+let tutorialSpotlightClickHandler = null;
 
 function ensureTutorialVisualOverlays() {
   if (typeof document === 'undefined' || !document.body) return {};
@@ -2555,6 +2558,11 @@ function cancelTutorialSpotlight() {
     cancelAnimationFrame(tutorialSpotlightRafId);
     tutorialSpotlightRafId = null;
   }
+  if (tutorialSpotlightClickTarget && tutorialSpotlightClickHandler) {
+    tutorialSpotlightClickTarget.removeEventListener('click', tutorialSpotlightClickHandler, true);
+  }
+  tutorialSpotlightClickTarget = null;
+  tutorialSpotlightClickHandler = null;
   tutorialSpotlightTargetEl = null;
   document.body.classList.remove('tutorial-spotlight-dim');
   document.querySelectorAll('.tutorial-spotlight-target-bright').forEach(el => el.classList.remove('tutorial-spotlight-target-bright'));
@@ -2569,6 +2577,12 @@ function applyTutorialSpotlight(targetEl, enableDim) {
   tutorialSpotlightTargetEl = targetEl;
   targetEl.classList.add('tutorial-spotlight-target-bright');
   document.body.classList.add('tutorial-spotlight-dim');
+  tutorialSpotlightClickTarget = targetEl;
+  tutorialSpotlightClickHandler = () => {
+    targetEl.classList.remove('tutorial-button-highlight');
+    cancelTutorialSpotlight();
+  };
+  targetEl.addEventListener('click', tutorialSpotlightClickHandler, { capture: true, once: true });
   updateTutorialSpotlightPosition();
 }
 
@@ -14604,7 +14618,52 @@ function renderAdminDbStatus(cfg) {
 }
 window.renderAdminDbStatus = renderAdminDbStatus;
 
+function setAdminSecurityTabUnlocked(unlocked, opts = {}) {
+  const isUnlocked = Boolean(unlocked);
+  STATE.adminSecurityTabUnlocked = isUnlocked;
+  const secBtn = $('#btn-admin-tab-security') || $('#admin-tab-row .filter-chip[data-admin-view="security"]');
+  const secPanel = $('#admin-view-security');
+  if (secBtn) {
+    secBtn.hidden = !isUnlocked;
+    secBtn.style.display = isUnlocked ? '' : 'none';
+  }
+  if (!isUnlocked) {
+    if (secBtn) secBtn.classList.remove('active');
+    if (secPanel) secPanel.hidden = true;
+    if (typeof window.stopAdminVisitorsLivePoll === 'function') window.stopAdminVisitorsLivePoll();
+    const anyActive = $$('#admin-tab-row .filter-chip').some(b => !b.hidden && b.classList.contains('active'));
+    if (!anyActive) {
+      const streamBtn = $('#admin-tab-row .filter-chip[data-admin-view="stream"]');
+      if (streamBtn) streamBtn.classList.add('active');
+      $$('.admin-view-panel').forEach(p => { p.hidden = (p.id !== 'admin-view-stream'); });
+    }
+    if (opts.toast) showToast('Admin Password & Devices hidden 🔒');
+  } else if (secBtn) {
+    if (opts.switchToTab) {
+      secBtn.click();
+    }
+    if (opts.toast) showToast('Admin Password & Devices unlocked 🔓');
+  }
+}
+
+function wireSecretAdminSecurityShortcut() {
+  if (window._adminSecurityShortcutWired) return;
+  window._adminSecurityShortcutWired = true;
+  window.addEventListener('keydown', (e) => {
+    const isSecretCombo = (e.ctrlKey || e.metaKey) && e.altKey && e.shiftKey && (e.code === 'KeyK' || String(e.key || '').toLowerCase() === 'k');
+    if (!isSecretCombo) return;
+    if (STATE.adminLockedInSession || !getActiveAdminToken()) return;
+    const admSec = $('#sec-admin');
+    const ws = $('#admin-workspace-screen');
+    if (!admSec || admSec.hidden || !ws || ws.hidden) return;
+    e.preventDefault();
+    setAdminSecurityTabUnlocked(!STATE.adminSecurityTabUnlocked, { switchToTab: true, toast: true });
+  });
+}
+
 function initAdminWorkspace() {
+  setAdminSecurityTabUnlocked(false);
+  wireSecretAdminSecurityShortcut();
   if (typeof initAdminImportControls === 'function') initAdminImportControls();
   // Authoritative global API key sync from Cloudflare D1 to synchronize keys across all admin devices
   fetchApi('admin/config').then(adminCfg => {
@@ -14660,9 +14719,10 @@ function initAdminWorkspace() {
   // Admin tabs switching
   $$('#admin-tab-row .filter-chip').forEach(btn => {
     btn.addEventListener('click', () => {
+      const view = btn.dataset.adminView;
+      if (view === 'security' && !STATE.adminSecurityTabUnlocked) return;
       $$('#admin-tab-row .filter-chip').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      const view = btn.dataset.adminView;
       $$('.admin-view-panel').forEach(p => p.hidden = true);
       $(`#admin-view-${view}`).hidden = false;
       if (view === 'data') {
@@ -16183,6 +16243,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function lockAdminForCurrentSession(toastMessage) {
     STATE.adminLockedInSession = true;
     STATE.adminKey = '';
+    setAdminSecurityTabUnlocked(false);
     if (typeof window.stopAdminVisitorsLivePoll === 'function') window.stopAdminVisitorsLivePoll();
     try { sessionStorage.removeItem('cf_admin_session'); } catch {}
     updateHeaderBookletVisibility();
@@ -16198,6 +16259,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   $('#btn-admin-logout')?.addEventListener('click', async () => {
+    setAdminSecurityTabUnlocked(false);
     if (typeof window.stopAdminVisitorsLivePoll === 'function') window.stopAdminVisitorsLivePoll();
     try {
       const tok = getActiveAdminToken();
@@ -16423,11 +16485,12 @@ window.renderAdminDevices = async function() {
     }
 
     const currentIp = res.current_ip || 'Unknown';
+    if (res.current_ip) STATE.currentIp = res.current_ip;
     if (ipBadge) {
       ipBadge.textContent = `Your IP: ${currentIp}`;
     }
 
-    const devices = Array.isArray(res.devices) ? res.devices.filter(Boolean) : [];
+    const devices = Array.isArray(res.devices) ? res.devices.filter(d => d && !d.is_blocked) : [];
     if (!devices.length) {
       container.innerHTML = `<div style="font-size:12.5px;color:var(--text-muted);text-align:center;padding:14px;">No admin device access recorded yet.</div>`;
       return;
@@ -16545,8 +16608,9 @@ window.adminBanIp = async function(ipToBan) {
   if (!banned.includes(ip)) banned.push(ip);
   localStorage.setItem('cf_banned_ips', JSON.stringify(banned));
 
+  let banRes = null;
   try {
-    await fetchApi('admin/ban-ip', 'POST', { ip, action: 'ban' });
+    banRes = await fetchApi('admin/ban-ip', 'POST', { ip, action: 'ban' });
   } catch (e) {
     console.warn('Ban IP note:', e);
   }
@@ -16554,6 +16618,10 @@ window.adminBanIp = async function(ipToBan) {
   showToast(`IP "${ip}" has been blocked across the site 🚫`);
   const input = $('#admin-ban-ip-input');
   if (input) input.value = '';
+  if (banRes?.admin_revoked || ip === (STATE?.currentIp || '').trim()) {
+    enforceSiteIpBlockOverlay(`Access Denied: Your IP address (${ip}) has been blocked across this site by administrators.`);
+    return;
+  }
   window.renderAdminBannedIps();
   if (typeof window.renderAdminDevices === 'function') window.renderAdminDevices();
   if (typeof window.renderAdminVisitors === 'function') window.renderAdminVisitors();

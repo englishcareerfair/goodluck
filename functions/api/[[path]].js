@@ -289,6 +289,45 @@ async function getBannedIps(db) {
   return banned;
 }
 
+async function removeIpFromAdminDevices(db, ip) {
+  const cleanIp = String(ip || '').trim();
+  if (!cleanIp) return;
+  let devices = await getAdminDevices(db);
+  const filtered = devices.filter(d => d && String(d.ip || '').trim() !== cleanIp);
+  if (filtered.length !== devices.length) {
+    GLOBAL_CACHE.admin_devices = filtered;
+    if (db) {
+      try {
+        await kvSet(db, 'admin_devices', JSON.stringify(filtered));
+      } catch {}
+    }
+  }
+}
+
+async function revokeAdminSessionsForIp(db, ip) {
+  const cleanIp = String(ip || '').trim();
+  if (!cleanIp) return;
+  for (const [tokHash, rec] of MEM_FALLBACK_SESSIONS.entries()) {
+    if (rec && String(rec.ip || '').trim() === cleanIp) {
+      MEM_FALLBACK_SESSIONS.delete(tokHash);
+    }
+  }
+  if (db) {
+    try {
+      const rows = await db.prepare("SELECT k, v FROM kv WHERE k LIKE 'admin_sess_%'").all();
+      for (const row of (rows?.results || [])) {
+        if (!row?.k || !row?.v) continue;
+        try {
+          const parsed = JSON.parse(row.v);
+          if (parsed && String(parsed.ip || '').trim() === cleanIp) {
+            await db.prepare('DELETE FROM kv WHERE k = ?').bind(row.k).run();
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+}
+
 async function blockIpAcrossSite(db, ip, vpnReason = '') {
   const cleanIp = String(ip || '').trim();
   if (!cleanIp) return { banned: [], adminBlocked: [] };
@@ -298,6 +337,8 @@ async function blockIpAcrossSite(db, ip, vpnReason = '') {
   GLOBAL_CACHE.banned_ips = banned;
   GLOBAL_CACHE.admin_blocked_ips = adminBlocked;
   await removeFromVpnAllowlist(db, cleanIp);
+  await removeIpFromAdminDevices(db, cleanIp);
+  await revokeAdminSessionsForIp(db, cleanIp);
 
   if (!GLOBAL_CACHE.live_visitors || typeof GLOBAL_CACHE.live_visitors !== 'object') {
     GLOBAL_CACHE.live_visitors = {};
@@ -1045,6 +1086,10 @@ async function getAdminDevices(db) {
 
 async function recordAdminDeviceAccess(req, db, ip, forceWrite = false) {
   const cleanIp = (ip || 'Local / Unknown').trim();
+  const [adminBlocked, bannedIps] = await Promise.all([getAdminBlockedIps(db), getBannedIps(db)]);
+  if (adminBlocked.includes(cleanIp) || bannedIps.includes(cleanIp)) {
+    return;
+  }
   const ua = req.headers.get('user-agent') || '';
   const deviceLabel = summarizeUserAgent(ua);
   const now = Date.now();
@@ -1528,16 +1573,20 @@ async function verifyAuth(req, env, db, requiredScope = null, url = null) {
     if (!sessInfo) {
       return { ok: false, status: 401, error: 'Admin session expired or invalid. Please sign in again.', revoked: true };
     }
-    if (clientIp) {
-      const blockedIps = await getAdminBlockedIps(db);
-      if (blockedIps.includes(clientIp)) {
-        return {
-          ok: false,
-          status: 403,
-          error: `Admin access has been removed for your device IP (${clientIp}).`,
-          admin_revoked: true
-        };
-      }
+    const [blockedIps, bannedIps] = await Promise.all([getAdminBlockedIps(db), getBannedIps(db)]);
+    const blockedSet = new Set([...blockedIps, ...bannedIps]);
+    const sessionIp = String(sessInfo.rec?.ip || '').trim();
+    if ((clientIp && blockedSet.has(clientIp)) || (sessionIp && blockedSet.has(sessionIp))) {
+      await revokeAdminSessionToken(db, token);
+      if (clientIp) await removeIpFromAdminDevices(db, clientIp);
+      if (sessionIp) await removeIpFromAdminDevices(db, sessionIp);
+      return {
+        ok: false,
+        status: 403,
+        error: `Admin access has been removed for your device IP (${clientIp || sessionIp}).`,
+        revoked: true,
+        admin_revoked: true
+      };
     }
     await clearFailedAuthAttempts(db, clientIp);
     await recordAdminDeviceAccess(req, db, clientIp, Boolean(url && url.pathname.endsWith('/admin/ping')));
@@ -3805,41 +3854,28 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     const authCheck = await verifyAuth(request, env, db, 'manage:config', url);
     if (!authCheck.ok) return json({ error: authCheck.error, admin_revoked: Boolean(authCheck.admin_revoked) }, authCheck.status);
     const currentIp = getClientIp(request) || 'Local / Unknown';
-    const [adminBlocked, bannedIps, rawDevices, bfBans] = await Promise.all([
+    const [adminBlocked, bannedIps, rawDevices] = await Promise.all([
       getAdminBlockedIps(db),
       getBannedIps(db),
-      getAdminDevices(db),
-      getBruteForceBans(db)
+      getAdminDevices(db)
     ]);
     const blockedSet = new Set([...adminBlocked, ...bannedIps]);
     const blocked = Array.from(blockedSet);
-    const byIp = new Map();
-    for (const d of rawDevices) {
-      if (!d || !d.ip) continue;
-      const bfInfo = bfBans[d.ip] || null;
-      byIp.set(d.ip, {
-        ...d,
-        is_current: d.ip === currentIp,
-        is_blocked: blockedSet.has(d.ip),
-        block_reason: bfInfo ? bfInfo.reason : ''
-      });
-    }
-    for (const bIp of blocked) {
-      const bfInfo = bfBans[bIp] || null;
-      if (!byIp.has(bIp)) {
-        byIp.set(bIp, {
-          ip: bIp,
-          device: bfInfo?.device || (bfInfo ? 'Auto-Banned (Brute Force)' : 'Manually Blocked'),
-          first_seen: bfInfo?.banned_at || null,
-          last_seen: bfInfo?.banned_at || null,
-          hits: bfInfo?.attempts || 0,
-          is_current: bIp === currentIp,
-          is_blocked: true,
-          block_reason: bfInfo ? bfInfo.reason : ''
-        });
+    const activeDevices = rawDevices.filter(d => d && d.ip && !blockedSet.has(String(d.ip).trim()));
+    if (activeDevices.length !== rawDevices.length) {
+      GLOBAL_CACHE.admin_devices = activeDevices;
+      if (db) {
+        try { await kvSet(db, 'admin_devices', JSON.stringify(activeDevices)); } catch {}
       }
     }
-    const devices = Array.from(byIp.values()).sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
+    const devices = activeDevices
+      .map(d => ({
+        ...d,
+        is_current: d.ip === currentIp,
+        is_blocked: false,
+        block_reason: ''
+      }))
+      .sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
     return json({ ok: true, current_ip: currentIp, devices, blocked_ips: blocked });
   }
 
