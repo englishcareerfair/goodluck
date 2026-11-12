@@ -1,6 +1,6 @@
 /**
  * Career Fair 2026 - Official Student Career Booklet & Ambassador Card Generator
- * Master High-Definition Executive Dossier
+ * Master High-Definition Executive Career Booklet
  * 
  * Re-architected with:
  * 1. Kanakia International School Official Crest / Logo in top brand header
@@ -12,7 +12,7 @@
  * 4. Performance Band included to utilize page space elegantly with 6 core speech dimensions
  * 5. Diagnostic 6 Dimensions Grid Cards
  * 6. Student Reflection & Exhibition Feedback included with verified star rating
- * 7. 1-Page Complete Executive Dossier
+ * 7. 1-Page Complete Executive Career Booklet
  */
 
 (function(window) {
@@ -311,7 +311,7 @@
       return [
         { name: "St. Xavier's College (Autonomous), Mumbai", tier: "NAAC Grade 'A+' (3.63 CGPA) · Top 50 NIRF", exam: "CUET-UG 99th Percentile / Merit", req: "Advanced Spoken English & Academic Articulation" },
         { name: "University of Oxford / London School of Economics", tier: "Global Top Academic & Policy Center", exam: "GMAT / SAT / Specialist Entrance", req: "IELTS 7.5 Academic (C1 CEFR Master Level)" },
-        { name: "Kanakia Global Higher Education Gateway", tier: "International Articulation & Placement Consortium", exam: "Exhibition Dossier & Aptitude Benchmark", req: "Executive Leadership & Global Dialect Mastery" }
+        { name: "Kanakia Global Higher Education Gateway", tier: "International Articulation & Placement Consortium", exam: "Exhibition Portfolio & Aptitude Benchmark", req: "Executive Leadership & Global Dialect Mastery" }
       ];
     }
   }
@@ -502,7 +502,7 @@
     // Draw Background
     drawCleanBackground(ctx, CW, CH, C);
 
-    // 1. Sleek Brand Header with Kanakia International School Logo
+    // 1. Sleek Brand Header with Kanakia International School Logo & Top Portal QR Code
     const brandTextX = schoolLogoImg ? 162 : 80;
     if (schoolLogoImg) {
       ctx.save();
@@ -517,13 +517,61 @@
 
     ctx.font = '800 23px "Plus Jakarta Sans", sans-serif';
     ctx.fillStyle = C.textMain;
-    ctx.fillText('CAREER FAIR 2026 · STUDENT CAREER INTELLIGENCE DOSSIER', brandTextX, 78);
+    ctx.fillText('CAREER FAIR 2026 · STUDENT CAREER INTELLIGENCE BOOKLET', brandTextX, 78);
 
+    // Camera-Scannable Live Portal QR Code Card on Top Right (careerwithenglish.pages.dev)
+    const topQrSize = 72;
+    const topQrX = CW - 80 - topQrSize;
+    const topQrY = 16;
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 3;
+    drawRoundRect(ctx, topQrX, topQrY, topQrSize, topQrSize, 10, true, false);
+    ctx.restore();
+
+    // Render Portal QR Code
+    const topPortalUrl = 'https://careerwithenglish.pages.dev';
+    const topQrMat = getDynamicQrMatrix(topPortalUrl);
+    const topQrPad = 6;
+    const topQrDrawSize = topQrSize - (topQrPad * 2);
+    const topQrModCount = topQrMat.length;
+    const topQrModSize = topQrDrawSize / topQrModCount;
+
+    ctx.save();
+    ctx.fillStyle = '#000000';
+    for (let r = 0; r < topQrModCount; r++) {
+      for (let c = 0; c < topQrModCount; c++) {
+        if (topQrMat[r][c] === 1) {
+          ctx.fillRect(
+            Math.round(topQrX + topQrPad + c * topQrModSize),
+            Math.round(topQrY + topQrPad + r * topQrModSize),
+            Math.ceil(topQrModSize),
+            Math.ceil(topQrModSize)
+          );
+        }
+      }
+    }
+    ctx.restore();
+
+    // Portal link & Scan label below QR
+    ctx.save();
+    ctx.font = '800 8.5px "JetBrains Mono", monospace';
+    ctx.fillStyle = C.textHighlight;
+    ctx.textAlign = 'center';
+    ctx.fillText('SCAN PORTAL', topQrX + topQrSize / 2, topQrY + topQrSize + 11);
+    ctx.restore();
+
+    const topMetaX = topQrX - 16;
     ctx.textAlign = 'right';
-    ctx.font = '700 12px "JetBrains Mono", monospace';
+    ctx.font = '700 11.5px "JetBrains Mono", monospace';
     ctx.fillStyle = C.textDim;
-    ctx.fillText(`REPORT DATE: ${dateStr.toUpperCase()}  |  DOC ID: ${docId}`, CW - 80, 50);
-    ctx.fillText(`MODE: ${isDark ? 'DARK EXECUTIVE' : 'LIGHT CORPORATE'}`, CW - 80, 76);
+    ctx.fillText(`REPORT DATE: ${dateStr.toUpperCase()}  |  DOC ID: ${docId}`, topMetaX, 42);
+    ctx.fillStyle = C.textHighlight;
+    ctx.fillText('PORTAL: careerwithenglish.pages.dev ↗', topMetaX, 62);
+    ctx.fillStyle = C.textDim;
+    ctx.fillText(`MODE: ${isDark ? 'DARK EXECUTIVE' : 'LIGHT CORPORATE'}`, topMetaX, 82);
     ctx.textAlign = 'left';
 
     // Hairline divider
@@ -842,23 +890,28 @@
     ctx.fillStyle = C.greenPillText;
     ctx.fillText(`— ${studentName.toUpperCase()}, Class ${className} · Kanakia International School`, 115, fbY + fbH - 16);
 
-    // 8. Scissor Dotted Guideline
+    // 8. Scissor Dotted Guideline (Extends edge-to-edge from 0 to CW)
     const bcCutY = fbY + fbH + 24;
     ctx.save();
     ctx.setLineDash([8, 8]);
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.65)';
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.75)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(80, bcCutY);
-    ctx.lineTo(CW - 80, bcCutY);
+    ctx.moveTo(0, bcCutY);
+    ctx.lineTo(CW, bcCutY);
     ctx.stroke();
     ctx.restore();
 
-    ctx.font = '700 11.5px "Space Grotesk", sans-serif';
-    ctx.fillStyle = C.textDim;
-    ctx.textAlign = 'center';
-    ctx.fillText('✂ - - - - - - - - - - - - - - - - - -  (Cut along dotted line for official Student Career Business Card)  - - - - - - - - - - - - - - - - - - ✂', CW / 2, bcCutY - 8);
+    ctx.save();
+    ctx.font = '700 12px "Space Grotesk", sans-serif';
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.9)';
     ctx.textAlign = 'left';
+    ctx.fillText('✂', 18, bcCutY - 7);
+    ctx.textAlign = 'right';
+    ctx.fillText('✂', CW - 18, bcCutY - 7);
+    ctx.textAlign = 'center';
+    ctx.fillText('- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  (Cut along dotted line for official Student Career Business Card)  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -', CW / 2, bcCutY - 7);
+    ctx.restore();
 
     // 9. DETACHABLE STUDENT AMBASSADOR BUSINESS CARD
     // "keep it completely same size and shape as in the website don't increase the size or decrease it, i am ok with extra space but not with big business card, remove the above image in the business card"
@@ -998,7 +1051,207 @@
     }
     ctx.restore();
 
-    // 10. Footer Notice
+    // 10. WEBSITE PLATFORM CAPABILITIES & FEATURES (Continuing design theme & eliminating blank void)
+    const featSectionY = bcCardY + bcCardH + 18;
+
+    // Header Row with Pill Badges
+    ctx.save();
+    ctx.fillStyle = isDark ? 'rgba(0, 240, 255, 0.12)' : 'rgba(14, 165, 233, 0.1)';
+    ctx.strokeStyle = isDark ? 'rgba(0, 240, 255, 0.4)' : 'rgba(14, 165, 233, 0.35)';
+    ctx.lineWidth = 1;
+    drawRoundRect(ctx, 80, featSectionY, 210, 24, 12, true, true);
+    ctx.font = '800 10.5px "JetBrains Mono", monospace';
+    ctx.fillStyle = isDark ? '#00f0ff' : '#0284c7';
+    ctx.textAlign = 'center';
+    ctx.fillText('🌐 PLATFORM SUITE', 185, featSectionY + 16);
+    ctx.restore();
+
+    ctx.save();
+    ctx.fillStyle = isDark ? 'rgba(255, 42, 133, 0.12)' : 'rgba(225, 29, 72, 0.08)';
+    ctx.strokeStyle = isDark ? 'rgba(255, 42, 133, 0.4)' : 'rgba(225, 29, 72, 0.3)';
+    ctx.lineWidth = 1;
+    drawRoundRect(ctx, CW - 80 - 290, featSectionY, 290, 24, 12, true, true);
+    ctx.font = '800 10.5px "JetBrains Mono", monospace';
+    ctx.fillStyle = isDark ? '#ff2a85' : '#e11d48';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚡ 8 INTERACTIVE LEARNING SUITES', CW - 80 - 145, featSectionY + 16);
+    ctx.restore();
+
+    ctx.font = '800 20px "Plus Jakarta Sans", sans-serif';
+    ctx.fillStyle = C.textMain;
+    ctx.fillText('Career Intelligence & Spoken English Ecosystem · careerwithenglish.pages.dev', 80, featSectionY + 48);
+
+    ctx.font = '600 12.5px "Space Grotesk", sans-serif';
+    ctx.fillStyle = C.textDim;
+    ctx.fillText('Access 24/7 on smartphone, tablet, or desktop to accelerate your career articulation and competitive academic readiness:', 80, featSectionY + 68);
+
+    // 8 Feature Cards (2 Rows x 4 Columns)
+    const featGridY = featSectionY + 80;
+    const featColW = (heroW - (3 * 16)) / 4; // (1440 - 48) / 4 = 348px
+    const featCardH = 152;
+    const featRowGap = 12;
+
+    const platformFeatures = [
+      {
+        icon: '🎯',
+        title: '32+ Global Careers',
+        tag: 'PATHWAYS',
+        tagColor: '#00f0ff',
+        desc: 'Operational industry profiles for Aviation, AI, Law, Medicine, Media, Finance & 26+ more, mapping spoken fluency to career success.',
+        foot: '✨ 32+ Careers Mapped'
+      },
+      {
+        icon: '🏛️',
+        title: '25+ Top Universities',
+        tag: 'NIRF / NAAC A++',
+        tagColor: '#38bdf8',
+        desc: 'Verified institutional profiles with cutoffs, entrance exam requirements (CUET, CLAT, JEE, NEET), course fees, and rankings.',
+        foot: '🎓 Higher Ed Gateway'
+      },
+      {
+        icon: '🗣️',
+        title: 'Pronunciation Studio',
+        tag: 'PHONETICS',
+        tagColor: '#a78bfa',
+        desc: 'High-precision acoustic analysis across Everyday, Journalism, Legal, and Academic word packs with instant phoneme waveform grading.',
+        foot: '🎧 4 Specialized Vocab Packs'
+      },
+      {
+        icon: '🎙️',
+        title: '6D AI Speech Coach',
+        tag: 'NEURAL AI',
+        tagColor: '#34d399',
+        desc: 'Real-time multi-dimensional diagnostic evaluation measuring Pronunciation, Grammar, Fluency, Vocabulary, Pacing, and Coherence.',
+        foot: '⚡ 6 Speech Dimensions'
+      },
+      {
+        icon: '📺',
+        title: 'News Teleprompter',
+        tag: 'BROADCAST',
+        tagColor: '#fbbf24',
+        desc: 'Live newsroom teleprompter studio with 40-200 WPM speed control, studio audio playback, and broadcast cadence training.',
+        foot: '📰 Live Anchor Drills'
+      },
+      {
+        icon: '🗺️',
+        title: '"My Plan" Roadmap',
+        tag: 'BLUEPRINTS',
+        tagColor: '#f472b6',
+        desc: 'Personalized multi-year academic progression, entrance exam timelines, daily time-boxed habits, and downloadable HD roadmap graphics.',
+        foot: '📍 Chronological Milestones'
+      },
+      {
+        icon: '🎮',
+        title: '8 Fluency Quests',
+        tag: 'ARCADE',
+        tagColor: '#fb923c',
+        desc: 'Gamified English fluency arcade featuring Wordle, Phonics challenges, Career Speed Quests, and live school leaderboard competition.',
+        foot: '🏆 Dopamine Streak Rewards'
+      },
+      {
+        icon: '🪪',
+        title: 'Verified Executive ID',
+        tag: 'PORTFOLIO',
+        tagColor: '#2dd4bf',
+        desc: 'Cryptographically verified student credential with camera-scannable QR verification code and printable exhibition booklet.',
+        foot: '🔐 Tamper-Proof QR ID'
+      }
+    ];
+
+    platformFeatures.forEach((feat, fIdx) => {
+      const col = fIdx % 4;
+      const row = Math.floor(fIdx / 4);
+      const fx = 80 + col * (featColW + 16);
+      const fy = featGridY + row * (featCardH + featRowGap);
+
+      // Card Background
+      drawCard(ctx, fx, fy, featColW, featCardH, 12, C, { shadow: false, bg: C.subSurface, border: C.innerBorder });
+
+      // Top Row of Card: Icon + Title + Tag
+      ctx.save();
+      ctx.font = '700 13.5px "Plus Jakarta Sans", sans-serif';
+      ctx.fillStyle = C.textMain;
+      ctx.textAlign = 'left';
+      ctx.fillText(`${feat.icon} ${feat.title}`, fx + 14, fy + 26);
+
+      // Tag Pill
+      const tagW = ctx.measureText(feat.tag).width + 14;
+      const tagX = fx + featColW - tagW - 14;
+      ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)';
+      ctx.strokeStyle = feat.tagColor;
+      ctx.lineWidth = 0.8;
+      drawRoundRect(ctx, tagX, fy + 12, tagW, 18, 9, true, true);
+      ctx.font = '800 8.5px "JetBrains Mono", monospace';
+      ctx.fillStyle = feat.tagColor;
+      ctx.textAlign = 'center';
+      ctx.fillText(feat.tag, tagX + tagW / 2, fy + 24.5);
+      ctx.restore();
+
+      // Description text (wrapped)
+      ctx.save();
+      ctx.font = '500 11.5px "Plus Jakarta Sans", sans-serif';
+      ctx.fillStyle = C.textDim;
+      wrapText(ctx, feat.desc, fx + 14, fy + 52, featColW - 28, 16.5, 3);
+      ctx.restore();
+
+      // Footer highlight text
+      ctx.save();
+      ctx.font = '700 10.5px "Space Grotesk", sans-serif';
+      ctx.fillStyle = feat.tagColor;
+      ctx.fillText(feat.foot, fx + 14, fy + featCardH - 12);
+      ctx.restore();
+    });
+
+    // Bottom Platform Callout Banner
+    const featBannerY = featGridY + (2 * featCardH) + featRowGap + 12;
+    const featBannerH = 88;
+    drawCard(ctx, 80, featBannerY, heroW, featBannerH, 14, C, { shadow: false, bg: C.cardBg, border: C.cardBorder });
+
+    // Inner glowing outline
+    ctx.save();
+    const bannerBorderGrad = ctx.createLinearGradient(80, featBannerY, CW - 80, featBannerY);
+    bannerBorderGrad.addColorStop(0, '#00f0ff');
+    bannerBorderGrad.addColorStop(0.5, '#a855f7');
+    bannerBorderGrad.addColorStop(1, '#ff2a85');
+    ctx.strokeStyle = bannerBorderGrad;
+    ctx.lineWidth = 1.5;
+    drawRoundRect(ctx, 80, featBannerY, heroW, featBannerH, 14, false, true);
+    ctx.restore();
+
+    // Banner Left Text
+    ctx.font = '800 28px sans-serif';
+    ctx.fillText('🚀', 106, featBannerY + 54);
+
+    ctx.font = '800 15px "Plus Jakarta Sans", sans-serif';
+    ctx.fillStyle = C.textHighlight;
+    ctx.fillText('Start Practicing Today · 100% Free for Kanakia International School Students', 152, featBannerY + 36);
+
+    ctx.font = '500 12.5px "Plus Jakarta Sans", sans-serif';
+    ctx.fillStyle = C.textDim;
+    ctx.fillText('Open careerwithenglish.pages.dev on any mobile browser, tablet, or laptop. No download required — works both online and offline.', 152, featBannerY + 62);
+
+    // Banner Right Pill
+    const bannerPillW = 320;
+    const bannerPillH = 54;
+    const bannerPillX = CW - 80 - bannerPillW - 20;
+    const bannerPillY = featBannerY + 17;
+    ctx.save();
+    ctx.fillStyle = isDark ? 'rgba(0, 240, 255, 0.12)' : 'rgba(14, 165, 233, 0.1)';
+    ctx.strokeStyle = isDark ? '#00f0ff' : '#0284c7';
+    ctx.lineWidth = 1.2;
+    drawRoundRect(ctx, bannerPillX, bannerPillY, bannerPillW, bannerPillH, 12, true, true);
+
+    ctx.font = '700 10.5px "JetBrains Mono", monospace';
+    ctx.fillStyle = C.textDim;
+    ctx.textAlign = 'center';
+    ctx.fillText('SCAN TOP QR OR VISIT PORTAL', bannerPillX + bannerPillW / 2, bannerPillY + 20);
+
+    ctx.font = '800 14px "Space Grotesk", sans-serif';
+    ctx.fillStyle = isDark ? '#00f0ff' : '#0284c7';
+    ctx.fillText('careerwithenglish.pages.dev ↗', bannerPillX + bannerPillW / 2, bannerPillY + 41);
+    ctx.restore();
+
+    // 11. Footer Notice
     ctx.strokeStyle = C.innerBorder;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -1009,9 +1262,9 @@
     ctx.font = '600 12px "Space Grotesk", sans-serif';
     ctx.fillStyle = C.textDim;
     ctx.textAlign = 'left';
-    ctx.fillText('Official Student Career Intelligence Dossier · Career Fair 2026 · Kanakia International School', 80, CH - 26);
+    ctx.fillText('Official Student Career Intelligence Booklet · Career Fair 2026 · Kanakia International School', 80, CH - 26);
     ctx.textAlign = 'right';
-    ctx.fillText('Page 1 of 1 · Executive Printable Dossier', CW - 80, CH - 26);
+    ctx.fillText('Page 1 of 1 · Executive Printable Career Booklet', CW - 80, CH - 26);
     ctx.textAlign = 'left';
 
     // Add Single Master Page to PDF
@@ -1027,19 +1280,19 @@
     doc.save(filename);
 
     if (typeof window.showToast === 'function') {
-      window.showToast(`📄 Downloaded your official Career Dossier: ${filename}`);
+      window.showToast(`📄 Downloaded your official Career Booklet: ${filename}`);
     }
     return { doc, canvas, isDark };
   }
 
   // Global Exports
-  window.DossierPDF = {
-    generate: generateStudentDossierPDF
-  };
+  window.getSchoolLogo = getSchoolLogo;
+  window.getDynamicQrMatrix = getDynamicQrMatrix;
   window.BookletPDF = {
     generate: generateStudentDossierPDF
   };
-  window.generateStudentDossierPDF = generateStudentDossierPDF;
+  window.DossierPDF = window.BookletPDF;
   window.generateStudentBookletPDF = generateStudentDossierPDF;
+  window.generateStudentDossierPDF = generateStudentDossierPDF;
 
 })(window);

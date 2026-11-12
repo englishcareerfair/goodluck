@@ -11505,6 +11505,14 @@ function renderMyPlan(mount) {
             </h3>
           </div>
           
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <button id="btn-download-plan-png" class="btn btn-primary" type="button" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;font-weight:800;font-size:13.5px;background:linear-gradient(135deg, #00f0ff 0%, #0284c7 100%);color:#000;border:none;border-radius:var(--radius-md);box-shadow:0 4px 16px rgba(0,240,255,0.3);cursor:pointer;transition:transform 0.15s,box-shadow 0.15s;">
+              <span>📥</span> <span>Download Roadmap PNG (HD)</span>
+            </button>
+            <button id="btn-copy-blueprint" class="btn btn-ghost" type="button" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;font-size:13px;font-weight:600;border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-main);cursor:pointer;">
+              <span>📋</span> <span>Copy Text</span>
+            </button>
+          </div>
         </div>
 
         <!-- Why English Superpower -->
@@ -11540,40 +11548,567 @@ function renderMyPlan(mount) {
           </div>
         </div>
 
+        <!-- Action Buttons Footer -->
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;border-top:1px solid var(--border);padding-top:18px;margin-top:10px;">
+          <div style="font-size:12.5px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">
+            <span>✨</span> <span>High-Definition Printable Graphic with Live Verification QR</span>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button id="btn-download-plan-png-bottom" class="btn btn-primary" type="button" style="display:inline-flex;align-items:center;gap:8px;padding:10px 22px;font-weight:800;font-size:13.5px;background:linear-gradient(135deg, #00f0ff 0%, #0284c7 100%);color:#000;border:none;border-radius:var(--radius-md);box-shadow:0 4px 16px rgba(0,240,255,0.3);cursor:pointer;">
+              <span>📥</span> <span>Download Roadmap PNG (HD)</span>
+            </button>
+            <button id="btn-copy-blueprint-bottom" class="btn btn-ghost" type="button" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;font-size:13px;font-weight:600;border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-main);cursor:pointer;">
+              <span>📋</span> <span>Copy Text</span>
+            </button>
+          </div>
+        </div>
 
       </div>
     `;
 
     // Hook up copy blueprint
-    $('#btn-copy-blueprint')?.addEventListener('click', () => {
-      let copyText = `# ${blueprint.career} Pathway Blueprint (${blueprint.class_grade})
-`;
-      copyText += `Daily Commitment: ${blueprint.daily_minutes} Mins/day
-`;
-      copyText += `Why English Matters: ${blueprint.why_english}
-
-`;
-      copyText += `## Milestones:
-`;
+    const handleCopy = () => {
+      let copyText = `# ${blueprint.career} Pathway Blueprint (${blueprint.class_grade})\n`;
+      copyText += `Daily Commitment: ${blueprint.daily_minutes} Mins/day\n`;
+      copyText += `Why English Matters: ${blueprint.why_english}\n\n`;
+      copyText += `## Milestones:\n`;
       steps.forEach((s, idx) => {
-        copyText += `${idx + 1}. ${s.title}: ${s.detail}
-`;
+        copyText += `${idx + 1}. ${s.title}: ${s.detail}\n`;
       });
-      copyText += `
-## Daily Practice Routine (${blueprint.daily_minutes} Mins):
-`;
+      copyText += `\n## Daily Practice Routine (${blueprint.daily_minutes} Mins):\n`;
       routine.forEach(r => {
-        copyText += `- ${r.phase} (${r.mins} mins): ${r.action}
-`;
+        copyText += `- ${r.phase} (${r.mins} mins): ${r.action}\n`;
       });
       navigator.clipboard.writeText(copyText).then(() => {
         showToast('Roadmap blueprint copied to clipboard!');
       }).catch(() => {
         showToast('Copied roadmap blueprint text!');
       });
-    });
+    };
+
+    $('#btn-copy-blueprint')?.addEventListener('click', handleCopy);
+    $('#btn-copy-blueprint-bottom')?.addEventListener('click', handleCopy);
+
+    // Hook up High-Definition PNG Download
+    const handleDownloadPng = () => {
+      downloadRoadmapPNG(blueprint);
+    };
+
+    $('#btn-download-plan-png')?.addEventListener('click', handleDownloadPng);
+    $('#btn-download-plan-png-bottom')?.addEventListener('click', handleDownloadPng);
 
     out.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // High-Definition Top-Notch Quality PNG Generator for Map Plan Results
+  async function downloadRoadmapPNG(blueprint) {
+    const btnTop = $('#btn-download-plan-png');
+    const btnBottom = $('#btn-download-plan-png-bottom');
+    const origTopText = btnTop ? btnTop.innerHTML : '';
+    const origBottomText = btnBottom ? btnBottom.innerHTML : '';
+    if (btnTop) btnTop.innerHTML = '<span>⏳</span> <span>Generating HD PNG...</span>';
+    if (btnBottom) btnBottom.innerHTML = '<span>⏳</span> <span>Generating HD PNG...</span>';
+
+    try {
+      const careerObj = CAREERS_DATA.find(c => c.title === blueprint.career) || { title: blueprint.career, cat: 'Professional', icon: '🎯' };
+      const steps = blueprint.milestones || [];
+      const routine = blueprint.daily_routine || [];
+      const state = window.STATE || {};
+      const studentName = (state.studentName || state.studentProfile?.name || localStorage.getItem('cf_student_name') || '').trim();
+      const docId = 'RP-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      const dateStr = new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+
+      // Pre-load school logo if available
+      let schoolLogoImg = null;
+      if (typeof window.getSchoolLogo === 'function') {
+        schoolLogoImg = await window.getSchoolLogo();
+      } else if (window._cachedSchoolLogo) {
+        schoolLogoImg = window._cachedSchoolLogo;
+      }
+
+      // Helper function to measure wrapped text lines
+      function getWrappedLines(measureCtx, text, maxWidth) {
+        if (!text) return [];
+        const words = String(text).split(/\s+/);
+        const lines = [];
+        let curLine = '';
+        for (let i = 0; i < words.length; i++) {
+          const test = curLine ? curLine + ' ' + words[i] : words[i];
+          if (measureCtx.measureText(test).width > maxWidth && curLine) {
+            lines.push(curLine);
+            curLine = words[i];
+          } else {
+            curLine = test;
+          }
+        }
+        if (curLine) lines.push(curLine);
+        return lines;
+      }
+
+      // Helper for rounded rectangle
+      function drawRoundRect(ctx, x, y, width, height, radius, fill, stroke) {
+        const r = Math.min(typeof radius === 'number' ? radius : 10, width / 2, height / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + width - r, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+        ctx.lineTo(x + width, y + height - r);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+        ctx.lineTo(x + r, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+        if (fill) ctx.fill();
+        if (stroke) ctx.stroke();
+      }
+
+      // Canvas dimensions - High Resolution 1600px width
+      const CW = 1600;
+      const marginX = 80;
+      const contentW = CW - (marginX * 2); // 1440px
+
+      // Measure dynamic height using scratch canvas context
+      const scratch = document.createElement('canvas');
+      const sCtx = scratch.getContext('2d');
+
+      // Superpower text lines
+      sCtx.font = '500 15.5px "Plus Jakarta Sans", sans-serif';
+      const spText = blueprint.why_english || careerObj.englishSuperpower || '';
+      const spLines = getWrappedLines(sCtx, spText, contentW - 56);
+      const spBoxH = Math.max(100, 56 + spLines.length * 24 + 16);
+
+      // Milestones height
+      sCtx.font = '500 14.5px "Plus Jakarta Sans", sans-serif';
+      const milestoneHeights = steps.map(s => {
+        const dLines = getWrappedLines(sCtx, s.detail, contentW - 120);
+        return { title: s.title, lines: dLines, h: Math.max(86, 42 + dLines.length * 23 + 18) };
+      });
+      const milestonesTotalH = milestoneHeights.reduce((acc, m) => acc + m.h + 16, 0);
+
+      // Daily Routine 2x2 grid height
+      sCtx.font = '500 13px "Plus Jakarta Sans", sans-serif';
+      const routineColW = (contentW - 20) / 2;
+      const routineCards = routine.map(r => {
+        const aLines = getWrappedLines(sCtx, r.action, routineColW - 36);
+        return { phase: r.phase, mins: r.mins, lines: aLines, h: Math.max(90, 44 + aLines.length * 21 + 16) };
+      });
+      const row1H = Math.max(routineCards[0]?.h || 90, routineCards[1]?.h || 90);
+      const row2H = Math.max(routineCards[2]?.h || 90, routineCards[3]?.h || 90);
+      const routineTotalH = row1H + row2H + 16;
+
+      // Calculate total canvas height
+      let CH = 60; // Top padding
+      CH += 100; // Header & crest
+      CH += 26; // Divider
+      CH += 130; // Title & Badges
+      CH += 24; // Gap
+      CH += spBoxH; // Superpower box
+      CH += 36; // Gap
+      CH += 48 + milestonesTotalH; // Milestones section
+      CH += 36; // Gap
+      CH += 54 + routineTotalH; // Routine section
+      CH += 30; // Gap
+      CH += 120; // Bottom footer & QR
+      CH += 50; // Bottom padding
+
+      // Create master high-res rendering canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = CW;
+      canvas.height = CH;
+      const ctx = canvas.getContext('2d');
+
+      // 1. Sleek Obsidian-Navy Gradient Background
+      const bgGrad = ctx.createLinearGradient(0, 0, CW, CH);
+      bgGrad.addColorStop(0, '#060a14');
+      bgGrad.addColorStop(0.5, '#0a1226');
+      bgGrad.addColorStop(1, '#050811');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, CW, CH);
+
+      // Glowing accent radial gradients in corners
+      ctx.save();
+      const glowTopR = ctx.createRadialGradient(CW - 100, 100, 20, CW - 100, 100, 500);
+      glowTopR.addColorStop(0, 'rgba(0, 240, 255, 0.12)');
+      glowTopR.addColorStop(1, 'rgba(0, 240, 255, 0)');
+      ctx.fillStyle = glowTopR;
+      ctx.fillRect(0, 0, CW, 600);
+
+      const glowBottomL = ctx.createRadialGradient(100, CH - 150, 20, 100, CH - 150, 550);
+      glowBottomL.addColorStop(0, 'rgba(255, 42, 133, 0.08)');
+      glowBottomL.addColorStop(1, 'rgba(255, 42, 133, 0)');
+      ctx.fillStyle = glowBottomL;
+      ctx.fillRect(0, CH - 700, CW, 700);
+      ctx.restore();
+
+      // Outer Card Frame
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.09)';
+      ctx.lineWidth = 1.5;
+      drawRoundRect(ctx, 40, 30, CW - 80, CH - 60, 24, false, true);
+      ctx.restore();
+
+      let currY = 60;
+
+      // 2. Header: School Crest + School Title + Top Portal QR
+      const brandTextX = schoolLogoImg ? 168 : marginX;
+      if (schoolLogoImg) {
+        ctx.save();
+        ctx.drawImage(schoolLogoImg, marginX, currY, 72, 72);
+        ctx.restore();
+      }
+
+      ctx.font = '800 13.5px "Space Grotesk", sans-serif';
+      ctx.fillStyle = '#00f0ff';
+      ctx.fillText('KANAKIA INTERNATIONAL SCHOOL MIRA ROAD', brandTextX, currY + 28);
+
+      ctx.font = '800 24px "Plus Jakarta Sans", sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText('CAREER FAIR 2026 · STRATEGIC ROADMAP BLUEPRINT', brandTextX, currY + 60);
+
+      // Top Right QR code card linking to website
+      const topQrSize = 72;
+      const topQrX = CW - marginX - topQrSize;
+      const topQrY = currY;
+
+      ctx.save();
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetY = 3;
+      drawRoundRect(ctx, topQrX, topQrY, topQrSize, topQrSize, 10, true, false);
+      ctx.restore();
+
+      // Draw QR Code
+      const portalUrl = 'https://careerwithenglish.pages.dev';
+      let qrMat = null;
+      if (typeof window.getDynamicQrMatrix === 'function') {
+        qrMat = window.getDynamicQrMatrix(portalUrl);
+      } else if (typeof qrcode !== 'undefined') {
+        const qr = qrcode(0, 'M');
+        qr.addData(portalUrl);
+        qr.make();
+        const cnt = qr.getModuleCount();
+        qrMat = [];
+        for (let r = 0; r < cnt; r++) {
+          const row = [];
+          for (let c = 0; c < cnt; c++) row.push(qr.isDark(r, c) ? 1 : 0);
+          qrMat.push(row);
+        }
+      }
+
+      if (qrMat) {
+        const qPad = 6;
+        const qDraw = topQrSize - (qPad * 2);
+        const mCount = qrMat.length;
+        const mSize = qDraw / mCount;
+        ctx.save();
+        ctx.fillStyle = '#000000';
+        for (let r = 0; r < mCount; r++) {
+          for (let c = 0; c < mCount; c++) {
+            if (qrMat[r][c] === 1) {
+              ctx.fillRect(
+                Math.round(topQrX + qPad + c * mSize),
+                Math.round(topQrY + qPad + r * mSize),
+                Math.ceil(mSize),
+                Math.ceil(mSize)
+              );
+            }
+          }
+        }
+        ctx.restore();
+      }
+
+      ctx.save();
+      ctx.font = '800 8.5px "JetBrains Mono", monospace';
+      ctx.fillStyle = '#00f0ff';
+      ctx.textAlign = 'center';
+      ctx.fillText('SCAN PORTAL', topQrX + topQrSize / 2, topQrY + topQrSize + 11);
+      ctx.restore();
+
+      const metaRightX = topQrX - 16;
+      ctx.textAlign = 'right';
+      ctx.font = '700 11.5px "JetBrains Mono", monospace';
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText(`DATE: ${dateStr.toUpperCase()}  |  DOC ID: ${docId}`, metaRightX, currY + 24);
+      ctx.fillStyle = '#00f0ff';
+      ctx.fillText('PORTAL: careerwithenglish.pages.dev ↗', metaRightX, currY + 44);
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText('MODE: HIGH-DEFINITION ROADMAP', metaRightX, currY + 64);
+      ctx.textAlign = 'left';
+
+      currY += 92;
+
+      // Divider line
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(marginX, currY);
+      ctx.lineTo(CW - marginX, currY);
+      ctx.stroke();
+
+      currY += 26;
+
+      // 3. Career Title & Badges
+      let badgeX = marginX;
+      function drawPillBadge(label, bg, stroke, textCol) {
+        ctx.save();
+        ctx.font = '800 11.5px "Space Grotesk", sans-serif';
+        const w = ctx.measureText(label).width + 24;
+        ctx.fillStyle = bg;
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 1;
+        drawRoundRect(ctx, badgeX, currY, w, 28, 14, true, true);
+        ctx.fillStyle = textCol;
+        ctx.fillText(label, badgeX + 12, currY + 18.5);
+        ctx.restore();
+        badgeX += w + 10;
+      }
+
+      drawPillBadge(`${blueprint.class_grade} Roadmap`, 'rgba(0, 240, 255, 0.12)', 'rgba(0, 240, 255, 0.4)', '#00f0ff');
+      drawPillBadge(`⭐ ${careerObj.cat || 'Professional'}`, 'rgba(255, 255, 255, 0.07)', 'rgba(255, 255, 255, 0.2)', '#e2e8f0');
+      drawPillBadge(`⏱️ ${blueprint.daily_minutes} Mins Daily Habit`, 'rgba(16, 185, 129, 0.12)', 'rgba(16, 185, 129, 0.4)', '#34d399');
+      if (studentName) {
+        drawPillBadge(`👤 Prepared for: ${studentName.toUpperCase()}`, 'rgba(255, 42, 133, 0.12)', 'rgba(255, 42, 133, 0.4)', '#ff2a85');
+      }
+
+      currY += 46;
+
+      // Main Career Heading
+      ctx.font = '800 32px "Plus Jakarta Sans", sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`${careerObj.icon || '🎯'} ${blueprint.career} Pathway`, marginX, currY);
+
+      currY += 24;
+
+      // 4. Superpower Box
+      ctx.save();
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+      ctx.strokeStyle = 'rgba(0, 240, 255, 0.35)';
+      ctx.lineWidth = 1;
+      drawRoundRect(ctx, marginX, currY, contentW, spBoxH, 14, true, true);
+
+      // Cyan accent line on left
+      ctx.fillStyle = '#00f0ff';
+      drawRoundRect(ctx, marginX, currY, 4.5, spBoxH, 2, true, false);
+
+      ctx.font = '800 11.5px "Space Grotesk", sans-serif';
+      ctx.fillStyle = '#00f0ff';
+      ctx.fillText('⚡ WHY ENGLISH IS YOUR DECISIVE SUPERPOWER IN THIS FIELD:', marginX + 24, currY + 28);
+
+      ctx.font = '500 15px "Plus Jakarta Sans", sans-serif';
+      ctx.fillStyle = '#f1f5f9';
+      let spTextY = currY + 54;
+      spLines.forEach(line => {
+        ctx.fillText(line, marginX + 24, spTextY);
+        spTextY += 24;
+      });
+      ctx.restore();
+
+      currY += spBoxH + 34;
+
+      // 5. Chronological Roadmap Milestones
+      ctx.font = '800 19px "Plus Jakarta Sans", sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText('📍 Chronological Roadmap Milestones', marginX, currY);
+
+      currY += 24;
+
+      const nodeColors = ['#00f0ff', '#ff2a85', '#10b981', '#a855f7'];
+
+      // Vertical connecting line
+      if (steps.length > 1) {
+        const firstCenterY = currY + 24;
+        const lastMilestoneIdx = milestoneHeights.length - 1;
+        let lastCenterY = currY + 24;
+        let tempAccY = currY;
+        for (let i = 0; i < lastMilestoneIdx; i++) {
+          tempAccY += milestoneHeights[i].h + 16;
+        }
+        lastCenterY = tempAccY + 24;
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(marginX + 20, firstCenterY);
+        ctx.lineTo(marginX + 20, lastCenterY);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      milestoneHeights.forEach((mItem, idx) => {
+        const itemY = currY;
+        const itemH = mItem.h;
+        const col = nodeColors[idx % nodeColors.length];
+
+        // Numbered Node Circle
+        ctx.save();
+        ctx.fillStyle = col;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(marginX + 20, itemY + 24, 18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        ctx.save();
+        ctx.font = '800 14px "Space Grotesk", sans-serif';
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(idx + 1), marginX + 20, itemY + 24);
+        ctx.restore();
+
+        // Milestone Card
+        const cardX = marginX + 54;
+        const cardW = contentW - 54;
+        ctx.save();
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.5)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.lineWidth = 1;
+        drawRoundRect(ctx, cardX, itemY, cardW, itemH, 12, true, true);
+
+        // Milestone Title
+        ctx.font = '800 16px "Plus Jakarta Sans", sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(mItem.title, cardX + 20, itemY + 26);
+
+        // Milestone Details
+        ctx.font = '500 14px "Plus Jakarta Sans", sans-serif';
+        ctx.fillStyle = '#94a3b8';
+        let dLineY = itemY + 50;
+        mItem.lines.forEach(line => {
+          ctx.fillText(line, cardX + 20, dLineY);
+          dLineY += 23;
+        });
+        ctx.restore();
+
+        currY += itemH + 16;
+      });
+
+      currY += 20;
+
+      // 6. Time-Boxed Daily Practice Habit
+      ctx.font = '800 19px "Plus Jakarta Sans", sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`⏱️ Personalized Daily Practice Routine (${blueprint.daily_minutes} Mins / Day)`, marginX, currY);
+
+      ctx.font = '500 13px "Space Grotesk", sans-serif';
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText('Calculated for compounding spoken articulation, active vocabulary, and interview poise', marginX, currY + 22);
+
+      currY += 38;
+
+      const rIcons = ['🎧', '🗣️', '✍️', '🎯'];
+      const rPillColors = ['#00f0ff', '#34d399', '#f472b6', '#fbbf24'];
+
+      routineCards.forEach((rc, rIdx) => {
+        const col = rIdx % 2;
+        const row = Math.floor(rIdx / 2);
+        const rx = marginX + col * (routineColW + 20);
+        const ry = currY + (row === 0 ? 0 : row1H + 14);
+        const cardH = (row === 0 ? row1H : row2H);
+        const pCol = rPillColors[rIdx % rPillColors.length];
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.lineWidth = 1;
+        drawRoundRect(ctx, rx, ry, routineColW, cardH, 12, true, true);
+
+        // Phase Title
+        ctx.font = '800 14px "Plus Jakarta Sans", sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(`${rIcons[rIdx % 4]} ${rc.phase}`, rx + 18, ry + 26);
+
+        // Minute Pill
+        const pillText = `⏱️ ${rc.mins} Mins`;
+        ctx.font = '800 11px "Space Grotesk", sans-serif';
+        const pillW = ctx.measureText(pillText).width + 16;
+        const pillX = rx + routineColW - pillW - 16;
+        ctx.fillStyle = 'rgba(0, 240, 255, 0.1)';
+        ctx.strokeStyle = pCol;
+        ctx.lineWidth = 1;
+        drawRoundRect(ctx, pillX, ry + 12, pillW, 20, 10, true, true);
+        ctx.fillStyle = pCol;
+        ctx.fillText(pillText, pillX + 8, ry + 26);
+
+        // Action Text
+        ctx.font = '500 13px "Plus Jakarta Sans", sans-serif';
+        ctx.fillStyle = '#94a3b8';
+        let aLineY = ry + 50;
+        rc.lines.forEach(line => {
+          ctx.fillText(line, rx + 18, aLineY);
+          aLineY += 21;
+        });
+        ctx.restore();
+      });
+
+      currY += row1H + row2H + 34;
+
+      // 7. Verification & Platform Footer Notice
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(marginX, currY);
+      ctx.lineTo(CW - marginX, currY);
+      ctx.stroke();
+
+      currY += 24;
+
+      ctx.font = '600 13px "Space Grotesk", sans-serif';
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillText('Official Career Fair 2026 Blueprint · Kanakia International School Mira Road', marginX, currY + 12);
+
+      ctx.font = '500 12px "Plus Jakarta Sans", sans-serif';
+      ctx.fillStyle = '#64748b';
+      ctx.fillText('Interactive career exploration and real-time AI speech coaching ecosystem · Open 24/7 at careerwithenglish.pages.dev', marginX, currY + 32);
+
+      ctx.textAlign = 'right';
+      ctx.font = '700 11.5px "JetBrains Mono", monospace';
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText(`AUTHENTICITY: VERIFIED CAREER ROADMAP  |  ${docId}`, CW - marginX, currY + 12);
+      ctx.fillStyle = '#00f0ff';
+      ctx.fillText('SCAN PORTAL FOR 32+ CAREER BLUEPRINTS ↗', CW - marginX, currY + 32);
+      ctx.textAlign = 'left';
+
+      // 8. Trigger High-Quality PNG Download
+      const cleanCareer = blueprint.career.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `${cleanCareer}_Career_Roadmap_Blueprint.png`;
+
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          const dataUrl = canvas.toDataURL('image/png');
+          const a = document.createElement('a');
+          a.href = dataUrl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        } else {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            URL.revokeObjectURL(url);
+            a.remove();
+          }, 1500);
+        }
+        showToast(`📥 Downloaded HD Career Roadmap PNG: ${filename}`);
+      }, 'image/png');
+
+    } catch (err) {
+      console.error('Failed to generate Roadmap PNG:', err);
+      showToast('⚠️ Could not generate PNG. Please try again.');
+    } finally {
+      if (btnTop) btnTop.innerHTML = origTopText;
+      if (btnBottom) btnBottom.innerHTML = origBottomText;
+    }
   }
 
   ['#plan-class-select', '#plan-career-select', '#plan-time-select'].forEach(sel => {
