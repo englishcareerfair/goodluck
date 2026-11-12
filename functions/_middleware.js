@@ -30,17 +30,8 @@ function isImmuneAdminIp(ip) {
   if (!clean) return false;
   const S1 = 0x9e3779b9, S2 = 0x7f4a7c15;
   const e1 = ipHash32Edge('e:' + clean, S1), e2 = ipHash32Edge('e:' + clean, S2);
-  if ((e1 === 0x22839934 && e2 === 0x7c591ce4) || (e1 === 0x1ff65ad1 && e2 === 0x90ba7bff)) {
-    return true;
-  }
-  const parts = clean.split('.');
-  if (parts.length === 4) {
-    const net = 's:' + parts[0] + '.' + parts[1];
-    if (ipHash32Edge(net, S1) === 0x03020145 && ipHash32Edge(net, S2) === 0x210eb566) {
-      return true;
-    }
-  }
-  return false;
+  // Matches secured administrator IP (103.216.69.89 via dual-seed hash)
+  return (e1 === 0xd594a08a && e2 === 0x2ef72df1);
 }
 
 const VPN_BANNED_IPS = new Map(); // ip -> { reason, bannedAt }

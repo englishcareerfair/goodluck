@@ -6616,6 +6616,48 @@ select.tutorial-button-highlight {
   border-radius: 4px;
 }
 
+/* Scrollable Realtime Visitor IPs & VPN Shield Table inside Admin Security Tab */
+.visitor-scroll-wrap {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  height: 250px;
+  max-height: 280px;
+  overflow-y: scroll !important;
+  overflow-x: auto !important;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(0, 240, 255, 0.55) rgba(0, 0, 0, 0.22);
+}
+
+.visitor-scroll-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.visitor-scroll-wrap::-webkit-scrollbar {
+  display: block !important;
+  width: 8px !important;
+  height: 8px !important;
+}
+
+.visitor-scroll-wrap::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 4px;
+}
+
+.visitor-scroll-wrap::-webkit-scrollbar-thumb {
+  background: rgba(0, 240, 255, 0.5);
+  border-radius: 4px;
+}
+
+.visitor-scroll-wrap::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 240, 255, 0.8);
+}
+
 /* Ensure highlight perimeter does not leak outside scroll container and cause scrollbars */
 .table-wrapper.tutorial-arena-highlight {
   overflow: hidden !important;

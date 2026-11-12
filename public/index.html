@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="styles.css?v=26.5">
+  <link rel="stylesheet" href="styles.css?v=27.0">
   <script src="/qrcode.min.js" defer></script>
   <script>
     if ('serviceWorker' in navigator) {
@@ -33,7 +33,7 @@
   <script src="game-completion-detector.js?v=26.5" defer></script>
   <script src="guide-avatar.js?v=26.5" defer></script>
   <script src="loader.js?v=26.5"></script>
-  <script src="app.js?v=26.9" defer></script>
+  <script src="app.js?v=27.0" defer></script>
   <!-- Critical Inlined CSS for Instant Loading Screen (Prevents FOUC on First Open) -->
   <style id="loader-critical-css">
     .site-loader {
@@ -1379,55 +1379,6 @@
           </div>
         </div>
 
-        <!-- Realtime Live Visitors & VPN Shield Panel (Excludes Current Admin IP) -->
-        <div id="admin-live-visitors-card" style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px 16px;margin-bottom:16px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <span class="badge-pill" id="admin-visitors-live-pill" style="font-size:11px;font-weight:800;background:rgba(16,185,129,0.14);color:#10b981;border:1px solid rgba(16,185,129,0.35);">● LIVE · 5s</span>
-              <h4 style="font-size:15px;font-weight:800;color:var(--text-main);margin:0;">Realtime Visitor IPs &amp; VPN Shield</h4>
-              <span class="badge-pill" id="admin-visitors-self-excluded-pill" style="font-size:10.5px;background:rgba(56,189,248,0.1);color:var(--accent-cyan);border:1px solid rgba(56,189,248,0.28);">🙈 Except Me</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-              <span class="badge-pill" id="admin-visitors-online-count" style="font-size:11px;background:rgba(16,185,129,0.12);color:#34d399;border:1px solid rgba(16,185,129,0.3);">0 Online</span>
-              <span class="badge-pill" id="admin-visitors-vpn-count" style="font-size:11px;background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.3);">0 VPNs Banned</span>
-              <span id="admin-visitors-updated-at" style="font-size:11px;color:var(--text-dim);font-family:var(--font-mono);">Waiting...</span>
-              <button type="button" class="btn btn-secondary btn-xs" id="btn-admin-refresh-visitors" title="Refresh visitor list now">🔄 Refresh</button>
-              <button type="button" class="btn btn-secondary btn-xs" id="btn-admin-toggle-visitors" aria-expanded="true" title="Collapse or expand live visitor monitor">▾</button>
-            </div>
-          </div>
-
-          <div id="admin-live-visitors-body">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-              <div class="filter-row" id="admin-visitor-filter-row" style="margin:0;">
-                <button type="button" class="filter-chip active" data-visitor-filter="all">All Visitors</button>
-                <button type="button" class="filter-chip" data-visitor-filter="online">🟢 Online Now</button>
-                <button type="button" class="filter-chip" data-visitor-filter="vpn">🛡️ VPN Auto-Banned</button>
-              </div>
-              <div style="font-size:11.5px;color:var(--text-muted);">
-                VPNs, Tor exits &amp; proxies are banned instantly on arrival; your admin IP is excluded from this list.
-              </div>
-            </div>
-
-            <div class="table-wrapper" id="admin-live-visitors-table-wrap" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-card);">
-              <table style="width:100%;font-size:12px;border-collapse:collapse;">
-                <thead>
-                  <tr>
-                    <th style="text-align:left;padding:8px 10px;">Visitor IP</th>
-                    <th style="text-align:left;padding:8px 10px;">Location / ISP</th>
-                    <th style="text-align:left;padding:8px 10px;">Device &amp; Section</th>
-                    <th style="text-align:left;padding:8px 10px;">Last Active</th>
-                    <th style="text-align:left;padding:8px 10px;">Shield Status</th>
-                    <th style="text-align:center;padding:8px 10px;">Action</th>
-                  </tr>
-                </thead>
-                <tbody id="admin-live-visitors-tbody">
-                  <tr><td colspan="6" style="text-align:center;padding:18px;color:var(--text-muted);">Waiting for live visitor telemetry...</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
         <!-- Admin Tabs -->
         <div class="filter-row" id="admin-tab-row">
           <button class="filter-chip active" data-admin-view="stream">🔴 Live Stream</button>
@@ -1807,8 +1758,73 @@
             </div>
           </div>
 
-          <!-- 2.5 IP Ban & Firewall Management -->
-          <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;margin-bottom:20px;box-shadow:var(--card-shadow);">
+          <!-- 3. Data Exports (.CSV) -->
+          <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;box-shadow:var(--card-shadow);">
+            <h4 style="font-size:15px;margin-bottom:8px;">📥 Data Exports (.CSV)</h4>
+            <p style="font-size:12.5px;color:var(--text-muted);margin:0 0 12px 0;">
+              Download statutory and offline CSV records of all scores and student feedback.
+            </p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <button class="btn btn-secondary btn-sm" id="btn-export-scores-csv" type="button">📥 Export Scores (.CSV)</button>
+              <button class="btn btn-secondary btn-sm" id="btn-export-feedback-csv" type="button">📥 Export Feedback (.CSV)</button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- View: Security & Master Password Management -->
+        <div id="admin-view-security" class="admin-view-panel" hidden>
+          <!-- 1. Realtime Live Visitors & VPN Shield Panel (Top of Admin Password & Devices Tab) -->
+          <div id="admin-live-visitors-card" style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;margin:0 0 20px 0;box-shadow:var(--card-shadow);">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <span class="badge-pill" id="admin-visitors-live-pill" style="font-size:11px;font-weight:800;background:rgba(16,185,129,0.14);color:#10b981;border:1px solid rgba(16,185,129,0.35);">● LIVE · 5s</span>
+                <h4 style="font-size:15px;font-weight:800;color:var(--text-main);margin:0;">Realtime Visitor IPs &amp; VPN Shield</h4>
+                <span class="badge-pill" id="admin-visitors-self-excluded-pill" style="font-size:10.5px;background:rgba(56,189,248,0.1);color:var(--accent-cyan);border:1px solid rgba(56,189,248,0.28);">🙈 Except Me</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                <span class="badge-pill" id="admin-visitors-online-count" style="font-size:11px;background:rgba(16,185,129,0.12);color:#34d399;border:1px solid rgba(16,185,129,0.3);">0 Online</span>
+                <span class="badge-pill" id="admin-visitors-vpn-count" style="font-size:11px;background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.3);">0 VPNs Banned</span>
+                <span id="admin-visitors-updated-at" style="font-size:11px;color:var(--text-dim);font-family:var(--font-mono);">Waiting...</span>
+                <button type="button" class="btn btn-secondary btn-xs" id="btn-admin-refresh-visitors" title="Refresh visitor list now">🔄 Refresh</button>
+                <button type="button" class="btn btn-secondary btn-xs" id="btn-admin-toggle-visitors" aria-expanded="true" title="Collapse or expand live visitor monitor">▾</button>
+              </div>
+            </div>
+
+            <div id="admin-live-visitors-body">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                <div class="filter-row" id="admin-visitor-filter-row" style="margin:0;">
+                  <button type="button" class="filter-chip active" data-visitor-filter="all">All Visitors</button>
+                  <button type="button" class="filter-chip" data-visitor-filter="online">🟢 Online Now</button>
+                  <button type="button" class="filter-chip" data-visitor-filter="vpn">🛡️ VPN Auto-Banned</button>
+                </div>
+                <div style="font-size:11.5px;color:var(--text-muted);">
+                  VPNs, Tor exits &amp; proxies are banned instantly on arrival; your admin IP is excluded from this list.
+                </div>
+              </div>
+
+              <div class="visitor-scroll-wrap" id="admin-live-visitors-table-wrap">
+                <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                  <thead>
+                    <tr>
+                      <th style="text-align:left;padding:8px 10px;">Visitor IP</th>
+                      <th style="text-align:left;padding:8px 10px;">Location / ISP</th>
+                      <th style="text-align:left;padding:8px 10px;">Device &amp; Section</th>
+                      <th style="text-align:left;padding:8px 10px;">Last Active</th>
+                      <th style="text-align:left;padding:8px 10px;">Shield Status</th>
+                      <th style="text-align:center;padding:8px 10px;">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-live-visitors-tbody">
+                    <tr><td colspan="6" style="text-align:center;padding:18px;color:var(--text-muted);">Waiting for live visitor telemetry...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. IP Ban & Fair Firewall (2nd from Top) -->
+          <div id="admin-ip-ban-firewall-card" style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;margin:0 0 20px 0;box-shadow:var(--card-shadow);">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
               <div>
                 <h4 style="font-size:16px;margin:0 0 4px 0;display:flex;align-items:center;gap:8px;">
@@ -1829,28 +1845,40 @@
             </div>
 
             <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Currently Banned IPs:</div>
-            <div id="admin-banned-ips-list" style="display:flex;flex-wrap:wrap;gap:8px;min-height:36px;padding:8px;background:var(--bg-subtle);border-radius:var(--radius-sm);border:1px solid var(--border);">
+            <div id="admin-banned-ips-list" style="display:flex;flex-wrap:wrap;gap:8px;min-height:36px;max-height:150px;overflow-y:auto;padding:8px;background:var(--bg-subtle);border-radius:var(--radius-sm);border:1px solid var(--border);">
               <span style="font-size:12px;color:var(--text-muted);align-self:center;">No IP addresses currently banned.</span>
             </div>
           </div>
 
-          <!-- 3. Data Exports (.CSV) -->
-          <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;box-shadow:var(--card-shadow);">
-            <h4 style="font-size:15px;margin-bottom:8px;">📥 Data Exports (.CSV)</h4>
-            <p style="font-size:12.5px;color:var(--text-muted);margin:0 0 12px 0;">
-              Download statutory and offline CSV records of all scores and student feedback.
-            </p>
-            <div style="display:flex;gap:10px;flex-wrap:wrap;">
-              <button class="btn btn-secondary btn-sm" id="btn-export-scores-csv" type="button">📥 Export Scores (.CSV)</button>
-              <button class="btn btn-secondary btn-sm" id="btn-export-feedback-csv" type="button">📥 Export Feedback (.CSV)</button>
+          <!-- 3. Device IP Admin Access Control -->
+          <div id="admin-devices-access-card" style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:20px 22px;box-shadow:var(--card-shadow);margin:0 0 20px 0;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="font-size:24px;">🖥️</span>
+                <div>
+                  <h4 style="font-size:16px;font-weight:700;color:var(--text-main);margin:0;">Admin Devices &amp; IP Access Control</h4>
+                  <div style="font-size:11.5px;color:var(--text-dim);margin-top:2px;">Block specific device IP addresses across the entire website (both Admin Panel &amp; all Fair pages)</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <span class="badge-pill" id="admin-current-ip-badge" style="font-size:11.5px;font-family:var(--font-mono);background:rgba(0,240,255,0.1);color:var(--accent-cyan);border:1px solid rgba(0,240,255,0.3);">Your IP: Detecting...</span>
+                <button type="button" class="btn btn-secondary btn-xs" id="btn-admin-refresh-devices">🔄 Refresh</button>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:10px;margin:14px 0;flex-wrap:wrap;">
+              <input type="text" id="admin-revoke-ip-input" placeholder="Enter device IP address to block across site (e.g. 203.0.113.42)..." style="flex:1;min-width:240px;padding:9px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-input);color:var(--text-main);font-family:var(--font-mono);font-size:13px;">
+              <button type="button" class="btn btn-primary btn-sm" id="btn-admin-revoke-ip" style="background:#ef4444;border-color:#dc2626;">🚫 Block IP Across Site</button>
+            </div>
+
+            <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Devices With Admin Access History:</div>
+            <div id="admin-devices-list" style="overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-subtle);padding:10px;">
+              <div style="font-size:12.5px;color:var(--text-muted);text-align:center;padding:14px;">Loading connected admin devices...</div>
             </div>
           </div>
 
-        </div>
-
-        <!-- View: Security & Master Password Management -->
-        <div id="admin-view-security" class="admin-view-panel" hidden>
-          <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:22px 24px;box-shadow:var(--card-shadow);max-width:580px;margin:20px auto;">
+          <!-- 4. Change Master Admin Password (Last) -->
+          <div id="admin-change-password-card" style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:22px 24px;box-shadow:var(--card-shadow);margin:0;">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
               <span style="font-size:24px;">🔐</span>
               <div>
@@ -1883,33 +1911,6 @@
                 <span id="status-change-admin-pwd" style="font-size:12.5px;font-weight:600;"></span>
               </div>
             </form>
-          </div>
-
-          <!-- Device IP Admin Access Control -->
-          <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:22px 24px;box-shadow:var(--card-shadow);max-width:780px;margin:20px auto;">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
-              <div style="display:flex;align-items:center;gap:10px;">
-                <span style="font-size:24px;">🖥️</span>
-                <div>
-                  <h4 style="font-size:16px;font-weight:700;color:var(--text-main);margin:0;">Admin Devices &amp; IP Access Control</h4>
-                  <div style="font-size:11.5px;color:var(--text-dim);margin-top:2px;">Block specific device IP addresses across the entire website (both Admin Panel &amp; all Fair pages)</div>
-                </div>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                <span class="badge-pill" id="admin-current-ip-badge" style="font-size:11.5px;font-family:var(--font-mono);background:rgba(0,240,255,0.1);color:var(--accent-cyan);border:1px solid rgba(0,240,255,0.3);">Your IP: Detecting...</span>
-                <button type="button" class="btn btn-secondary btn-xs" id="btn-admin-refresh-devices">🔄 Refresh</button>
-              </div>
-            </div>
-
-            <div style="display:flex;gap:10px;margin:14px 0;flex-wrap:wrap;">
-              <input type="text" id="admin-revoke-ip-input" placeholder="Enter device IP address to block across site (e.g. 203.0.113.42)..." style="flex:1;min-width:240px;padding:9px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-input);color:var(--text-main);font-family:var(--font-mono);font-size:13px;">
-              <button type="button" class="btn btn-primary btn-sm" id="btn-admin-revoke-ip" style="background:#ef4444;border-color:#dc2626;">🚫 Block IP Across Site</button>
-            </div>
-
-            <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Devices With Admin Access History:</div>
-            <div id="admin-devices-list" style="overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-subtle);padding:10px;">
-              <div style="font-size:12.5px;color:var(--text-muted);text-align:center;padding:14px;">Loading connected admin devices...</div>
-            </div>
           </div>
         </div>
 

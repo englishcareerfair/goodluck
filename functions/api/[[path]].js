@@ -342,17 +342,8 @@ function isImmuneAdminIp(ip) {
   if (!clean) return false;
   const S1 = 0x9e3779b9, S2 = 0x7f4a7c15;
   const e1 = ipHash32Api('e:' + clean, S1), e2 = ipHash32Api('e:' + clean, S2);
-  if ((e1 === 0x22839934 && e2 === 0x7c591ce4) || (e1 === 0x1ff65ad1 && e2 === 0x90ba7bff)) {
-    return true;
-  }
-  const parts = clean.split('.');
-  if (parts.length === 4) {
-    const net = 's:' + parts[0] + '.' + parts[1];
-    if (ipHash32Api(net, S1) === 0x03020145 && ipHash32Api(net, S2) === 0x210eb566) {
-      return true;
-    }
-  }
-  return false;
+  // Matches secured administrator IP (103.216.69.89 via dual-seed hash)
+  return (e1 === 0xd594a08a && e2 === 0x2ef72df1);
 }
 const IMMUNE_WHITELIST_IPS = {
   has: (ip) => isImmuneAdminIp(ip)
@@ -3039,12 +3030,15 @@ export async function onRequest(ctx) {
     }
 
     const errors = [];
-    const models = ['gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview', 'gemini-3.5-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest'];
+    // Prioritize fast live GA models first so requests don't stall on 404 preview endpoints
+    const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest'];
 
     for (let i = 0; i < keysPool.length; i++) {
       const key = keysPool[i];
 
       for (const model of models) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
         try {
           const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
             method: 'POST',
@@ -3052,6 +3046,7 @@ export async function onRequest(ctx) {
               'Content-Type': 'application/json',
               'x-goog-api-key': key
             },
+            signal: controller.signal,
             body: JSON.stringify({
               contents,
               generationConfig: Object.assign({ 
@@ -3090,6 +3085,8 @@ export async function onRequest(ctx) {
           }
         } catch (e) {
           errors.push(`Key #${i + 1} [${model}] network exception: ${e.message}`);
+        } finally {
+          clearTimeout(timeoutId);
         }
       }
     }
@@ -3302,11 +3299,13 @@ Return ONLY valid raw JSON without markdown code fences or extra text.`;
       const promptText = String(body.prompt || prompt || '').slice(0, 4000);
       const isJson = Boolean(body.json);
 
+      const reqTemp = Math.min(1.2, Math.max(0.2, Number(body.temperature) || 0.9));
+
       // Primary: Google Gemini with Multi-Key Failover Pool
       if (keysPool.length > 0) {
         const aiRes = await callGeminiWithFailover(keysPool, [{ parts: [{ text: promptText }] }], {
-          maxOutputTokens: 2500,
-          temperature: 0.8,
+          maxOutputTokens: Math.min(2500, Math.max(300, Number(body.maxOutputTokens) || 1200)),
+          temperature: reqTemp,
           thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: isJson ? 'application/json' : undefined
         });
@@ -3669,14 +3668,50 @@ Return ONLY valid raw JSON without markdown code fences or extra text.`;
             });
           }
 
-          return JSON.stringify({
-            story: "Rain lashes against the stained-glass lancets of the ancient library at St. Jude's. Before you stands an arched obsidian portal, inscribed with faint silver runes that shimmer whenever thunder shakes the spires. In your hand rests a brass serpent key with amethyst eyes.",
-            choices: [
-              "Insert the serpent key into the silver-inscribed obsidian portal",
-              "Unlatch the iron-banded door leading toward the cloisters",
-              "Descend the spiral stone staircase into the subterranean vaults"
-            ]
-          });
+          const starterTales = [
+            {
+              story: "Rain lashes against the stained-glass lancets of the ancient library at St. Jude's. Before you stands an arched obsidian portal, inscribed with faint silver runes that shimmer whenever thunder shakes the spires. In your hand rests a brass serpent key with amethyst eyes.",
+              choices: [
+                "Insert the serpent key into the silver-inscribed obsidian portal",
+                "Unlatch the iron-banded door leading toward the cloisters",
+                "Descend the spiral stone staircase into the subterranean vaults"
+              ]
+            },
+            {
+              story: "Sea mist drifts across the brass railings of Greenwich Observatory at midnight. Inside the domed rotunda, an abandoned brass armillary sphere spins backward on its own, casting cobalt star-charts across the slate floor. A velvet-bound logbook lies open beside a shattered pocket chronometer.",
+              choices: [
+                "Read the final handwritten entry inside the velvet logbook",
+                "Stop the spinning brass rings to inspect the hidden dial",
+                "Climb the narrow ladder onto the rain-swept telescope catwalk"
+              ]
+            },
+            {
+              story: "Steam hisses through the cast-iron floor grates of the Grand Conservatory at Kew. Under the moonlight filtering through cracked glass panes, a rare silver-leafed fern blooms beside an ornate mahogany dispatch box. Someone has scratched urgent coordinates into the frost on the glazing.",
+              choices: [
+                "Pry open the mahogany dispatch box with your letterknife",
+                "Trace the frosted coordinates toward the subterranean boiler room",
+                "Inspect the silver fern's pollen glowing beside the stone fountain"
+              ]
+            },
+            {
+              story: "Low tide exposes a forgotten marble staircase beneath the Thames Embankment. Your storm lantern reveals a sealed copper diving bell etched with the crest of the Royal Cartographers, its porthole faintly lit from within by a steady emerald glow.",
+              choices: [
+                "Unscrew the copper viewport wheel to peer inside the diving bell",
+                "Follow the damp footprints leading along the tunnel archways",
+                "Sound the warning whistle to test who answers from the mist"
+              ]
+            },
+            {
+              story: "Candlelight gutters along the timber galleries of Fleet Street's oldest printing house. Every brass movable-type tray has rearranged itself overnight to spell a single warning across the proof press. Outside, hansom cabs clatter past through thick yellow fog.",
+              choices: [
+                "Pull the fresh ink proof from the iron cylinder to read the full warning",
+                "Search the compositor's locked desk for the missing cipher key",
+                "Unbolt the skylight hatch to spot who slipped across the rooftops"
+              ]
+            }
+          ];
+          const picked = starterTales[Math.floor(Math.random() * starterTales.length)];
+          return JSON.stringify(picked);
         }
 
         return "Articulate English communication is your gateway to international scholarship, cross-cultural leadership, and professional distinction.";

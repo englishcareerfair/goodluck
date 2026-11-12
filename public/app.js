@@ -8057,72 +8057,34 @@ const GAMING_HALL_QUESTS = [
   }
 ];
 
-async function callAiQuest(prompt, isJson = false) {
-  let geminiKeyList = (localStorage.getItem('cf_gemini_keys') || localStorage.getItem('cf_gemini_key') || STATE.config.gemini_keys || '').split(/[\r\n,]+/).map(k => k.trim()).filter(Boolean);
-  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+async function callAiQuest(prompt, isJson = false, opts = {}) {
   const fallbackSpeech = "That is a brilliant career aspiration! Strong English articulation allows you to lead international teams, present research, and master global opportunities.";
-
-  // 1. Try Gemini Keys directly if available (client-side directly to Gemini with auto-rotation)
-  for (let i = 0; i < geminiKeyList.length; i++) {
-    const curKey = geminiKeyList[i];
-    let keyExhausted = false;
-
-    // 1a. Attempt backend /api/ai (secure backend key resolution)
-    try {
-      const res = await fetch(getApiUrl('api/ai'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ task: 'quest', prompt, json: isJson })
-      });
-
-      if (res.status === 429 || res.status === 403) {
-        keyExhausted = true;
-      } else if (res.ok) {
-        const data = await safeJsonResponse(res);
-        const candidate = (data && (data.reply !== undefined ? data.reply : (data.text || data.response))) || '';
-        if (candidate && (typeof candidate === 'object' || String(candidate).trim() !== fallbackSpeech)) {
-          if (isJson && typeof candidate === 'string') {
-            const m = candidate.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-            if (m) {
-              try { return JSON.parse(m[0]); } catch {}
-            }
-          }
-          return candidate;
-        }
-      }
-    } catch (e) {}
-
-    // 1b. Direct client-side call removed to prevent network tab key leaks.
-    // Backend /api/ai handles key rotation and fallback safely in cloud.
-
-    if (keyExhausted) {
-      console.warn(`Gemini key ${curKey.slice(0, 6)}... quota exhausted. Rotating.`);
-      geminiKeyList.splice(i, 1);
-      i--;
-      const updatedPool = geminiKeyList.join('\n');
-      localStorage.setItem('cf_gemini_keys', updatedPool);
-      localStorage.setItem('cf_gemini_key', geminiKeyList[0] || '');
-      STATE.config.gemini_keys = updatedPool;
-      STATE.config.gemini_key = geminiKeyList[0] || '';
-      if (typeof window.syncAdminGeminiKeyBoxes === 'function') {
-        window.syncAdminGeminiKeyBoxes();
-      }
-    }
+  const timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : 6500;
+  const controller = new AbortController();
+  const externalSignal = opts.signal;
+  let onExternalAbort = null;
+  if (externalSignal) {
+    if (externalSignal.aborted) return null;
+    onExternalAbort = () => controller.abort();
+    externalSignal.addEventListener('abort', onExternalAbort, { once: true });
   }
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  // 2. If no keys or all keys exhausted, call backend /api/ai directly without key header (allows Workers AI / D1 key pool)
   try {
+    const payload = { task: 'quest', prompt, json: isJson };
+    if (typeof opts.temperature === 'number') payload.temperature = opts.temperature;
+    if (typeof opts.maxOutputTokens === 'number') payload.maxOutputTokens = opts.maxOutputTokens;
+
     const res = await fetch(getApiUrl('api/ai'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ task: 'quest', prompt, json: isJson })
+      signal: controller.signal,
+      body: JSON.stringify(payload)
     });
     if (res.ok) {
       const data = await safeJsonResponse(res);
-      const candidate = (data && (data.reply || data.text || data.response)) || '';
-      if (candidate && String(candidate).trim() !== fallbackSpeech) {
+      const candidate = (data && (data.reply !== undefined ? data.reply : (data.text || data.response))) || '';
+      if (candidate && (typeof candidate === 'object' || String(candidate).trim() !== fallbackSpeech)) {
         if (isJson && typeof candidate === 'string') {
           const m = candidate.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
           if (m) {
@@ -8132,17 +8094,34 @@ async function callAiQuest(prompt, isJson = false) {
         return candidate;
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    if (e?.name === 'AbortError') return null;
+  } finally {
+    clearTimeout(timer);
+    if (externalSignal && onExternalAbort) {
+      externalSignal.removeEventListener('abort', onExternalAbort);
+    }
+  }
 
-  // Signal null so contextual offline responses generate
   return null;
 }
 
-async function typeInto(el, text) {
+async function typeInto(el, text, shouldAbort = null) {
+  const full = String(text || '');
+  if (!el) return;
+  if (full.length <= 40) {
+    el.textContent = full;
+    return;
+  }
   el.textContent = '';
-  for (const char of text) {
-    el.textContent += char;
-    await new Promise(r => setTimeout(r, 12));
+  const stepSize = Math.max(8, Math.ceil(full.length / 22));
+  for (let i = 0; i < full.length; i += stepSize) {
+    if (typeof shouldAbort === 'function' && shouldAbort()) return;
+    el.textContent = full.slice(0, i + stepSize);
+    await new Promise(r => setTimeout(r, 14));
+  }
+  if (typeof shouldAbort !== 'function' || !shouldAbort()) {
+    el.textContent = full;
   }
 }
 
@@ -8625,10 +8604,108 @@ function renderGamingHall(mount, initialQuestIdx = 0) {
   launchQuest(activeIndex);
 }
 
-// QUEST 1: The Scribe (Fully Dynamic Branching Interactive Tale)
+// QUEST 1: The Scribe (Instant-Load Branching Interactive Tale with Distinct New-Tale Seeds)
+const SCRIBE_STARTER_TALES = [
+  {
+    theme: "Greenwich Royal Observatory Clockwork Dome",
+    story: "Sea mist drifts across the brass railings of Greenwich Observatory at midnight. Inside the domed rotunda, an abandoned brass armillary sphere spins backward on its own, casting cobalt star-charts across the slate floor. A velvet-bound logbook lies open beside a shattered pocket chronometer ticking in reverse.",
+    choices: [
+      "Read the final handwritten entry inside the velvet logbook",
+      "Halt the spinning brass rings to inspect the hidden dial",
+      "Climb the narrow ladder onto the rain-swept telescope catwalk"
+    ]
+  },
+  {
+    theme: "Kew Gardens Moonlight Iron Conservatory",
+    story: "Warm steam hisses through the cast-iron floor grates of the Grand Conservatory at Kew. Under pale moonlight filtering through frosted glass panes, a rare silver-leafed fern blooms beside a locked mahogany dispatch box. Someone has scratched urgent coordinates into the condensation on the central pane.",
+    choices: [
+      "Pry open the mahogany dispatch box with your brass letterknife",
+      "Trace the frosted coordinates toward the subterranean boiler room",
+      "Collect a glowing pollen sample beside the stone fountain"
+    ]
+  },
+  {
+    theme: "Fleet Street Midnight Printing House",
+    story: "Beeswax candles gutter along the oak galleries of Fleet Street's oldest printing house. Overnight, every tray of lead movable type has rearranged itself to spell an encrypted warning across the iron proof press. Outside, hansom cabs thunder past through swirling amber fog.",
+    choices: [
+      "Pull the wet ink proof from the roller to read the full cipher",
+      "Search the master compositor's locked desk for the cipher ledger",
+      "Unbolt the skylight hatch to spot who fled across the rooftops"
+    ]
+  },
+  {
+    theme: "Thames Embankment Submerged Tide-Lock",
+    story: "Record low tide exposes a forgotten granite staircase beneath the Thames Embankment arches. Your storm lantern reveals a sealed copper diving bell embossed with the crest of the Royal Cartographers, its thick glass porthole pulsing with a steady emerald glow from within.",
+    choices: [
+      "Turn the heavy viewport wheel to inspect the bell's interior",
+      "Follow the wet bootprints vanishing along the riverside vault",
+      "Signal down the iron speaking-tube to test who waits below"
+    ]
+  },
+  {
+    theme: "Bath Abbey Silver-Reed Organ Loft",
+    story: "Storm winds sweep across the honey-colored stonework of Bath Abbey after curfew. From high inside the vaulted organ loft, a single phantom chord vibrates through the flagstones without anyone touching the ivory keys, shaking loose a rolled parchment tucked inside a gilded pipe.",
+    choices: [
+      "Unroll the parchment hidden inside the resonating silver organ pipe",
+      "Inspect the wooden wind-chest behind the crimson velvet curtain",
+      "Ascend the spiral bell-tower stairs toward the storm balcony"
+    ]
+  },
+  {
+    theme: "Ironbridge Gorge Nocturnal Foundry",
+    story: "Sparks drift above the dark river at Ironbridge Gorge, though the great waterwheel stopped turning an hour ago. Beside the cooling crucible rests an intricate steel astrolabe still warm from the forge, engraved with three constellations that do not appear in any maritime atlas.",
+    choices: [
+      "Align the steel astrolabe rings with the starlight overhead",
+      "Check the foundry master's chalk tally board for midnight deliveries",
+      "Cross the cast-iron suspension span toward the shuttered tollhouse"
+    ]
+  },
+  {
+    theme: "Lincoln's Inn Candlelit Law Archive",
+    story: "Late thunder rattles the leaded windows of Lincoln's Inn library, where leather-bound Chancery folios tower to the ceiling. Resting squarely on the oak reading table is an unbroken scarlet wax seal stamped with a compass rose—attached to an unrecorded will dated fifty years in the future.",
+    choices: [
+      "Break the scarlet compass-rose seal with your ivory paperknife",
+      "Compare the parchment watermark against the archival registry index",
+      "Step into the recessed mahogany alcove where a draft stirs the drapes"
+    ]
+  },
+  {
+    theme: "Whitby Cliffside Marconi Signal Station",
+    story: "Salt spray whips the sandstone cliffs above Whitby Harbour as waves crash against the abbey ruins below. Inside the darkened cliffside telegraph hut, the brass Morse key taps out three crisp coordinates all by itself, illuminating a glass tube filled with powdered lodestone.",
+    choices: [
+      "Transcribe the incoming Morse transmission onto the nautical chart",
+      "Trace the copper earthing cable down toward the sea caves",
+      "Flash the signal lamp toward the anchored schooner in the bay"
+    ]
+  },
+  {
+    theme: "St. Pancras Velvet Train Dispatch Vault",
+    story: "Locomotive steam curls beneath the vast iron canopy of St. Pancras long after the midnight mail has departed. On Platform Nine waits a solitary brass-trimmed luggage trunk tagged 'Diplomatic Courier — Unclaimed 1894', humming softly like a wound pocket watch.",
+    choices: [
+      "Examine the twin luggage tags and telegraph wax seals on the lid",
+      "Question the night signalman inside the glass control gantry",
+      "Slide the brass latch to glimpse the velvet compartment within"
+    ]
+  },
+  {
+    theme: "St. Jude's Obsidian Scriptorium",
+    story: "Rain lashes against the stained-glass lancets of the ancient library at St. Jude's. Before you stands an arched obsidian portal, inscribed with faint silver runes that shimmer whenever thunder shakes the spires. In your hand rests a brass serpent key with amethyst eyes.",
+    choices: [
+      "Insert the serpent key into the silver-inscribed obsidian portal",
+      "Unlatch the iron-banded door leading toward the quiet cloisters",
+      "Descend the spiral stone staircase into the whispering vaults"
+    ]
+  }
+];
+
 function launchQuestScribe(mount) {
   let turn = 0;
   let storyHistory = [];
+  let activeRunId = 0;
+  let activeController = null;
+  let lastStarterIdx = -1;
+  let lastTaleOpening = '';
+  const recentOpenings = [];
 
   mount.innerHTML = `
     <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:8px;">
@@ -8646,19 +8723,87 @@ function launchQuestScribe(mount) {
   const choicesBox = $('#scribe-choices-box');
   const turnBadge = $('#scribe-turn-badge');
 
-  const step = async (choice = null) => {
-    choicesBox.innerHTML = '<div style="color:var(--text-muted);"><span class="spinner-sm"></span> The quill moves across the page...</div>';
+  const pickFreshStarter = () => {
+    const poolSize = SCRIBE_STARTER_TALES.length;
+    const candidates = [];
+    for (let i = 0; i < poolSize; i++) {
+      if (i !== lastStarterIdx && !recentOpenings.includes(SCRIBE_STARTER_TALES[i].story.slice(0, 48).toLowerCase())) {
+        candidates.push(i);
+      }
+    }
+    const chosenIdx = candidates.length
+      ? candidates[Math.floor(Math.random() * candidates.length)]
+      : ((lastStarterIdx + 1) % poolSize);
+    lastStarterIdx = chosenIdx;
+    const entry = SCRIBE_STARTER_TALES[chosenIdx];
+    const sig = entry.story.slice(0, 48).toLowerCase();
+    lastTaleOpening = sig;
+    recentOpenings.push(sig);
+    if (recentOpenings.length > 6) recentOpenings.shift();
+    return entry;
+  };
+
+  const isDuplicateOpening = (storyText) => {
+    const clean = String(storyText || '').trim().toLowerCase();
+    if (!clean) return true;
+    const sig = clean.slice(0, 48);
+    if (sig === lastTaleOpening || recentOpenings.includes(sig)) return true;
+    // Guard against LLM defaulting repeatedly to Blackfriars / Oakhaven Asylum trope
+    if (clean.includes('oakhaven') || clean.includes('blackfriars')) return true;
+    return false;
+  };
+
+  const renderChoices = (nextChoices, currentTurn) => {
+    choicesBox.innerHTML = '';
+    const finalChoices = (currentTurn >= 6) ? [] : nextChoices;
+    if (finalChoices.length > 0) {
+      finalChoices.forEach(ch => {
+        const btn = document.createElement('button');
+        btn.className = 'quest-choice-btn';
+        btn.innerHTML = `<span>👉</span> <span>${escapeHtml(ch)}</span>`;
+        btn.onclick = () => step(ch, false);
+        choicesBox.appendChild(btn);
+      });
+    } else {
+      choicesBox.innerHTML = '<div style="padding:14px;background:var(--surface);border-radius:var(--radius-md);color:var(--accent-cyan);font-weight:600;">✨ The tale has reached its dramatic conclusion. Click "Start New Tale" to venture forth again.</div>';
+    }
+  };
+
+  const step = async (choice = null, isReset = false) => {
+    activeRunId += 1;
+    const myRunId = activeRunId;
+    if (activeController) {
+      try { activeController.abort(); } catch {}
+    }
+    activeController = new AbortController();
+
     turn++;
     if (turnBadge) turnBadge.textContent = `Chapter ${turn} of 6`;
+
+    // Initial first open of Chapter 1: render instantaneously (< 20ms) with zero blocking wait!
+    if (!choice && !isReset) {
+      const starter = pickFreshStarter();
+      storyHistory.push(`Chapter 1 Theme: ${starter.theme}`);
+      storyHistory.push(`Chapter 1 Story: ${starter.story.slice(0, 80)}...`);
+      await typeInto(storyBox, starter.story, () => myRunId !== activeRunId);
+      if (myRunId !== activeRunId) return;
+      renderChoices(starter.choices, turn);
+      return;
+    }
 
     if (choice) {
       storyHistory.push(`Chapter ${turn - 1} Choice: ${choice}`);
     }
 
+    choicesBox.innerHTML = '<div style="color:var(--text-muted);"><span class="spinner-sm"></span> The quill weaves a fresh chapter...</div>';
+
     try {
       let userMsg = '';
+      let starterSeedTheme = null;
       if (!choice) {
-        userMsg = 'You are the Master Scribe. Write Chapter 1 of a dark-fantasy Gothic quest in Victorian prose for a high-school student. Return strict JSON {"story":"80-100 words opening an atmospheric mystery with immediate tension","choices":["choice 1","choice 2","choice 3"]}.';
+        starterSeedTheme = pickFreshStarter();
+        const seedToken = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+        userMsg = `You are the Master Scribe [Seed ${seedToken}]. Write Chapter 1 of a brand-new Victorian mystery quest set specifically at "${starterSeedTheme.theme}" for a high-school student. Do NOT mention Oakhaven Asylum, Blackfriars wharf, St. Jude's, or repeat earlier tales. Return strict JSON {"story":"80-100 words opening a vivid original mystery with immediate tension","choices":["choice 1","choice 2","choice 3"]}.`;
       } else {
         const historyContext = storyHistory.slice(-3).join(' -> ');
         if (turn >= 6) {
@@ -8670,12 +8815,18 @@ function launchQuestScribe(mount) {
 
       let data = null;
       try {
-        data = await callAiQuest(userMsg, true);
+        data = await callAiQuest(userMsg, true, {
+          signal: activeController.signal,
+          timeoutMs: !choice ? 2600 : 4500,
+          temperature: !choice ? 1.05 : 0.85,
+          maxOutputTokens: 420
+        });
       } catch (e) {
         data = null;
       }
 
-      // If AI returned structured response, verify it has story
+      if (myRunId !== activeRunId) return;
+
       let storyText = '';
       let nextChoices = [];
 
@@ -8688,81 +8839,75 @@ function launchQuestScribe(mount) {
           try {
             const parsed = JSON.parse(jsonMatch[0]);
             if (parsed.story) {
-              storyText = parsed.story;
+              storyText = String(parsed.story).trim();
               nextChoices = Array.isArray(parsed.choices) ? parsed.choices : [];
             }
           } catch {}
         }
       }
 
-      // Contextual dynamic branching fallback if network or quota is unavailable
-      if (!storyText || storyText.includes('ancient parchment reveals an intricate mystery before you')) {
-        if (!choice) {
-          const rootData = SCRIBE_OFFLINE_TALES[0];
-          storyText = rootData.story;
-          nextChoices = rootData.choices;
-        } else if (turn >= 6) {
-          storyText = `You courageously carry out your choice to "${choice}". Light surges through the ancient stained-glass windows, driving back the shadows as the final clockwork bell strikes. Every riddle inscribed in the Scriptorium has been mastered through your discernment, bringing your Gothic journey to a triumphant conclusion.`;
+      // Reject empty, generic, or duplicate Chapter 1 openings (including repeated Oakhaven/Blackfriars outputs)
+      if (!choice) {
+        if (!storyText || storyText.includes('ancient parchment reveals an intricate mystery before you') || isDuplicateOpening(storyText)) {
+          const fallbackStarter = starterSeedTheme || pickFreshStarter();
+          storyText = fallbackStarter.story;
+          nextChoices = fallbackStarter.choices;
+        } else {
+          const sig = storyText.toLowerCase().slice(0, 48);
+          lastTaleOpening = sig;
+          recentOpenings.push(sig);
+          if (recentOpenings.length > 6) recentOpenings.shift();
+        }
+      } else if (!storyText || storyText.includes('ancient parchment reveals an intricate mystery before you')) {
+        if (turn >= 6) {
+          storyText = `You courageously carry out your choice to "${choice}". Light surges through the vaulted chambers as the final chime echoes across the skyline. Every riddle inscribed in the chronicle has been solved through your discernment, bringing this journey to a triumphant finish.`;
           nextChoices = [];
         } else {
           const actionClean = choice.trim();
-          storyText = `Acting upon your resolve to "${actionClean}", you venture deeper into the mystery. The stone corridor responds with a rhythmic mechanical hum as concealed oil lamps flare to life. Ahead, a heavy iron portal bears three freshly unveiled Latin runes, reacting dynamically to your presence.`;
+          storyText = `Acting upon your resolve to "${actionClean}", you venture deeper into the mystery. Hidden gears stir behind the paneling as concealed oil lamps flare to life, revealing a brass-bound compartment bearing three clues tailored to your discovery.`;
           nextChoices = [
-            `Analyze the Latin inscription: "Veritas Vos Liberabit" to unlock the inner sanctum`,
-            `Draw your lantern closer to inspect the mechanical locking cylinder`,
-            `Signal into the vaulted gallery to test for echoes or hidden watchers`
+            `Decode the engraved cipher plate to unlock the inner compartment`,
+            `Inspect the mechanical mechanism with your storm lantern`,
+            `Scan the shadowed gallery for echoes or hidden watchers`
           ];
         }
       }
 
       storyHistory.push(`Chapter ${turn} Story: ${storyText.slice(0, 80)}...`);
-      await typeInto(storyBox, storyText);
+      await typeInto(storyBox, storyText, () => myRunId !== activeRunId);
+      if (myRunId !== activeRunId) return;
 
-      choicesBox.innerHTML = '';
-      const finalChoices = (turn >= 6) ? [] : nextChoices;
-      if (finalChoices.length > 0) {
-        finalChoices.forEach(ch => {
-          const btn = document.createElement('button');
-          btn.className = 'quest-choice-btn';
-          btn.innerHTML = `<span>👉</span> <span>${escapeHtml(ch)}</span>`;
-          btn.onclick = () => step(ch);
-          choicesBox.appendChild(btn);
-        });
-      } else {
-        choicesBox.innerHTML = '<div style="padding:14px;background:var(--surface);border-radius:var(--radius-md);color:var(--accent-cyan);font-weight:600;">✨ The tale has reached its dramatic conclusion. Click "Start New Tale" to venture forth again.</div>';
-      }
+      renderChoices(nextChoices, turn);
     } catch (err) {
+      if (myRunId !== activeRunId) return;
       console.warn('Scribe quest step safe recovery:', err);
-      const fallbackText = choice 
-        ? `You press forward with "${choice}". The ancient library answers with a deep resonance, revealing a hidden stairwell winding upward into the observatory.`
-        : (SCRIBE_OFFLINE_TALES[0]?.story || 'The adventure begins in the shadowy library...');
-      storyBox.textContent = fallbackText;
-      choicesBox.innerHTML = '';
-      if (turn < 6) {
-        [
+      if (!choice) {
+        const fallbackStarter = pickFreshStarter();
+        storyBox.textContent = fallbackStarter.story;
+        renderChoices(fallbackStarter.choices, turn);
+      } else {
+        const fallbackText = `You press forward with "${choice}". The chamber answers with a deep resonance, revealing a hidden stairwell winding upward toward the skylight.`;
+        storyBox.textContent = fallbackText;
+        renderChoices([
           `Climb the spiral stairs toward the starlit observatory dome`,
           `Examine the bronze astrolabe turning silently upon the pedestal`,
-          `Unroll the parchment map to check your location against the campus layout`
-        ].forEach(ch => {
-          const btn = document.createElement('button');
-          btn.className = 'quest-choice-btn';
-          btn.innerHTML = `<span>👉</span> <span>${escapeHtml(ch)}</span>`;
-          btn.onclick = () => step(ch);
-          choicesBox.appendChild(btn);
-        });
-      } else {
-        choicesBox.innerHTML = '<div style="padding:14px;background:var(--surface);border-radius:var(--radius-md);color:var(--accent-cyan);font-weight:600;">✨ The tale has reached its dramatic conclusion. Click "Start New Tale" to venture forth again.</div>';
+          `Unroll the parchment chart to trace your next route`
+        ], turn);
       }
     }
   };
 
-  $('#btn-scribe-reset')?.addEventListener('click', () => { turn = 0; storyHistory = []; step(); });
+  $('#btn-scribe-reset')?.addEventListener('click', () => {
+    turn = 0;
+    storyHistory = [];
+    step(null, true);
+  });
   $('#btn-scribe-listen')?.addEventListener('click', function() {
     const text = storyBox.textContent;
     if (text) speak(text, this);
   });
 
-  step();
+  step(null, false);
 }
 
 // QUEST 2: The Etymologist
@@ -13771,33 +13916,7 @@ function renderAdminFeatureFlags() {
     }
   ];
 
-  let html = `
-    <!-- Digital Guide Architecture Config -->
-    <div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;margin-bottom:16px;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-        <span style="font-size:16px;">🤖</span>
-        <h5 style="font-size:13.5px;font-weight:700;margin:0;color:var(--text-main);">Digital Guide Architecture Config</h5>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <div>
-          <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;color:var(--text-dim);">Guide Presentation Style:</label>
-          <select id="admin-guide-presentation" style="width:100%;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-main);font-size:12.5px;">
-            <option value="floating" ${flags.guide_presentation_mode === 'floating' ? 'selected' : ''}>🌟 Floating Holographic HUD (Default)</option>
-            <option value="studio" ${flags.guide_presentation_mode === 'studio' ? 'selected' : ''}>📺 Fullscreen Broadcast Studio</option>
-            <option value="drawer" ${flags.guide_presentation_mode === 'drawer' ? 'selected' : ''}>📋 Companion Sidebar Drawer</option>
-          </select>
-        </div>
-        <div>
-          <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;color:var(--text-dim);">Presence Detection ML Engine:</label>
-          <select id="admin-guide-ml-engine" style="width:100%;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-main);font-size:12.5px;">
-            <option value="client" ${flags.guide_ml_engine === 'client' ? 'selected' : ''}>⚡ Client Browser FaceDetector (Lightweight)</option>
-            <option value="server" ${flags.guide_ml_engine === 'server' ? 'selected' : ''}>🧠 Server YOLO / OpenCV Heuristic</option>
-            <option value="hybrid" ${flags.guide_ml_engine === 'hybrid' ? 'selected' : ''}>🔄 Hybrid (Client Instant + Server Verify)</option>
-          </select>
-        </div>
-      </div>
-    </div>
-  `;
+  let html = '';
 
   // Render categorized feature flag groups
   flagCategories.forEach(cat => {
@@ -13839,22 +13958,6 @@ function renderAdminFeatureFlags() {
   });
 
   flagsMount.innerHTML = html;
-
-
-  // Wire dropdown changes
-  $('#admin-guide-presentation')?.addEventListener('change', (e) => {
-    STATE.config.flags.guide_presentation_mode = e.target.value;
-    localStorage.setItem('cf_feature_flags', JSON.stringify(STATE.config.flags));
-    fetchApi('admin/config', 'PUT', { flags: STATE.config.flags }).catch(() => {});
-    showToast(`Guide Presentation Style set to ${e.target.value}`);
-  });
-
-  $('#admin-guide-ml-engine')?.addEventListener('change', (e) => {
-    STATE.config.flags.guide_ml_engine = e.target.value;
-    localStorage.setItem('cf_feature_flags', JSON.stringify(STATE.config.flags));
-    fetchApi('admin/config', 'PUT', { flags: STATE.config.flags }).catch(() => {});
-    showToast(`Human Detection ML Engine set to ${e.target.value}`);
-  });
 }
 
 function applyFeatureFlags() {
@@ -14088,8 +14191,10 @@ function initAdminWorkspace() {
       if (view === 'data') {
         renderAdminModeration();
       }
-      if (view === 'security' && typeof window.renderAdminDevices === 'function') {
-        window.renderAdminDevices();
+      if (view === 'security') {
+        if (typeof window.renderAdminVisitors === 'function') window.renderAdminVisitors();
+        if (typeof window.renderAdminBannedIps === 'function') window.renderAdminBannedIps();
+        if (typeof window.renderAdminDevices === 'function') window.renderAdminDevices();
       }
       if (view === 'ai') {
         if (typeof window.initDynamicApiPools === 'function') {
@@ -16153,20 +16258,25 @@ window.startAdminVisitorsLivePoll = function() {
       if (!document.hidden && getActiveAdminToken()) {
         const ws = $('#admin-workspace-screen');
         const admSec = $('#sec-admin');
-        if (ws && !ws.hidden && admSec && !admSec.hidden) {
+        const secView = $('#admin-view-security');
+        if (ws && !ws.hidden && admSec && !admSec.hidden && secView && !secView.hidden) {
           window.renderAdminVisitors();
         }
       }
     });
   }
 
-  window.renderAdminVisitors();
+  const initialSecView = $('#admin-view-security');
+  if (initialSecView && !initialSecView.hidden) {
+    window.renderAdminVisitors();
+  }
   if (_adminVisitorsPollTimer) return;
   _adminVisitorsPollTimer = setInterval(() => {
     if (document.hidden || STATE.isSiteBlocked || !getActiveAdminToken()) return;
     const ws = $('#admin-workspace-screen');
     const admSec = $('#sec-admin');
-    if (!ws || ws.hidden || !admSec || admSec.hidden) return;
+    const secView = $('#admin-view-security');
+    if (!ws || ws.hidden || !admSec || admSec.hidden || !secView || secView.hidden) return;
     window.renderAdminVisitors();
   }, 5000);
 };
