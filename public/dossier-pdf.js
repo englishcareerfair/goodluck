@@ -437,9 +437,12 @@
     let bcVerifyUrl = '';
 
     try {
-      const rawBcData = localStorage.getItem('cf_bizcard_data');
-      if (rawBcData) {
-        const bcData = JSON.parse(rawBcData);
+      let bcData = (typeof window !== 'undefined' && window.STATE && window.STATE.bizcardData) ? window.STATE.bizcardData : null;
+      if (!bcData) {
+        const rawBcData = localStorage.getItem('cf_bizcard_data');
+        if (rawBcData) bcData = JSON.parse(rawBcData);
+      }
+      if (bcData) {
         if (bcData.name) bcStudentName = bcData.name;
         if (bcData.career) bcCareerTitle = bcData.career;
         if (bcData.creds) bcHonors = bcData.creds;
@@ -448,6 +451,14 @@
         if (bcData.verifyUrl) bcVerifyUrl = bcData.verifyUrl;
       }
     } catch (_) {}
+
+    // Auto-format phone with space if 10 digits (XXXXX XXXXX)
+    if (bcPhone) {
+      const pDigits = String(bcPhone).replace(/\D/g, '');
+      if (pDigits.length === 10) {
+        bcPhone = pDigits.slice(0, 5) + ' ' + pDigits.slice(5);
+      }
+    }
 
     // Fallback honors check
     const altHonors = localStorage.getItem('ecf_bizcard_honors');
@@ -637,56 +648,257 @@
       }
     });
 
-    // 3. Pinned Career Blueprint & Top University Gateway
-    const pathY = metaY + metaH + 18;
-    const pathH = 490;
+        // 3. Platform Suite Ecosystem Showcase (Placed at top per user request so Business Card is at the very end!)
+    const platY = 278;
+    const platW = metaW;
+
+    // Badges above title
+    ctx.save();
+    ctx.fillStyle = isDark ? 'rgba(0, 240, 255, 0.12)' : 'rgba(14, 165, 233, 0.08)';
+    ctx.strokeStyle = isDark ? 'rgba(0, 240, 255, 0.4)' : 'rgba(14, 165, 233, 0.3)';
+    ctx.lineWidth = 1;
+    drawRoundRect(ctx, 80, platY, 190, 24, 12, true, true);
+    ctx.font = '800 10.5px "JetBrains Mono", monospace';
+    ctx.fillStyle = isDark ? '#00f0ff' : '#0284c7';
+    ctx.textAlign = 'center';
+    ctx.fillText('🌐 PLATFORM SUITE', 175, platY + 16);
+    ctx.restore();
+
+    ctx.save();
+    ctx.fillStyle = isDark ? 'rgba(255, 42, 133, 0.12)' : 'rgba(225, 29, 72, 0.08)';
+    ctx.strokeStyle = isDark ? 'rgba(255, 42, 133, 0.4)' : 'rgba(225, 29, 72, 0.3)';
+    ctx.lineWidth = 1;
+    drawRoundRect(ctx, CW - 80 - 270, platY, 270, 24, 12, true, true);
+    ctx.font = '800 10.5px "JetBrains Mono", monospace';
+    ctx.fillStyle = isDark ? '#ff2a85' : '#e11d48';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚡ 8 INTERACTIVE LEARNING SUITES', CW - 80 - 135, platY + 16);
+    ctx.restore();
+
+    ctx.font = '800 18px "Plus Jakarta Sans", sans-serif';
+    ctx.fillStyle = C.textMain;
+    ctx.fillText('Career Intelligence & Spoken English Ecosystem · careerwithenglish.pages.dev', 80, platY + 48);
+
+    ctx.font = '600 11.5px "Space Grotesk", sans-serif';
+    ctx.fillStyle = C.textDim;
+    ctx.fillText('Access 24/7 on smartphone, tablet, or desktop to accelerate your career articulation and competitive academic readiness:', 80, platY + 67);
+
+    // 8 Feature Cards Grid (2 Rows x 4 Columns)
+    const featGridY = platY + 78;
+    const featColW = (platW - (3 * 12)) / 4; // ~351px
+    const featCardH = 118;
+    const featRowGap = 10;
+
+    const platformFeatures = [
+      {
+        icon: '🎯',
+        title: '32+ Global Careers',
+        tag: 'PATHWAYS',
+        tagColor: '#00f0ff',
+        desc: 'Operational industry profiles for Aviation, AI, Law, Medicine, Media, Finance & 26+ more, mapping spoken fluency to career success.',
+        foot: '✨ 32+ Careers Mapped'
+      },
+      {
+        icon: '🏛️',
+        title: '25+ Top Universities',
+        tag: 'NIRF / NAAC A++',
+        tagColor: '#38bdf8',
+        desc: 'Verified institutional profiles with cutoffs, entrance exam requirements (CUET, CLAT, JEE, NEET), course fees, and rankings.',
+        foot: '🎓 Higher Ed Gateway'
+      },
+      {
+        icon: '🗣️',
+        title: 'Pronunciation Studio',
+        tag: 'PHONETICS',
+        tagColor: '#a78bfa',
+        desc: 'High-precision acoustic analysis across Everyday, Journalism, Legal, and Academic word packs with instant phoneme waveform grading.',
+        foot: '🎧 4 Specialized Vocab Packs'
+      },
+      {
+        icon: '🎙️',
+        title: '6D AI Speech Coach',
+        tag: 'NEURAL AI',
+        tagColor: '#34d399',
+        desc: 'Real-time multi-dimensional diagnostic evaluation measuring Pronunciation, Grammar, Fluency, Vocabulary, Pacing, and Coherence.',
+        foot: '⚡ 6 Speech Dimensions'
+      },
+      {
+        icon: '📺',
+        title: 'News Teleprompter',
+        tag: 'BROADCAST',
+        tagColor: '#fbbf24',
+        desc: 'Live newsroom teleprompter studio with 40–200 WPM speed control, studio audio playback, and broadcast cadence training.',
+        foot: '📰 Live Anchor Drills'
+      },
+      {
+        icon: '🗺️',
+        title: '"My Plan" Roadmap',
+        tag: 'BLUEPRINTS',
+        tagColor: '#f472b6',
+        desc: 'Personalized multi-year academic progression, entrance exam timelines, daily time-boxed habits, and downloadable HD roadmap graphics.',
+        foot: '📍 Chronological Milestones'
+      },
+      {
+        icon: '🎮',
+        title: '8 Fluency Quests',
+        tag: 'ARCADE',
+        tagColor: '#fb923c',
+        desc: 'Gamified English fluency arcade featuring Wordle, Phonics challenges, Career Speed Quests, and live school leaderboard competition.',
+        foot: '🏆 Dopamine Streak Rewards'
+      },
+      {
+        icon: '🪪',
+        title: 'Verified Executive ID',
+        tag: 'PORTFOLIO',
+        tagColor: '#2dd4bf',
+        desc: 'Cryptographically verified student credential with camera-scannable QR verification code and printable exhibition booklet.',
+        foot: '🔐 Tamper-Proof QR ID'
+      }
+    ];
+
+    platformFeatures.forEach((feat, fIdx) => {
+      const col = fIdx % 4;
+      const row = Math.floor(fIdx / 4);
+      const fx = 80 + col * (featColW + 12);
+      const fy = featGridY + row * (featCardH + featRowGap);
+
+      // Card Background
+      drawCard(ctx, fx, fy, featColW, featCardH, 12, C, { shadow: false, bg: C.subSurface, border: C.innerBorder });
+
+      // Top Row of Card: Icon + Title + Tag
+      ctx.save();
+      ctx.font = '700 12.5px "Plus Jakarta Sans", sans-serif';
+      ctx.fillStyle = C.textMain;
+      ctx.textAlign = 'left';
+      ctx.fillText(`${feat.icon} ${feat.title}`, fx + 12, fy + 22);
+
+      // Tag Pill
+      const tagW = ctx.measureText(feat.tag).width + 12;
+      const tagX = fx + featColW - tagW - 12;
+      ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)';
+      ctx.strokeStyle = feat.tagColor;
+      ctx.lineWidth = 0.8;
+      drawRoundRect(ctx, tagX, fy + 10, tagW, 16, 8, true, true);
+      ctx.font = '800 8px "JetBrains Mono", monospace';
+      ctx.fillStyle = feat.tagColor;
+      ctx.textAlign = 'center';
+      ctx.fillText(feat.tag, tagX + tagW / 2, fy + 21);
+      ctx.restore();
+
+      // Description text (wrapped)
+      ctx.save();
+      ctx.font = '500 10.5px "Plus Jakarta Sans", sans-serif';
+      ctx.fillStyle = C.textDim;
+      wrapText(ctx, feat.desc, fx + 12, fy + 44, featColW - 24, 15, 3);
+      ctx.restore();
+
+      // Footer highlight text
+      ctx.save();
+      ctx.font = '700 10px "Space Grotesk", sans-serif';
+      ctx.fillStyle = feat.tagColor;
+      ctx.fillText(feat.foot, fx + 12, fy + featCardH - 10);
+      ctx.restore();
+    });
+
+    // Bottom Platform Callout Banner
+    const featBannerY = featGridY + (2 * featCardH) + featRowGap + 10;
+    const featBannerH = 58;
+    drawCard(ctx, 80, featBannerY, platW, featBannerH, 12, C, { shadow: false, bg: C.cardBg, border: C.cardBorder });
+
+    // Inner glowing outline
+    ctx.save();
+    const bannerBorderGrad = ctx.createLinearGradient(80, featBannerY, CW - 80, featBannerY);
+    bannerBorderGrad.addColorStop(0, '#00f0ff');
+    bannerBorderGrad.addColorStop(0.5, '#a855f7');
+    bannerBorderGrad.addColorStop(1, '#ff2a85');
+    ctx.strokeStyle = bannerBorderGrad;
+    ctx.lineWidth = 1.2;
+    drawRoundRect(ctx, 80, featBannerY, platW, featBannerH, 12, false, true);
+    ctx.restore();
+
+    // Banner Left Text
+    ctx.font = '800 24px sans-serif';
+    ctx.fillText('🚀', 100, featBannerY + 38);
+
+    ctx.font = '800 13px "Plus Jakarta Sans", sans-serif';
+    ctx.fillStyle = C.textHighlight;
+    ctx.fillText('Start Practicing Today · 100% Free for Kanakia International School Students', 138, featBannerY + 24);
+
+    ctx.font = '500 11px "Plus Jakarta Sans", sans-serif';
+    ctx.fillStyle = C.textDim;
+    ctx.fillText('Open careerwithenglish.pages.dev on any mobile browser, tablet, or laptop. No download required — works both online and offline.', 138, featBannerY + 44);
+
+    // Banner Right Pill
+    const bannerPillW = 280;
+    const bannerPillH = 42;
+    const bannerPillX = CW - 80 - bannerPillW - 14;
+    const bannerPillY = featBannerY + 8;
+    ctx.save();
+    ctx.fillStyle = isDark ? 'rgba(0, 240, 255, 0.12)' : 'rgba(14, 165, 233, 0.1)';
+    ctx.strokeStyle = isDark ? '#00f0ff' : '#0284c7';
+    ctx.lineWidth = 1;
+    drawRoundRect(ctx, bannerPillX, bannerPillY, bannerPillW, bannerPillH, 10, true, true);
+
+    ctx.font = '700 9.5px "JetBrains Mono", monospace';
+    ctx.fillStyle = C.textDim;
+    ctx.textAlign = 'center';
+    ctx.fillText('SCAN TOP QR OR VISIT PORTAL', bannerPillX + bannerPillW / 2, bannerPillY + 16);
+
+    ctx.font = '800 12.5px "Space Grotesk", sans-serif';
+    ctx.fillStyle = isDark ? '#00f0ff' : '#0284c7';
+    ctx.fillText('careerwithenglish.pages.dev ↗', bannerPillX + bannerPillW / 2, bannerPillY + 33);
+    ctx.restore();
+
+    // 4. Pinned Career Blueprint & Top University Gateway
+    const pathY = 676;
+    const pathH = 432;
     drawCard(ctx, 80, pathY, metaW, pathH, 18, C);
 
     // Left Column: Career Blueprint, Degrees & Exams Required
     const pathLeftW = 860;
     ctx.font = '800 12px "Space Grotesk", sans-serif';
     ctx.fillStyle = C.textDim;
-    ctx.fillText('PINNED CAREER PATHWAY & STRATEGIC TRAJECTORY', 115, pathY + 34);
+    ctx.fillText('PINNED CAREER PATHWAY & STRATEGIC TRAJECTORY', 115, pathY + 30);
 
-    ctx.font = '800 26px "Plus Jakarta Sans", sans-serif';
+    ctx.font = '800 24px "Plus Jakarta Sans", sans-serif';
     ctx.fillStyle = C.textHighlight;
-    ctx.fillText(`✨ ${chosenCareer.title}`, 115, pathY + 70);
+    ctx.fillText(`✨ ${chosenCareer.title}`, 115, pathY + 62);
 
-    ctx.font = '600 13px "Space Grotesk", sans-serif';
+    ctx.font = '600 12.5px "Space Grotesk", sans-serif';
     ctx.fillStyle = C.textDim;
-    ctx.fillText(`Cluster: ${chosenCareer.cat || 'Global Professional'}  |  Target Cohort: Class of 2040`, 115, pathY + 96);
+    ctx.fillText(`Cluster: ${chosenCareer.cat || 'Global Professional'}  |  Target Cohort: Class of 2040`, 115, pathY + 86);
 
     // Box 1: Required Academic Degrees & Licensing
-    const degBoxY = pathY + 116;
-    drawCard(ctx, 115, degBoxY, pathLeftW - 60, 78, 12, C, { shadow: false, bg: C.subSurface, border: C.innerBorder });
-    ctx.font = '800 11px "Space Grotesk", sans-serif';
+    const degBoxY = pathY + 102;
+    drawCard(ctx, 115, degBoxY, pathLeftW - 60, 72, 12, C, { shadow: false, bg: C.subSurface, border: C.innerBorder });
+    ctx.font = '800 10.5px "Space Grotesk", sans-serif';
     ctx.fillStyle = C.textHighlight;
-    ctx.fillText('🎓 REQUIRED ACADEMIC DEGREES & LICENSING PATHWAY:', 135, degBoxY + 26);
-    ctx.font = '700 13.5px "Plus Jakarta Sans", sans-serif';
+    ctx.fillText('🎓 REQUIRED ACADEMIC DEGREES & LICENSING PATHWAY:', 135, degBoxY + 24);
+    ctx.font = '700 13px "Plus Jakarta Sans", sans-serif';
     ctx.fillStyle = C.textMain;
-    ctx.fillText(chosenCareer.degrees, 135, degBoxY + 54);
+    ctx.fillText(chosenCareer.degrees, 135, degBoxY + 50);
 
     // Box 2: Competitive Entrance & Certification Exams
-    const examBoxY = degBoxY + 92;
-    drawCard(ctx, 115, examBoxY, pathLeftW - 60, 88, 12, C, { shadow: false, bg: C.subSurface, border: C.innerBorder });
-    ctx.font = '800 11px "Space Grotesk", sans-serif';
+    const examBoxY = degBoxY + 84;
+    drawCard(ctx, 115, examBoxY, pathLeftW - 60, 78, 12, C, { shadow: false, bg: C.subSurface, border: C.innerBorder });
+    ctx.font = '800 10.5px "Space Grotesk", sans-serif';
     ctx.fillStyle = C.greenPillText;
-    ctx.fillText('📋 REQUIRED COMPETITIVE ENTRANCE & CERTIFICATION EXAMS:', 135, examBoxY + 26);
-    ctx.font = '700 13.5px "JetBrains Mono", monospace';
+    ctx.fillText('📋 REQUIRED COMPETITIVE ENTRANCE & CERTIFICATION EXAMS:', 135, examBoxY + 24);
+    ctx.font = '700 13px "JetBrains Mono", monospace';
     ctx.fillStyle = C.textHighlight;
-    ctx.fillText(chosenCareer.exams, 135, examBoxY + 52);
-    ctx.font = '500 11.5px "Plus Jakarta Sans", sans-serif';
+    ctx.fillText(chosenCareer.exams, 135, examBoxY + 48);
+    ctx.font = '500 11px "Plus Jakarta Sans", sans-serif';
     ctx.fillStyle = C.textDim;
-    ctx.fillText('National entrance criteria, syllabus mastery & English comprehension aptitude', 135, examBoxY + 74);
+    ctx.fillText('National entrance criteria, syllabus mastery & English comprehension aptitude', 135, examBoxY + 68);
 
     // English Superpower Box
-    const engY = examBoxY + 104;
-    ctx.font = '800 11.5px "Space Grotesk", sans-serif';
+    const engY = examBoxY + 92;
+    ctx.font = '800 11px "Space Grotesk", sans-serif';
     ctx.fillStyle = C.textHighlight;
-    ctx.fillText('ENGLISH GLOBAL SUPERPOWER & ARTICULATION REQUIREMENT:', 115, engY + 18);
-    ctx.font = '500 13px "Plus Jakarta Sans", sans-serif';
+    ctx.fillText('ENGLISH GLOBAL SUPERPOWER & ARTICULATION REQUIREMENT:', 115, engY + 16);
+    ctx.font = '500 12.5px "Plus Jakarta Sans", sans-serif';
     ctx.fillStyle = C.textMuted;
-    wrapText(ctx, chosenCareer.englishSuperpower, 115, engY + 40, pathLeftW - 50, 20, 3);
+    wrapText(ctx, chosenCareer.englishSuperpower, 115, engY + 36, pathLeftW - 50, 19, 3);
 
     // Vertical Divider
     ctx.strokeStyle = C.innerBorder;
@@ -701,41 +913,41 @@
     const pathRightW = metaW - pathLeftW - 60;
     ctx.font = '800 12px "Space Grotesk", sans-serif';
     ctx.fillStyle = C.textDim;
-    ctx.fillText('TOP GATEWAY UNIVERSITIES & ADMISSION EXAMS', pathRightX, pathY + 34);
+    ctx.fillText('TOP GATEWAY UNIVERSITIES & ADMISSION EXAMS', pathRightX, pathY + 30);
 
     const colleges = getGatewayUniversities(chosenCareer);
     colleges.forEach((col, idx) => {
-      const cardY = pathY + 52 + idx * 138;
-      drawCard(ctx, pathRightX, cardY, pathRightW, 126, 12, C, { shadow: false, bg: C.subSurface, border: C.innerBorder });
+      const cardY = pathY + 46 + idx * 122;
+      drawCard(ctx, pathRightX, cardY, pathRightW, 114, 12, C, { shadow: false, bg: C.subSurface, border: C.innerBorder });
       
-      ctx.font = '800 13.5px "Plus Jakarta Sans", sans-serif';
+      ctx.font = '800 13px "Plus Jakarta Sans", sans-serif';
       ctx.fillStyle = C.textMain;
-      ctx.fillText(col.name, pathRightX + 16, cardY + 26);
+      ctx.fillText(col.name, pathRightX + 16, cardY + 24);
       
-      ctx.font = '600 11px "Space Grotesk", sans-serif';
+      ctx.font = '600 10.5px "Space Grotesk", sans-serif';
       ctx.fillStyle = C.textDim;
-      ctx.fillText(`Accreditation: ${col.tier}`, pathRightX + 16, cardY + 46);
+      ctx.fillText(`Accreditation: ${col.tier}`, pathRightX + 16, cardY + 42);
 
       ctx.strokeStyle = C.innerBorder;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(pathRightX + 16, cardY + 58);
-      ctx.lineTo(pathRightX + pathRightW - 16, cardY + 58);
+      ctx.moveTo(pathRightX + 16, cardY + 52);
+      ctx.lineTo(pathRightX + pathRightW - 16, cardY + 52);
       ctx.stroke();
 
-      ctx.font = '700 11.5px "JetBrains Mono", monospace';
+      ctx.font = '700 11px "JetBrains Mono", monospace';
       ctx.fillStyle = C.greenPillText;
-      ctx.fillText(`Target Exam: ${col.exam}`, pathRightX + 16, cardY + 80);
+      ctx.fillText(`Target Exam: ${col.exam}`, pathRightX + 16, cardY + 72);
 
-      ctx.font = '600 11.5px "Space Grotesk", sans-serif';
+      ctx.font = '600 11px "Space Grotesk", sans-serif';
       ctx.fillStyle = C.textHighlight;
-      ctx.fillText(`English Standard: ${col.req}`, pathRightX + 16, cardY + 106);
+      ctx.fillText(`English Standard: ${col.req}`, pathRightX + 16, cardY + 96);
     });
 
-    // 4. Overall Performance Card (Rank as a NUMBER, no percentage, no percentile, no leap score, no executive benchmark)
-    const heroY = pathY + pathH + 18;
+    // 5. Overall Performance Card (Rank as a NUMBER, no percentage, no percentile, no leap score)
+    const heroY = 1124;
     const heroW = metaW;
-    const heroH = 190;
+    const heroH = 168;
 
     ctx.save();
     const bannerGrad = ctx.createLinearGradient(80, heroY, 80 + heroW, heroY + heroH);
@@ -749,9 +961,9 @@
     drawRoundRect(ctx, 80, heroY, heroW, heroH, 18, true, false);
     ctx.restore();
 
-    ctx.font = '800 22px "Plus Jakarta Sans", sans-serif';
+    ctx.font = '800 20px "Plus Jakarta Sans", sans-serif';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('Overall Performance', 120, heroY + 42);
+    ctx.fillText('Overall Performance', 120, heroY + 36);
 
     // 3 Clean Metric Columns (Rank is strictly a number, NO percentile, NO leap score)
     const heroMetrics = [
@@ -763,36 +975,36 @@
     const metricColW = heroW / 3;
     heroMetrics.forEach((m, idx) => {
       const mX = 120 + idx * metricColW;
-      const mY = heroY + 74;
+      const mY = heroY + 62;
 
-      ctx.font = '800 12px "Space Grotesk", sans-serif';
+      ctx.font = '800 11.5px "Space Grotesk", sans-serif';
       ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
-      ctx.fillText(m.label, mX, mY + 16);
+      ctx.fillText(m.label, mX, mY + 14);
 
-      ctx.font = '800 46px "Plus Jakarta Sans", sans-serif';
+      ctx.font = '800 42px "Plus Jakarta Sans", sans-serif';
       ctx.fillStyle = '#ffffff';
-      ctx.fillText(m.val, mX, mY + 66);
+      ctx.fillText(m.val, mX, mY + 58);
 
       if (m.denom) {
         const valW = ctx.measureText(m.val).width;
-        ctx.font = '700 22px "Plus Jakarta Sans", sans-serif';
+        ctx.font = '700 20px "Plus Jakarta Sans", sans-serif';
         ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
-        ctx.fillText(m.denom, mX + valW + 4, mY + 66);
+        ctx.fillText(m.denom, mX + valW + 4, mY + 58);
       }
 
-      ctx.font = '500 12px "Plus Jakarta Sans", sans-serif';
+      ctx.font = '500 11.5px "Plus Jakarta Sans", sans-serif';
       ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.fillText(m.sub, mX, mY + 98);
+      ctx.fillText(m.sub, mX, mY + 86);
     });
 
-    // 5. Performance Band (Included to increase space in page and represent 6 speech dimensions)
-    const bandY = heroY + heroH + 18;
-    const bandH = 68;
+    // 6. Performance Band (6 core speech dimensions)
+    const bandY = 1306;
+    const bandH = 54;
     drawCard(ctx, 80, bandY, heroW, bandH, 14, C);
 
-    ctx.font = '800 12px "Space Grotesk", sans-serif';
+    ctx.font = '800 11.5px "Space Grotesk", sans-serif';
     ctx.fillStyle = C.textDim;
-    ctx.fillText('PERFORMANCE BAND', 115, bandY + 40);
+    ctx.fillText('PERFORMANCE BAND', 115, bandY + 32);
 
     const band6Dimensions = [
       { name: "PRONUNCIATION", score: pronunciationVal },
@@ -807,19 +1019,19 @@
     const bandStartX = 340;
     band6Dimensions.forEach((b, idx) => {
       const bX = bandStartX + idx * (bandItemW + 10);
-      drawBadgePill(ctx, `${b.name} (${b.score}%)`, bX, bandY + 20, {
+      drawBadgePill(ctx, `${b.name} (${b.score}%)`, bX, bandY + 14, {
         width: bandItemW,
-        height: 28,
+        height: 26,
         bg: C.activeBandBg,
         color: C.activeBandText,
         border: C.activeBandBg,
-        font: '800 11px "Space Grotesk", sans-serif'
+        font: '800 10.5px "Space Grotesk", sans-serif'
       });
     });
 
-    // 6. Diagnostic 6 Dimensions Grid Cards
-    const gridY = bandY + bandH + 16;
-    const gridH = 205;
+    // 7. Diagnostic 6 Dimensions Grid Cards
+    const gridY = 1374;
+    const gridH = 186;
     const cellW = (heroW - 50) / 6;
 
     const metrics6D = [
@@ -835,70 +1047,70 @@
       const cellX = 80 + idx * (cellW + 10);
       drawCard(ctx, cellX, gridY, cellW, gridH, 14, C);
 
-      ctx.font = '800 11px "Space Grotesk", sans-serif';
+      ctx.font = '800 10.5px "Space Grotesk", sans-serif';
       ctx.fillStyle = C.textDim;
-      ctx.fillText(m.name, cellX + 16, gridY + 30);
+      ctx.fillText(m.name, cellX + 14, gridY + 28);
 
-      ctx.font = '800 34px "Plus Jakarta Sans", sans-serif';
+      ctx.font = '800 32px "Plus Jakarta Sans", sans-serif';
       ctx.fillStyle = C.textHighlight;
-      ctx.fillText(m.val, cellX + 16, gridY + 76);
+      ctx.fillText(m.val, cellX + 14, gridY + 68);
 
       // Visual Progress Bar
-      const barW = cellW - 32;
-      const barH = 6;
-      const barY = gridY + 98;
+      const barW = cellW - 28;
+      const barH = 5;
+      const barY = gridY + 86;
       ctx.save();
       ctx.fillStyle = C.innerBorder;
-      drawRoundRect(ctx, cellX + 16, barY, barW, barH, 3, true, false);
-      const fillW = Math.max(6, barW * (m.score / 100));
+      drawRoundRect(ctx, cellX + 14, barY, barW, barH, 2.5, true, false);
+      const fillW = Math.max(5, barW * (m.score / 100));
       ctx.fillStyle = C.accentBlue;
-      drawRoundRect(ctx, cellX + 16, barY, fillW, barH, 3, true, false);
+      drawRoundRect(ctx, cellX + 14, barY, fillW, barH, 2.5, true, false);
       ctx.restore();
 
-      ctx.font = '600 11.5px "Plus Jakarta Sans", sans-serif';
+      ctx.font = '600 10.5px "Plus Jakarta Sans", sans-serif';
       ctx.fillStyle = C.textMuted;
-      wrapText(ctx, m.sub, cellX + 16, gridY + 130, cellW - 32, 16, 2);
+      wrapText(ctx, m.sub, cellX + 14, gridY + 114, cellW - 28, 15, 2);
 
-      drawBadgePill(ctx, m.score >= 90 ? 'Mastery' : 'Proficient', cellX + 16, gridY + gridH - 34, {
-        width: 90,
-        height: 22,
+      drawBadgePill(ctx, m.score >= 90 ? 'Mastery' : 'Proficient', cellX + 14, gridY + gridH - 30, {
+        width: 86,
+        height: 20,
         bg: C.subSurface,
         color: C.greenPillText,
         border: C.innerBorder,
-        font: '700 10px "Space Grotesk", sans-serif'
+        font: '700 9.5px "Space Grotesk", sans-serif'
       });
     });
 
-    // 7. Student Reflection & Exhibition Feedback Card (Included per user request!)
-    const fbY = gridY + gridH + 18;
-    const fbH = 112;
+    // 8. Student Reflection & Exhibition Feedback Card
+    const fbY = 1574;
+    const fbH = 92;
     drawCard(ctx, 80, fbY, heroW, fbH, 14, C, { shadow: false, bg: C.subSurface, border: C.innerBorder });
 
-    ctx.font = '800 12px "Space Grotesk", sans-serif';
+    ctx.font = '800 11.5px "Space Grotesk", sans-serif';
     ctx.fillStyle = C.textHighlight;
-    ctx.fillText('💬 STUDENT REFLECTION & EXHIBITION FEEDBACK', 115, fbY + 28);
+    ctx.fillText('💬 STUDENT REFLECTION & EXHIBITION FEEDBACK', 115, fbY + 24);
 
     const starStr = '★'.repeat(feedbackStars) + '☆'.repeat(Math.max(0, 5 - feedbackStars));
     ctx.font = '700 14px "Plus Jakarta Sans", sans-serif';
     ctx.fillStyle = '#fbbf24';
-    ctx.fillText(starStr, 115 + 340, fbY + 28);
+    ctx.fillText(starStr, 115 + 320, fbY + 24);
 
-    ctx.font = '700 11px "JetBrains Mono", monospace';
+    ctx.font = '700 10.5px "JetBrains Mono", monospace';
     ctx.fillStyle = C.textDim;
     ctx.textAlign = 'right';
-    ctx.fillText(`VERIFIED SUBMISSION · ${feedbackDate}`, CW - 115, fbY + 28);
+    ctx.fillText(`VERIFIED SUBMISSION · ${feedbackDate}`, CW - 115, fbY + 24);
     ctx.textAlign = 'left';
 
-    ctx.font = 'italic 500 13px "Plus Jakarta Sans", sans-serif';
+    ctx.font = 'italic 500 12px "Plus Jakarta Sans", sans-serif';
     ctx.fillStyle = C.textMain;
-    wrapText(ctx, `“${feedbackText}”`, 115, fbY + 56, heroW - 70, 19, 2);
+    wrapText(ctx, `“${feedbackText}”`, 115, fbY + 48, heroW - 70, 17, 2);
 
-    ctx.font = '700 11.5px "Space Grotesk", sans-serif';
+    ctx.font = '700 11px "Space Grotesk", sans-serif';
     ctx.fillStyle = C.greenPillText;
-    ctx.fillText(`— ${studentName.toUpperCase()}, Class ${className} · Kanakia International School`, 115, fbY + fbH - 16);
+    ctx.fillText(`— ${studentName.toUpperCase()}, Class ${className} · Kanakia International School`, 115, fbY + fbH - 14);
 
-    // 8. Scissor Dotted Guideline (Extends edge-to-edge from 0 to CW)
-    const bcCutY = fbY + fbH + 24;
+    // 9. Scissor Dotted Guideline (Extends edge-to-edge from 0 to CW)
+    const bcCutY = 1680;
     ctx.save();
     ctx.setLineDash([8, 8]);
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.75)';
@@ -920,11 +1132,10 @@
     ctx.fillText('- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  (Cut along dotted line for official Student Career Business Card)  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -', CW / 2, bcCutY - 7);
     ctx.restore();
 
-    // 9. DETACHABLE STUDENT AMBASSADOR BUSINESS CARD
-    // "keep it completely same size and shape as in the website don't increase the size or decrease it, i am ok with extra space but not with big business card, remove the above image in the business card"
-    const bcCardY = bcCutY + 16;
-    const bcCardW = 760;
-    const bcCardH = 340;
+    // 10. DETACHABLE STUDENT AMBASSADOR BUSINESS CARD (Final element on page, perfectly proportioned!)
+    const bcCardY = 1700;
+    const bcCardW = 860;
+    const bcCardH = 480;
     const bcCardX = 80 + (heroW - bcCardW) / 2; // Centered on page
 
     // Card Outer Shell with Radial Gradient identical to .biz-card-render in CSS
@@ -955,73 +1166,27 @@
     ctx.restore();
 
     // Inside Business Card: Left Details
-    const bcLeftX = bcCardX + 32;
+    const bcLeftX = bcCardX + 36;
 
     // Badge Pill matching .biz-card-badge: "CLASS OF 2040 · EXECUTIVE CREDENTIAL"
     ctx.save();
     ctx.fillStyle = 'rgba(0, 240, 255, 0.12)';
     ctx.strokeStyle = 'rgba(0, 240, 255, 0.35)';
     ctx.lineWidth = 1;
-    drawRoundRect(ctx, bcLeftX, bcCardY + 28, 280, 26, 9999, true, true);
-    ctx.font = '800 10.5px "JetBrains Mono", monospace';
+    drawRoundRect(ctx, bcLeftX, bcCardY + 32, 300, 28, 9999, true, true);
+    ctx.font = '800 11px "JetBrains Mono", monospace';
     ctx.fillStyle = '#00f0ff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('CLASS OF 2040 · EXECUTIVE CREDENTIAL', bcLeftX + 140, bcCardY + 41);
+    ctx.fillText('CLASS OF 2040 · EXECUTIVE CREDENTIAL', bcLeftX + 150, bcCardY + 46);
     ctx.restore();
-
-    // Student Name matching .biz-card-name (auto-fit away from QR box)
-    const bcTextMaxW = (bcCardX + bcCardW - 28 - 154 - 20) - bcLeftX;
-    const fittedBcName = fitTextToWidth(ctx, bcStudentName.toUpperCase(), bcTextMaxW, '800', 32, 16, '"Plus Jakarta Sans", sans-serif');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(fittedBcName, bcLeftX, bcCardY + 98);
-
-    // Target Career Title matching .biz-card-title
-    const fittedBcTitle = fitTextToWidth(ctx, `✨ ${bcCareerTitle}`, bcTextMaxW, '700', 18, 12, '"Plus Jakarta Sans", sans-serif');
-    ctx.fillStyle = '#00f0ff';
-    ctx.fillText(fittedBcTitle, bcLeftX, bcCardY + 132);
-
-    // Optional email & phone lines
-    let contactOffY = 0;
-    if (bcEmail) {
-      ctx.font = '600 12.5px "JetBrains Mono", monospace';
-      ctx.fillStyle = '#38bdf8';
-      ctx.fillText(`✉️ ${bcEmail}`, bcLeftX, bcCardY + 158);
-      contactOffY += 22;
-    }
-    if (bcPhone) {
-      ctx.font = '600 12.5px "JetBrains Mono", monospace';
-      ctx.fillStyle = '#38bdf8';
-      ctx.fillText(`📞 ${bcPhone}`, bcLeftX, bcCardY + 158 + contactOffY);
-      contactOffY += 22;
-    }
-
-    // Card Divider Line matching .biz-card-bottom in CSS
-    const divLineY = bcCardY + 172 + Math.min(30, contactOffY);
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(bcLeftX, divLineY);
-    ctx.lineTo(bcCardX + bcCardW - 32, divLineY);
-    ctx.stroke();
-    ctx.restore();
-
-    // Bottom Credentials & School matching .biz-card-creds & .biz-card-school
-    ctx.font = '600 14px "JetBrains Mono", monospace';
-    ctx.fillStyle = '#cbd5e1';
-    ctx.fillText(`🎓  ${bcHonors}`, bcLeftX, divLineY + 42);
-
-    ctx.font = '600 13.5px "Plus Jakarta Sans", sans-serif';
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText('🏛️  Kanakia International School Mira Road', bcLeftX, divLineY + 74);
 
     // Right Column: White Rounded Card with Large Camera-Scannable Live QR Code
-    // Enlarged to 154x154px with high contrast for instant phone camera scanning without zoom!
-    const qrBoxW = 154;
-    const qrBoxH = 154;
-    const qrBoxX = bcCardX + bcCardW - qrBoxW - 28;
-    const qrBoxY = bcCardY + 28;
+    // Enlarged to 170x170px for ultra-fast instant camera scanning without zoom!
+    const qrBoxW = 170;
+    const qrBoxH = 170;
+    const qrBoxX = bcCardX + bcCardW - qrBoxW - 32;
+    const qrBoxY = bcCardY + 32;
 
     // Pure White Card with shadow
     ctx.save();
@@ -1058,6 +1223,69 @@
       }
     }
     ctx.restore();
+
+    // Student Name matching .biz-card-name (auto-fit away from QR box)
+    const bcTextMaxW = (qrBoxX - 24) - bcLeftX;
+    const fittedBcName = fitTextToWidth(ctx, bcStudentName.toUpperCase(), bcTextMaxW, '800', 34, 18, '"Plus Jakarta Sans", sans-serif');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(fittedBcName, bcLeftX, bcCardY + 110);
+
+    // Target Career Title matching .biz-card-title
+    const fittedBcTitle = fitTextToWidth(ctx, `✨ ${bcCareerTitle}`, bcTextMaxW, '700', 19, 13, '"Plus Jakarta Sans", sans-serif');
+    ctx.fillStyle = '#00f0ff';
+    ctx.fillText(fittedBcTitle, bcLeftX, bcCardY + 148);
+
+    // Optional email & phone lines
+    let contactOffY = 0;
+    if (bcEmail) {
+      ctx.font = '600 13px "JetBrains Mono", monospace';
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText(`✉️ ${bcEmail}`, bcLeftX, bcCardY + 180);
+      contactOffY += 26;
+    }
+    if (bcPhone) {
+      ctx.font = '600 13px "JetBrains Mono", monospace';
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText(`📞 ${bcPhone}`, bcLeftX, bcCardY + 180 + contactOffY);
+      contactOffY += 26;
+    }
+
+    // Card Divider Line matching .biz-card-bottom in CSS
+    const divLineY = bcCardY + 196 + Math.min(60, contactOffY);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(bcLeftX, divLineY);
+    ctx.lineTo(bcCardX + bcCardW - 36, divLineY);
+    ctx.stroke();
+    ctx.restore();
+
+    // Bottom Credentials & School matching .biz-card-creds & .biz-card-school
+    ctx.font = '600 15px "JetBrains Mono", monospace';
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillText(`🎓  ${bcHonors}`, bcLeftX, divLineY + 48);
+
+    ctx.font = '600 14px "Plus Jakarta Sans", sans-serif';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText('🏛️  Kanakia International School Mira Road', bcLeftX, divLineY + 84);
+
+    // 11. Statutory Single-Page Footer
+    ctx.strokeStyle = C.innerBorder;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(80, 2210);
+    ctx.lineTo(CW - 80, 2210);
+    ctx.stroke();
+
+    ctx.font = '600 12px "Space Grotesk", sans-serif';
+    ctx.fillStyle = C.textDim;
+    ctx.textAlign = 'left';
+    ctx.fillText('Official Student Career Intelligence Booklet · Career Fair 2026 · Kanakia International School', 80, 2236);
+    ctx.textAlign = 'right';
+    ctx.fillText('Page 1 of 1 · Executive Printable Career Booklet', CW - 80, 2236);
+    ctx.textAlign = 'left';
+
 
     // Add Single Master Page to PDF (Detachable Student Ambassador Business Card is at the very last with zero text below it)
     const imgDataP1 = canvas.toDataURL('image/jpeg', 0.94);

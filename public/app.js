@@ -71,7 +71,7 @@ function getActiveAdminToken() {
 let _adminVerifyState = { token: '', ts: 0, promise: null, result: null };
 
 async function safeJsonResponse(res) {
-  if (!res) return null;
+  if (!res || res.bodyUsed) return null;
   const ct = (res.headers?.get?.('content-type') || '').toLowerCase();
   if (!ct.includes('application/json')) return null;
   return await res.json().catch(() => null);
@@ -1345,8 +1345,8 @@ const TUTORIAL_SHORT_STEPS = [
     sectionKey: 'section_wordle_quick',
     instruction: 'Test your vocabulary power in our most popular arcade game! Guess the secret 5-letter professional English word in 6 attempts.',
     actionHint: '👉 Type letters on the on-screen keyboard to make your guess',
-    audioUrl: '/audio/tutorial/tutorial_short_step2.mp3',
-    speechText: 'Test your vocabulary with Wordle! Guess the five-letter professional English word in six tries. Type letters on the keyboard to make your guess and test your word power!'
+    audioUrl: '/audio/tutorial/tutorial_exp_step12.mp3',
+    speechText: 'Test your vocabulary with Wordle! Guess the secret five-letter professional word in six attempts with green and yellow tile clues.'
   },
   {
     step: 3,
@@ -13146,6 +13146,23 @@ function renderFutureBusinessCard(mount) {
   const phoneInput = $('#biz-phone');
   const btnPhoneToggle = $('#btn-toggle-phone-row');
 
+  // Phone auto-format helper: strictly digits only, max 10 digits, formatted as 5-5 digits with a space (XXXXX XXXXX)
+  const formatPhoneNumber = (val) => {
+    const digits = String(val || '').replace(/\D/g, '').slice(0, 10);
+    if (digits.length > 5) {
+      return digits.slice(0, 5) + ' ' + digits.slice(5);
+    }
+    return digits;
+  };
+
+  // Prepopulate email and phone from saved business card data
+  if (emailInput && !emailInput.value && savedBizData.email) {
+    emailInput.value = savedBizData.email;
+  }
+  if (phoneInput && !phoneInput.value && savedBizData.phone) {
+    phoneInput.value = formatPhoneNumber(savedBizData.phone);
+  }
+
   const cardEl = $('#biz-card-render');
 
   // Helper to populate credentials select based on chosen career
@@ -13252,10 +13269,21 @@ function renderFutureBusinessCard(mount) {
       verifyUrl += `&p=${encodeURIComponent(phone)}`;
     }
 
-    // Persist active business card configuration in session
+    // Persist active business card configuration in session & localStorage for instant PDF Booklet sync
     try {
-      if (career) {
-        if (window.STATE) window.STATE.targetCareer = career;
+      const bizData = {
+        name: name || '',
+        career: career || '',
+        creds: creds || '',
+        email: email || '',
+        phone: phone || '',
+        verifyUrl: verifyUrl || '',
+        ts: Date.now()
+      };
+      localStorage.setItem('cf_bizcard_data', JSON.stringify(bizData));
+      if (window.STATE) {
+        window.STATE.bizcardData = bizData;
+        if (career) window.STATE.targetCareer = career;
       }
     } catch (_) {}
 
@@ -13281,8 +13309,28 @@ function renderFutureBusinessCard(mount) {
     return { name, career, creds, email, phone, verifyUrl };
   };
 
-  // 1. Initial population with disabled prompt
-  populateCredentialsForCareer('');
+  // 1. Initial population with saved career/credentials if previously saved
+  if (savedBizData.career) {
+    if (CAREER_CREDENTIALS_MAP[savedBizData.career]) {
+      if (careerSelect) careerSelect.value = savedBizData.career;
+      populateCredentialsForCareer(savedBizData.career);
+    } else {
+      if (careerSelect) careerSelect.value = '__custom__';
+      if (careerCustomContainer) careerCustomContainer.style.display = 'block';
+      if (careerCustomInput) careerCustomInput.value = savedBizData.career;
+      populateCredentialsForCareer('__custom__');
+    }
+    if (savedBizData.creds && credsSelect) {
+      credsSelect.value = savedBizData.creds;
+      if (credsSelect.value !== savedBizData.creds && credsCustomInput) {
+        credsSelect.value = '__custom__';
+        credsCustomInput.style.display = 'block';
+        credsCustomInput.value = savedBizData.creds;
+      }
+    }
+  } else {
+    populateCredentialsForCareer('');
+  }
   updateCard(false);
 
   // 2. Wire career selection change
@@ -13341,21 +13389,34 @@ function renderFutureBusinessCard(mount) {
     }
   });
 
-  emailInput?.addEventListener('input', () => updateCard(false));
-  phoneInput?.addEventListener('input', () => updateCard(false));
+  emailInput?.addEventListener('input', () => {
+    if (emailInput) emailInput.style.borderColor = '';
+    updateCard(false);
+  });
+
+  // Strict Phone Auto-formatting: only numbers allowed, max 10, formatted as 5-5 with a space (XXXXX XXXXX)
+  phoneInput?.addEventListener('input', () => {
+    const rawVal = phoneInput.value;
+    const formatted = formatPhoneNumber(rawVal);
+    phoneInput.value = formatted;
+    if (phoneInput) phoneInput.style.borderColor = '';
+    updateCard(false);
+  });
 
   // 5. Wire real-time keystroke input listeners for instant live updating
   nameInput?.addEventListener('input', () => updateCard(false));
   nameInput?.addEventListener('change', () => updateCard(false));
   credsCustomInput?.addEventListener('input', () => updateCard(false));
 
-  // Validation helper to enforce mandatory fields on Business Card
+  // Validation helper to enforce mandatory fields and strict Email & Phone formatting on Business Card
   const validateBizCardInputs = () => {
     const rawName = (nameInput?.value || '').trim();
     const career = careerSelect?.value || '';
     const customCareer = (careerCustomInput?.value || '').trim();
     const creds = credsSelect?.value || '';
     const customCreds = (credsCustomInput?.value || '').trim();
+    const rawEmail = (emailInput?.value || '').trim();
+    const rawPhone = (phoneInput?.value || '').trim();
 
     let hasError = false;
     let firstErrorEl = null;
@@ -13393,6 +13454,34 @@ function renderFutureBusinessCard(mount) {
       firstErrorEl?.focus();
       return false;
     }
+
+    // Strict Email Format Verification (if provided)
+    if (rawEmail) {
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+      if (!emailRegex.test(rawEmail)) {
+        if (emailInput) emailInput.style.borderColor = '#ef4444';
+        showToast('⚠️ Please enter a valid email address (e.g. student@domain.com)');
+        emailInput?.focus();
+        return false;
+      } else {
+        if (emailInput) emailInput.style.borderColor = '';
+      }
+    }
+
+    // Strict Phone Number Verification (if provided): strictly 10 digits required
+    if (rawPhone) {
+      const digits = rawPhone.replace(/\D/g, '');
+      if (digits.length !== 10) {
+        if (phoneInput) phoneInput.style.borderColor = '#ef4444';
+        showToast('⚠️ Phone number must contain exactly 10 digits (e.g. 98765 43210)');
+        phoneInput?.focus();
+        return false;
+      } else {
+        if (phoneInput) phoneInput.style.borderColor = '';
+        phoneInput.value = digits.slice(0, 5) + ' ' + digits.slice(5);
+      }
+    }
+
     return true;
   };
 
@@ -13493,9 +13582,12 @@ function downloadBusinessCardImage(name, title, creds, phone = '', email = '') {
     contactY += 24;
   }
   if (phone) {
+    const cleanPhone = phone.replace(/\D/g, '').length === 10
+      ? (phone.replace(/\D/g, '').slice(0, 5) + ' ' + phone.replace(/\D/g, '').slice(5))
+      : phone;
     ctx.fillStyle = '#38bdf8';
     ctx.font = '600 13px "JetBrains Mono", monospace';
-    ctx.fillText(`📱 ${phone}`, 40, contactY);
+    ctx.fillText(`📞 ${cleanPhone}`, 40, contactY);
   }
 
   // Credentials
@@ -17140,7 +17232,12 @@ window.renderAdminDevices = async function() {
               : `<span style="color:#10b981;font-weight:700;">🟢 Active</span>`;
             const actionBtn = d.is_blocked
               ? `<button type="button" class="btn btn-secondary btn-xs" data-restore-ip="${safeIp}">✅ Unblock IP</button>`
-              : `<button type="button" class="btn btn-primary btn-xs" style="background:#ef4444;border-color:#dc2626;" data-revoke-ip="${safeIp}" data-is-current="${d.is_current ? '1' : '0'}">🚫 Block IP</button>`;
+              : `
+                <div style="display:flex;gap:6px;justify-content:center;align-items:center;flex-wrap:nowrap;">
+                  <button type="button" class="btn btn-secondary btn-xs" style="background:rgba(239,68,68,0.12);color:#fca5a5;border:1px solid rgba(239,68,68,0.35);" data-remove-admin-ip="${safeIp}" data-is-current="${d.is_current ? '1' : '0'}" title="Remove admin access for this device without blocking IP from website">🔒 Remove Admin</button>
+                  <button type="button" class="btn btn-primary btn-xs" style="background:#ef4444;border-color:#dc2626;" data-revoke-ip="${safeIp}" data-is-current="${d.is_current ? '1' : '0'}" title="Block device IP across the entire website">🚫 Block IP</button>
+                </div>
+              `;
             return `
               <tr style="border-top:1px solid var(--border);">
                 <td style="padding:8px 10px;font-family:var(--font-mono);font-weight:700;white-space:nowrap;">${safeIp}${currentTag}</td>
@@ -17184,6 +17281,39 @@ window.adminRevokeDeviceIp = async function(ipToRevoke, isCurrent = false) {
     }
   } else {
     showToast('Failed to block that IP.');
+  }
+};
+
+window.adminRemoveAdminAccess = async function(ipToRemove, isCurrent = false) {
+  const ip = String(ipToRemove || '').trim();
+  if (!ip) {
+    showToast('Please specify a device IP address.');
+    return;
+  }
+  const msg = isCurrent
+    ? `Remove admin access for YOUR current device IP "${ip}"? You will be signed out of the admin panel, but will still be able to use the website as a visitor.`
+    : `Remove admin access for device IP "${ip}"? This device will lose admin status without being blocked from visiting the website.`;
+  if (!confirm(msg)) return;
+
+  const res = await fetchApi('admin/devices/remove-admin', 'POST', { ip });
+  if (res && res.ok) {
+    showToast(`Admin access removed for IP "${ip}" 🔒`);
+    if (isCurrent) {
+      sessionStorage.removeItem('cf_admin_key');
+      localStorage.removeItem('cf_admin_key');
+      sessionStorage.removeItem('cf_admin_session_token');
+      localStorage.removeItem('cf_admin_session_token');
+      if (window.location.hash.startsWith('#admin') || window.location.pathname.startsWith('/admin')) {
+        window.location.href = '/';
+      } else {
+        window.location.reload();
+      }
+    } else {
+      await window.renderAdminDevices();
+      if (typeof window.renderAdminVisitors === 'function') window.renderAdminVisitors();
+    }
+  } else {
+    showToast('Failed to remove admin access: ' + (res?.error || 'Unknown error'));
   }
 };
 
@@ -18938,6 +19068,12 @@ if (!window._delegatedSiteActionsBound) {
     const btnDelIssue = target.closest('[data-del-issue-id]');
     if (btnDelIssue) {
       window.adminDeleteIssue?.(btnDelIssue.dataset.delIssueId);
+      return;
+    }
+
+    const btnRemoveAdminIp = target.closest('[data-remove-admin-ip]');
+    if (btnRemoveAdminIp) {
+      window.adminRemoveAdminAccess?.(btnRemoveAdminIp.dataset.removeAdminIp, btnRemoveAdminIp.dataset.isCurrent === '1');
       return;
     }
 

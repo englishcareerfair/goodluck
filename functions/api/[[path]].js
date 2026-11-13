@@ -1649,6 +1649,7 @@ async function verifyAuth(req, env, db, requiredScope = null, url = null) {
     reqPath === '/admin/keys' ||
     reqPath === '/admin/keys/revoke' ||
     reqPath === '/admin/devices/revoke' ||
+    reqPath === '/admin/devices/remove-admin' ||
     reqPath === '/admin/devices/restore'
   ) {
     if (!token.startsWith('ecf_')) {
@@ -3973,6 +3974,31 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     return json({ ok: true, ip: targetIp, blocked_ips: adminBlocked });
   }
 
+  if (path === '/admin/devices/remove-admin' && method === 'POST') {
+    const authCheck = await verifyAuth(request, env, db, 'manage:config', url);
+    if (!authCheck.ok) return json({ error: authCheck.error, admin_revoked: Boolean(authCheck.admin_revoked) }, authCheck.status);
+    let body;
+    try { body = !request.bodyUsed ? await request.json() : {}; } catch { return err('Invalid JSON'); }
+    const targetIp = String(body?.ip || '').trim();
+    if (!targetIp) return err('Missing device IP address', 400);
+
+    // Strip admin privileges without blocking the device from visiting the website
+    await removeIpFromAdminDevices(db, targetIp);
+    await revokeAdminSessionsForIp(db, targetIp);
+
+    if (GLOBAL_CACHE.live_visitors && GLOBAL_CACHE.live_visitors[targetIp]) {
+      GLOBAL_CACHE.live_visitors[targetIp].is_admin = 0;
+    }
+    if (db) {
+      try {
+        await db.prepare('UPDATE live_visitors SET is_admin = 0 WHERE ip = ?').bind(targetIp).run();
+      } catch (_) {}
+    }
+
+    const currentDevices = await getAdminDevices(db);
+    return json({ ok: true, ip: targetIp, devices: currentDevices, message: `Admin access removed for device IP (${targetIp})` });
+  }
+
   if (path === '/admin/devices/restore' && method === 'POST') {
     const authCheck = await verifyAuth(request, env, db, 'manage:config', url);
     if (!authCheck.ok) return json({ error: authCheck.error, admin_revoked: Boolean(authCheck.admin_revoked) }, authCheck.status);
@@ -4924,7 +4950,9 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
   if ((path === '/tts/voices' || path === '/tts-voices') && (method === 'GET' || method === 'POST')) {
     let body = {};
     if (method === 'POST') {
-      try { body = await request.json(); } catch { body = {}; }
+      try {
+        if (!request.bodyUsed) body = await request.json();
+      } catch { body = {}; }
     }
     const hasReqOverride = Boolean((body.keysPool && Array.isArray(body.keysPool) && body.keysPool.length) || body.apiKey || request.headers.get('xi-api-key') || url.searchParams.get('key'));
     let isVoicesAdmin = false;
@@ -4966,7 +4994,10 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
         });
         if (!testRes.ok) {
           lastStatus = testRes.status;
-          const errDetail = await testRes.text().catch(() => '');
+          let errDetail = '';
+          try {
+            if (!testRes.bodyUsed) errDetail = await testRes.text();
+          } catch (_) {}
           if (testRes.status === 401) {
             lastKeyErrMsg = errDetail.includes('API key ID used as API key')
               ? 'You entered the Key ID instead of the Secret API Key. In ElevenLabs (Settings → API Keys), please copy the actual secret key.'
@@ -4984,8 +5015,13 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
           }
         }
 
-        const vData = await testRes.json().catch(() => ({ voices: [] }));
-        const rawVoices = vData.voices || [];
+        let rawVoices = [];
+        try {
+          if (!testRes.bodyUsed) {
+            const vData = await testRes.json();
+            rawVoices = vData.voices || [];
+          }
+        } catch (_) {}
 
         // 2. Fetch subscription & check credit quota
         let sub = null;
@@ -4993,15 +5029,18 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
           const subRes = await fetch('https://api.elevenlabs.io/v1/user/subscription', {
             headers: { 'xi-api-key': curKey }
           });
-          if (subRes.ok) {
+          if (subRes.ok && !subRes.bodyUsed) {
             sub = await subRes.json();
           } else {
+            try { if (!subRes.bodyUsed) await subRes.text(); } catch (_) {}
             const uRes = await fetch('https://api.elevenlabs.io/v1/user', {
               headers: { 'xi-api-key': curKey }
             });
-            if (uRes.ok) {
+            if (uRes.ok && !uRes.bodyUsed) {
               const uData = await uRes.json();
               if (uData.subscription) sub = uData.subscription;
+            } else {
+              try { if (!uRes.bodyUsed) await uRes.text(); } catch (_) {}
             }
           }
         } catch (_) {}
@@ -5046,8 +5085,11 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
               model_id: 'eleven_turbo_v2_5'
             })
           });
-          if (!probeRes.ok) {
-            const errTxt = await probeRes.text().catch(() => '');
+          if (probeRes.ok) {
+            try { if (!probeRes.bodyUsed) await probeRes.arrayBuffer(); } catch (_) {}
+          } else {
+            let errTxt = '';
+            try { if (!probeRes.bodyUsed) errTxt = await probeRes.text(); } catch (_) {}
             let parsed = {};
             try { parsed = JSON.parse(errTxt); } catch {}
             const detailMsg = parsed.detail?.message || parsed.message || errTxt;
@@ -5141,8 +5183,10 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
           const subRes = await fetch('https://api.elevenlabs.io/v1/user/subscription', {
             headers: { 'xi-api-key': elevenKey }
           });
-          if (subRes.ok) {
-            subscription = await subRes.json();
+          if (subRes.ok && !subRes.bodyUsed) {
+            subscription = await subRes.json().catch(() => null);
+          } else {
+            try { if (!subRes.bodyUsed) await subRes.text(); } catch (_) {}
           }
         } catch (_) {}
       }
