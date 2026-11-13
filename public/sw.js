@@ -1,5 +1,5 @@
 // Career Fair 2026 - Service Worker
-const CACHE_NAME = 'cf-cache-v28.4-fast';
+const CACHE_NAME = 'cf-cache-v28.5-fast';
 
 // Lean app-shell pre-cache (audio MP3s stream/cache on demand so install is fast)
 const STATIC_ASSETS = [
@@ -136,9 +136,9 @@ self.addEventListener('fetch', (event) => {
           return cached;
         }
 
-        // Guaranteed valid Response object fallback (NEVER undefined)
+        // Guaranteed valid Response object fallback (NEVER undefined and NEVER auto-reloads)
         return new Response(
-          '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Career Fair 2026</title></head><body><script>location.reload();</script></body></html>',
+          '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Career Fair 2026 - Offline</title><style>body{background:#0a0e17;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;}h2{margin-bottom:8px;}p{color:#94a3b8;font-size:14px;}</style></head><body><div><h2>Career Fair 2026</h2><p>Offline or network connection interrupted. Please check your connection.</p></div></body></html>',
           { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
         );
       })()

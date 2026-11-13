@@ -152,15 +152,17 @@ async function verifyAdminSessionWithServer(token) {
 
 function applyAdminVerifyOutcome(result, gateScreen, workspaceScreen) {
   if (!result) return;
-  if (result.blocked) {
+  if (result.banned) {
     enforceSiteIpBlockOverlay(result.error);
     return;
   }
-  if (result.revoked) {
+  if (result.revoked || result.status === 401) {
     STATE.adminKey = '';
     try {
       sessionStorage.removeItem('cf_admin_session');
       localStorage.removeItem('cf_admin_session');
+      sessionStorage.removeItem('cf_admin_key');
+      localStorage.removeItem('cf_admin_key');
     } catch {}
     if (gateScreen && workspaceScreen) {
       gateScreen.hidden = false;
@@ -429,14 +431,8 @@ function enforceSiteIpBlockOverlay(message) {
     }
   } catch {}
 
-  // 2. Trigger hard navigation to '/' so browser hits Cloudflare edge, receives null 403, and renders Chrome's native "This site can't be reached" screen!
-  setTimeout(() => {
-    try {
-      window.location.replace('/');
-    } catch {
-      window.location.reload();
-    }
-  }, 50);
+  // Intentionally NEVER call location.reload() or location.replace()
+  // to completely prevent infinite reload storms and DDoS false-positive bans.
 }
 window.enforceSiteIpBlockOverlay = enforceSiteIpBlockOverlay;
 
@@ -500,20 +496,29 @@ async function fetchApi(endpoint, options = {}, maybeBody = null) {
       if (ct.includes('application/json')) {
         errBody = await res.json().catch(() => null);
       }
-      if (res.status === 403 && (!errBody || errBody?.banned || errBody?.admin_revoked || !cleanEndpoint.startsWith('admin/'))) {
-        enforceSiteIpBlockOverlay(errBody?.error);
+      // ONLY trigger site IP block overlay if the response is an explicit server ban for the visitor's IP!
+      if (res.status === 403 && errBody && errBody.banned === true) {
+        enforceSiteIpBlockOverlay(errBody.error);
         return null;
       }
-      const isExplicitRevocation = Boolean(errBody?.revoked || errBody?.admin_revoked);
-      if (isExplicitRevocation && cleanEndpoint.startsWith('admin/') && STATE.adminKey) {
-        STATE.adminKey = '';
-        sessionStorage.removeItem('cf_admin_session');
-        localStorage.removeItem('cf_admin_session');
-        updateHeaderBookletVisibility();
-        const g = $('#admin-gate-screen');
-        const w = $('#admin-workspace-screen');
-        if (g && w) { g.hidden = false; w.hidden = true; }
-        showToast(errBody?.error || (res.status === 403 ? 'Access removed for this device.' : 'Admin session expired. Please sign in again.'));
+      // If admin access was revoked or session expired, simply switch to login gate - NEVER reload!
+      if (cleanEndpoint.startsWith('admin/')) {
+        const isRevoked = Boolean(errBody?.revoked || errBody?.admin_revoked || res.status === 401);
+        if (isRevoked || !STATE.adminKey) {
+          STATE.adminKey = '';
+          try {
+            sessionStorage.removeItem('cf_admin_session');
+            localStorage.removeItem('cf_admin_session');
+            sessionStorage.removeItem('cf_admin_key');
+            localStorage.removeItem('cf_admin_key');
+          } catch {}
+          updateHeaderBookletVisibility();
+          const g = $('#admin-gate-screen');
+          const w = $('#admin-workspace-screen');
+          if (g && w) { g.hidden = false; w.hidden = true; }
+          showToast(errBody?.error || (res.status === 403 ? 'Access removed for this device.' : 'Admin session expired. Please sign in again.'));
+        }
+        return errBody || null;
       }
       return null;
     }
@@ -17316,11 +17321,13 @@ window.adminRemoveAdminAccess = async function(ipToRemove, isCurrent = false) {
       localStorage.removeItem('cf_admin_key');
       sessionStorage.removeItem('cf_admin_session_token');
       localStorage.removeItem('cf_admin_session_token');
-      if (window.location.hash.startsWith('#admin') || window.location.pathname.startsWith('/admin')) {
-        window.location.href = '/';
-      } else {
-        window.location.reload();
-      }
+      sessionStorage.removeItem('cf_admin_session');
+      localStorage.removeItem('cf_admin_session');
+      STATE.adminKey = '';
+      const g = $('#admin-gate-screen');
+      const w = $('#admin-workspace-screen');
+      if (g && w) { g.hidden = false; w.hidden = true; }
+      updateHeaderBookletVisibility();
     } else {
       await window.renderAdminDevices();
       if (typeof window.renderAdminVisitors === 'function') window.renderAdminVisitors();

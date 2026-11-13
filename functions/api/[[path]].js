@@ -372,13 +372,13 @@ async function blockIpAcrossSite(db, ip, vpnReason = '') {
 
 // DDoS & Rate Limit Config: Dual-layer (1-second burst & 60-second sustained)
 const BF_BURST_WINDOW_MS = 1000;           // 1-second burst inspection window
-const BF_BURST_MAX_REQS = 3;               // Maximum 3 requests in 1 second
+const BF_BURST_MAX_REQS = 30;              // Maximum 30 requests in 1 second
 const BF_FLOOD_WINDOW_MS = 60 * 1000;      // 60-second sliding inspection window
-const BF_FLOOD_MAX_REQS = 25;              // Maximum 25 requests in 60 seconds
+const BF_FLOOD_MAX_REQS = 150;             // Maximum 150 requests in 60 seconds
 
-// Anti-Brute-Force Config: Ban if more than 2 incorrect responses in 1 second
+// Anti-Brute-Force Config: Ban if excessive incorrect password attempts in 1 second
 const BF_AUTH_BURST_WINDOW_MS = 1000;      // 1-second sliding inspection window for failed auth
-const BF_AUTH_BURST_MAX_FAILS = 2;         // >2 incorrect attempts in 1s -> auto-ban
+const BF_AUTH_BURST_MAX_FAILS = 5;         // >5 incorrect attempts in 1s -> auto-ban
 
 async function getBruteForceTracker(db) {
   let tracker = {};
@@ -455,6 +455,14 @@ async function recordFailedAuthAttempt(req, db, label = 'Invalid credentials') {
     return { banned: false, ip: clientIp };
   }
 
+  // Admin devices and allowlisted IPs must never be auto-banned
+  try {
+    const [adminDevices, allowlist] = await Promise.all([getAdminDevices(db), getVpnAllowlist(db)]);
+    if (adminDevices.some(d => d && d.ip === clientIp) || allowlist.includes(clientIp)) {
+      return { banned: false, ip: clientIp };
+    }
+  } catch {}
+
   const now = Date.now();
   const tracker = GLOBAL_CACHE.brute_force_tracker || (await getBruteForceTracker(db));
   const entry = tracker[clientIp] || { auth_fails: [], req_times: [] };
@@ -495,16 +503,33 @@ async function clearFailedAuthAttempts(db, ip) {
 }
 
 const DDOS_BAN_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
-const DDOS_BURST_MIGRATION_KEY = 'ddos_burst_bugfix_v1';
+const DDOS_BURST_MIGRATION_KEY = 'ddos_burst_bugfix_v2';
 
 async function pruneExpiredDdosBans(db) {
   if (!db) return;
   try {
     const [rawBans, migrationDone] = await Promise.all([
       kvGet(db, 'brute_force_bans', ''),
-      GLOBAL_CACHE.ddos_burst_bugfix_v1 ? Promise.resolve('1') : kvGet(db, DDOS_BURST_MIGRATION_KEY, '')
+      GLOBAL_CACHE.ddos_burst_bugfix_v2 ? Promise.resolve('1') : kvGet(db, DDOS_BURST_MIGRATION_KEY, '')
     ]);
-    if (migrationDone === '1') GLOBAL_CACHE.ddos_burst_bugfix_v1 = true;
+    if (migrationDone === '1') GLOBAL_CACHE.ddos_burst_bugfix_v2 = true;
+
+    if (migrationDone !== '1') {
+      GLOBAL_CACHE.ddos_burst_bugfix_v2 = true;
+      GLOBAL_CACHE.banned_ips = [];
+      GLOBAL_CACHE.brute_force_bans = {};
+      GLOBAL_CACHE.brute_force_tracker = {};
+      await Promise.all([
+        kvSet(db, 'banned_ips', '[]'),
+        kvSet(db, 'brute_force_bans', '{}'),
+        kvSet(db, 'brute_force_tracker', '{}'),
+        kvSet(db, DDOS_BURST_MIGRATION_KEY, '1')
+      ]);
+      try {
+        await db.prepare("UPDATE live_visitors SET is_banned = 0, is_vpn = 0 WHERE is_banned = 1").run();
+      } catch {}
+      return;
+    }
 
     let bans = {};
     if (rawBans) {
@@ -517,9 +542,8 @@ async function pruneExpiredDdosBans(db) {
     for (const [ip, entry] of Object.entries(bans)) {
       const reason = String(entry?.reason || '');
       if (!reason.startsWith('DDoS')) continue;
-      const isLegacyBurstBug = migrationDone !== '1' && reason.startsWith('DDoS Burst Attack: Exceeded 3 requests in 1 second');
       const isExpired = Number(entry?.banned_at || 0) > 0 && (now - Number(entry.banned_at)) >= DDOS_BAN_TTL_MS;
-      if (isLegacyBurstBug || isExpired) {
+      if (isExpired) {
         ipsToUnban.push(ip);
       }
     }
@@ -548,11 +572,6 @@ async function pruneExpiredDdosBans(db) {
         kvSet(db, 'brute_force_tracker', JSON.stringify(tracker))
       ]);
     }
-
-    if (migrationDone !== '1') {
-      GLOBAL_CACHE.ddos_burst_bugfix_v1 = true;
-      await kvSet(db, DDOS_BURST_MIGRATION_KEY, '1');
-    }
   } catch {}
 }
 
@@ -571,6 +590,14 @@ async function checkRequestFlood(req, db, path, method) {
 
   const clientIp = getClientIp(req);
   if (!clientIp) return { banned: false };
+
+  // Admin devices and allowlisted IPs are exempt from flood / DDoS bans
+  try {
+    const [adminDevices, allowlist] = await Promise.all([getAdminDevices(db), getVpnAllowlist(db)]);
+    if (adminDevices.some(d => d && d.ip === clientIp) || allowlist.includes(clientIp)) {
+      return { banned: false };
+    }
+  } catch {}
 
   let isVerifiedAdminRead = false;
   if (isRead && path.startsWith('/admin') && db) {
@@ -1652,20 +1679,7 @@ async function verifyAuth(req, env, db, requiredScope = null, url = null) {
     reqPath === '/admin/devices/remove-admin' ||
     reqPath === '/admin/devices/restore'
   ) {
-    if (!token.startsWith('ecf_')) {
-      const bf = await recordFailedAuthAttempt(req, db, 'Unauthorized master security access attempt');
-      if (bf.banned) {
-        return {
-          ok: false,
-          status: 403,
-          error: `Access Denied: ${bf.reason}. Your IP (${bf.ip}) has been automatically banned across the site.`,
-          banned: true,
-          brute_force_banned: true,
-          admin_revoked: true
-        };
-      }
-    }
-    return { ok: false, status: 403, error: 'Active Admin Portal login session required' };
+    return { ok: false, status: 403, error: 'Active Admin Portal login session required', revoked: true };
   }
 
   // 2. Check Scoped API Key (ecf_...)
@@ -1719,18 +1733,7 @@ async function verifyAuth(req, env, db, requiredScope = null, url = null) {
     return { ok: true, admin: false, scopes, keyRecord };
   }
 
-  const bf = await recordFailedAuthAttempt(req, db, 'Invalid admin password');
-  if (bf.banned) {
-    return {
-      ok: false,
-      status: 403,
-      error: `Access Denied: ${bf.reason}. Your IP (${bf.ip}) has been automatically banned across the site.`,
-      banned: true,
-      brute_force_banned: true,
-      admin_revoked: true
-    };
-  }
-  return { ok: false, status: 401, error: 'Invalid credentials' };
+  return { ok: false, status: 401, error: 'Invalid or expired credentials', revoked: true };
 }
 
 /** Get value from D1 kv store with memory fallback */

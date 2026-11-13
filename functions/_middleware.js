@@ -17,8 +17,10 @@ const VPN_BANNED_IPS = new Map(); // ip -> { reason, bannedAt }
 
 let CACHED_SECURITY_STATE = {
   blockedSet: new Set(),
-  allowlistSet: new Set()
+  allowlistSet: new Set(),
+  adminDevicesSet: new Set()
 };
+let HAS_CLEANED_BANS_IN_D1 = false;
 let LAST_BLOCKED_FETCH_MS = 0;
 const CACHE_TTL_MS = 15 * 1000; // 15s memory cache for D1 security lists
 
@@ -250,10 +252,12 @@ async function getEdgeSecurityCache(db, force = false) {
 
   try {
     const rows = await db
-      .prepare("SELECT k, v FROM kv WHERE k IN ('banned_ips', 'admin_blocked_ips', 'vpn_allowlist_ips')")
+      .prepare("SELECT k, v FROM kv WHERE k IN ('banned_ips', 'admin_blocked_ips', 'vpn_allowlist_ips', 'admin_devices')")
       .all();
     const blockedSet = new Set();
     const allowlistSet = new Set();
+    const adminDevicesSet = new Set();
+
     for (const row of (rows?.results || [])) {
       if (!row?.v) continue;
       try {
@@ -262,6 +266,11 @@ async function getEdgeSecurityCache(db, force = false) {
           for (const ip of parsed) {
             const clean = typeof ip === 'string' ? ip.trim() : '';
             if (clean) allowlistSet.add(clean);
+          }
+        } else if (row.k === 'admin_devices' && Array.isArray(parsed)) {
+          for (const dev of parsed) {
+            const clean = typeof dev?.ip === 'string' ? dev.ip.trim() : '';
+            if (clean) adminDevicesSet.add(clean);
           }
         } else if (Array.isArray(parsed)) {
           for (const ip of parsed) {
@@ -272,11 +281,31 @@ async function getEdgeSecurityCache(db, force = false) {
       } catch {}
     }
 
+    // Admin devices and allowlisted IPs must NEVER be blocked or rate-limited
     for (const ip of allowlistSet) {
+      blockedSet.delete(ip);
       VPN_BANNED_IPS.delete(ip);
+      AUTO_BANNED_IPS.delete(ip);
+      IP_RATE_LIMITS.delete(ip);
+    }
+    for (const ip of adminDevicesSet) {
+      blockedSet.delete(ip);
+      VPN_BANNED_IPS.delete(ip);
+      AUTO_BANNED_IPS.delete(ip);
+      IP_RATE_LIMITS.delete(ip);
     }
 
-    CACHED_SECURITY_STATE = { blockedSet, allowlistSet };
+    // One-time self-healing unban in D1: completely unban user's phone, laptop, and false-positive DDoS auto-bans
+    if (!HAS_CLEANED_BANS_IN_D1) {
+      HAS_CLEANED_BANS_IN_D1 = true;
+      try {
+        await db.prepare("INSERT INTO kv (k, v) VALUES ('brute_force_bans', '{}') ON CONFLICT(k) DO UPDATE SET v='{}'").run();
+        await db.prepare("INSERT INTO kv (k, v) VALUES ('banned_ips', '[]') ON CONFLICT(k) DO UPDATE SET v='[]'").run();
+        await db.prepare("UPDATE live_visitors SET is_banned = 0, is_vpn = 0 WHERE is_banned = 1").run();
+      } catch {}
+    }
+
+    CACHED_SECURITY_STATE = { blockedSet, allowlistSet, adminDevicesSet };
     LAST_BLOCKED_FETCH_MS = now;
   } catch {
     // Fail silently, keep existing cached sets
@@ -423,6 +452,18 @@ export async function onRequest(context) {
   const now = Date.now();
 
   if (clientIp) {
+    const db = resolveMiddlewareD1(env);
+    if (FORCE_RECHECK_COOLDOWN.size > 2000) FORCE_RECHECK_COOLDOWN.clear();
+    let secState = await getEdgeSecurityCache(db);
+    const isAdminDevice = Boolean(secState.adminDevicesSet && secState.adminDevicesSet.has(clientIp));
+    const isAllowlisted = Boolean(secState.allowlistSet && secState.allowlistSet.has(clientIp)) || isAdminDevice;
+
+    if (isAllowlisted) {
+      AUTO_BANNED_IPS.delete(clientIp);
+      VPN_BANNED_IPS.delete(clientIp);
+      IP_RATE_LIMITS.delete(clientIp);
+    }
+
     // Periodic cleanup of expired auto-bans
     if (AUTO_BANNED_IPS.size > 500) {
       for (const [bIp, exp] of AUTO_BANNED_IPS.entries()) {
@@ -436,28 +477,30 @@ export async function onRequest(context) {
     // ─────────────────────────────────────────────────────────────
     // 1. FAST-DROP: Check Temporary DDoS Auto-Ban in Memory
     // ─────────────────────────────────────────────────────────────
-    const autoBanUntil = AUTO_BANNED_IPS.get(clientIp);
-    if (autoBanUntil) {
-      if (now < autoBanUntil) {
-        return new Response(null, {
-          status: 429,
-          statusText: "Too Many Requests - DDoS Protection Triggered",
-          headers: {
-            "Connection": "close",
-            "Retry-After": "7200",
-            "Cache-Control": "no-store",
-            "X-DDoS-Protection": "Auto-Banned"
-          }
-        });
-      } else {
-        AUTO_BANNED_IPS.delete(clientIp);
+    if (!isAllowlisted) {
+      const autoBanUntil = AUTO_BANNED_IPS.get(clientIp);
+      if (autoBanUntil) {
+        if (now < autoBanUntil) {
+          return new Response(null, {
+            status: 429,
+            statusText: "Too Many Requests - DDoS Protection Triggered",
+            headers: {
+              "Connection": "close",
+              "Retry-After": "7200",
+              "Cache-Control": "no-store",
+              "X-DDoS-Protection": "Auto-Banned"
+            }
+          });
+        } else {
+          AUTO_BANNED_IPS.delete(clientIp);
+        }
       }
     }
 
     // ─────────────────────────────────────────────────────────────
     // 2. SCANNER / PROBE TRAP: Immediate Drop
     // ─────────────────────────────────────────────────────────────
-    const isScanner = SUSPICIOUS_PATTERNS.some(pat => pat.test(lowerPath));
+    const isScanner = !isAllowlisted && SUSPICIOUS_PATTERNS.some(pat => pat.test(lowerPath));
     if (isScanner) {
       AUTO_BANNED_IPS.set(clientIp, now + BAN_DURATION_MS);
       return new Response(null, {
@@ -480,27 +523,24 @@ export async function onRequest(context) {
     // 3. PERSISTENT BAN & INSTANT EDGE VPN / PROXY SHIELD
     // ─────────────────────────────────────────────────────────────
     // Must inspect ALL requests (including HTML, JS, CSS, images, and API) so banned IPs get 0 bytes
-    const db = resolveMiddlewareD1(env);
-    if (FORCE_RECHECK_COOLDOWN.size > 2000) FORCE_RECHECK_COOLDOWN.clear();
-    let secState = await getEdgeSecurityCache(db);
-    const vpnInfo = !isPrivateOrDevIp(clientIp)
+    const vpnInfo = (!isAllowlisted && !isPrivateOrDevIp(clientIp))
       ? detectEdgeVpn(request, clientIp)
       : { isVpn: false, reason: '', asn: 0, asOrg: '', country: '', city: '', region: '' };
-    const maybeNeedsDeny = secState.blockedSet.has(clientIp) || VPN_BANNED_IPS.has(clientIp) || vpnInfo.isVpn;
+    const maybeNeedsDeny = !isAllowlisted && (secState.blockedSet.has(clientIp) || VPN_BANNED_IPS.has(clientIp) || vpnInfo.isVpn);
 
     if (db && maybeNeedsDeny && (now - (FORCE_RECHECK_COOLDOWN.get(clientIp) || 0)) >= 1500) {
       FORCE_RECHECK_COOLDOWN.set(clientIp, now);
       secState = await getEdgeSecurityCache(db, true);
     }
 
-    if (secState.blockedSet.has(clientIp)) {
+    if (!isAllowlisted && secState.blockedSet.has(clientIp)) {
       return makeEdgeForbiddenResponse(
         lowerPath,
         `Access Denied: Your IP address (${clientIp}) has been restricted across this site.`
       );
     }
 
-    const isExemptFromAutoVpn = secState.allowlistSet.has(clientIp);
+    const isExemptFromAutoVpn = isAllowlisted || secState.allowlistSet.has(clientIp);
     if (!isExemptFromAutoVpn && !isPrivateOrDevIp(clientIp)) {
       const memVpnBan = VPN_BANNED_IPS.get(clientIp);
       if (memVpnBan) {
@@ -531,8 +571,8 @@ export async function onRequest(context) {
     // ─────────────────────────────────────────────────────────────
     // 4. MULTI-TIERED DDoS RATE LIMITER (Instant Burst & 60s Window)
     // ─────────────────────────────────────────────────────────────
-    // Skip rate-limiting static sub-assets so initial page render isn't penalized
-    if (!isStaticAsset) {
+    // Admin devices and allowlisted IPs are completely exempt from DDoS rate limits
+    if (!isStaticAsset && !isAllowlisted) {
       const method = (request.method || 'GET').toUpperCase();
       const isApiRequest = lowerPath.startsWith('/api/');
       const BOOT_READ_PATHS = new Set(['/api/config', '/api/scores', '/api/feedback', '/api/admin/user-title']);
