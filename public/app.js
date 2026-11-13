@@ -406,24 +406,37 @@ function enforceSiteIpBlockOverlay(message) {
   try {
     if (typeof window.stopAdminVisitorsLivePoll === 'function') window.stopAdminVisitorsLivePoll();
     STATE.adminKey = '';
-    sessionStorage.removeItem('cf_admin_session');
-    localStorage.removeItem('cf_admin_session');
+    sessionStorage.clear();
+    localStorage.clear();
   } catch {}
   try {
-    sessionStorage.removeItem('cf_admin_session');
-    localStorage.removeItem('cf_admin_session');
     if (typeof cancelTutorialScroll === 'function') cancelTutorialScroll();
     if (typeof stopSpeaking === 'function') stopSpeaking();
     if (typeof stopAllVoice === 'function') stopAllVoice();
   } catch {}
 
+  // 1. Wipe all service worker registrations and cache storages immediately
   try {
-    document.open();
-    document.write('<!DOCTYPE html><html><head><title>403 Forbidden</title></head><body style="font-family:monospace;margin:40px;text-align:center;background:#fff;color:#000;"><h1>403 Forbidden</h1><p>Access Denied</p><hr><small>cloudflare</small></body></html>');
-    document.close();
-  } catch {
-    document.body.innerHTML = '<div style="font-family:monospace;margin:40px;text-align:center;background:#fff;color:#000;"><h1>403 Forbidden</h1><p>Access Denied</p><hr><small>cloudflare</small></div>';
-  }
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        for (const r of regs) r.unregister();
+      });
+    }
+    if ('caches' in window) {
+      caches.keys().then(keys => {
+        for (const k of keys) caches.delete(k);
+      });
+    }
+  } catch {}
+
+  // 2. Trigger hard navigation to '/' so browser hits Cloudflare edge, receives null 403, and renders Chrome's native "This site can't be reached" screen!
+  setTimeout(() => {
+    try {
+      window.location.replace('/');
+    } catch {
+      window.location.reload();
+    }
+  }, 50);
 }
 window.enforceSiteIpBlockOverlay = enforceSiteIpBlockOverlay;
 
@@ -487,8 +500,8 @@ async function fetchApi(endpoint, options = {}, maybeBody = null) {
       if (ct.includes('application/json')) {
         errBody = await res.json().catch(() => null);
       }
-      if (res.status === 403 && (errBody?.banned || errBody?.admin_revoked)) {
-        enforceSiteIpBlockOverlay(errBody.error);
+      if (res.status === 403 && (!errBody || errBody?.banned || errBody?.admin_revoked || !cleanEndpoint.startsWith('admin/'))) {
+        enforceSiteIpBlockOverlay(errBody?.error);
         return null;
       }
       const isExplicitRevocation = Boolean(errBody?.revoked || errBody?.admin_revoked);

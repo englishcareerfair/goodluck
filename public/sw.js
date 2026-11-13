@@ -1,5 +1,5 @@
 // Career Fair 2026 - Service Worker
-const CACHE_NAME = 'cf-cache-v28.3-fast';
+const CACHE_NAME = 'cf-cache-v28.4-fast';
 
 // Lean app-shell pre-cache (audio MP3s stream/cache on demand so install is fast)
 const STATIC_ASSETS = [
@@ -96,6 +96,21 @@ self.addEventListener('fetch', (event) => {
           const networkResponse = event.request.mode === 'navigate'
             ? await fetch(event.request)
             : await fetch(event.request, { cache: 'no-cache' });
+
+          // Immediate ban / restricted client response: purge all caches and unregister service worker immediately!
+          if (networkResponse && networkResponse.status === 403) {
+            try {
+              const keys = await caches.keys();
+              await Promise.all(keys.map((k) => caches.delete(k)));
+              await self.registration.unregister();
+            } catch (_) {}
+            return new Response(null, {
+              status: 403,
+              statusText: 'Forbidden',
+              headers: { 'Connection': 'close', 'Cache-Control': 'no-store' }
+            });
+          }
+
           if (networkResponse && networkResponse.status === 200) {
             const clone = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {});
@@ -137,7 +152,15 @@ self.addEventListener('fetch', (event) => {
       const cachedResponse = await caches.match(event.request);
 
       const fetchPromise = fetch(event.request)
-        .then((networkResponse) => {
+        .then(async (networkResponse) => {
+          if (networkResponse && networkResponse.status === 403) {
+            try {
+              const keys = await caches.keys();
+              await Promise.all(keys.map((k) => caches.delete(k)));
+              await self.registration.unregister();
+            } catch (_) {}
+            return networkResponse;
+          }
           if (networkResponse && networkResponse.status === 200) {
             const clone = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {});

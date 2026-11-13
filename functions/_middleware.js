@@ -174,27 +174,14 @@ function detectEdgeVpn(req, clientIp) {
 }
 
 function makeEdgeForbiddenResponse(lowerPath, message, extra = {}) {
-  if (lowerPath.startsWith('/api/')) {
-    return new Response(
-      JSON.stringify({ error: message, banned: true, ...extra }),
-      {
-        status: 403,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': 'no-store'
-        }
-      }
-    );
-  }
-  const html = `<!DOCTYPE html><html><head><title>403 Forbidden</title></head><body style="font-family:monospace;margin:40px;text-align:center;background:#fff;color:#000;"><h1>403 Forbidden</h1><p>Access Denied</p><hr><small>cloudflare</small></body></html>`;
-  return new Response(html, {
+  // Pure 0-byte drop response with Connection: close
+  // Completely eliminates Cloudflare bandwidth usage and triggers native browser "This site can't be reached" error screen
+  return new Response(null, {
     status: 403,
     statusText: 'Forbidden',
     headers: {
-      'Content-Type': 'text/html; charset=utf-8',
       'Connection': 'close',
-      'Cache-Control': 'no-store'
+      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
     }
   });
 }
@@ -492,53 +479,52 @@ export async function onRequest(context) {
     // ─────────────────────────────────────────────────────────────
     // 3. PERSISTENT BAN & INSTANT EDGE VPN / PROXY SHIELD
     // ─────────────────────────────────────────────────────────────
+    // Must inspect ALL requests (including HTML, JS, CSS, images, and API) so banned IPs get 0 bytes
     const db = resolveMiddlewareD1(env);
-    if (!isStaticAsset) {
-      if (FORCE_RECHECK_COOLDOWN.size > 2000) FORCE_RECHECK_COOLDOWN.clear();
-      let secState = await getEdgeSecurityCache(db);
-      const vpnInfo = !isPrivateOrDevIp(clientIp)
-        ? detectEdgeVpn(request, clientIp)
-        : { isVpn: false, reason: '', asn: 0, asOrg: '', country: '', city: '', region: '' };
-      const maybeNeedsDeny = secState.blockedSet.has(clientIp) || VPN_BANNED_IPS.has(clientIp) || vpnInfo.isVpn;
+    if (FORCE_RECHECK_COOLDOWN.size > 2000) FORCE_RECHECK_COOLDOWN.clear();
+    let secState = await getEdgeSecurityCache(db);
+    const vpnInfo = !isPrivateOrDevIp(clientIp)
+      ? detectEdgeVpn(request, clientIp)
+      : { isVpn: false, reason: '', asn: 0, asOrg: '', country: '', city: '', region: '' };
+    const maybeNeedsDeny = secState.blockedSet.has(clientIp) || VPN_BANNED_IPS.has(clientIp) || vpnInfo.isVpn;
 
-      if (db && maybeNeedsDeny && (now - (FORCE_RECHECK_COOLDOWN.get(clientIp) || 0)) >= 1500) {
-        FORCE_RECHECK_COOLDOWN.set(clientIp, now);
-        secState = await getEdgeSecurityCache(db, true);
-      }
+    if (db && maybeNeedsDeny && (now - (FORCE_RECHECK_COOLDOWN.get(clientIp) || 0)) >= 1500) {
+      FORCE_RECHECK_COOLDOWN.set(clientIp, now);
+      secState = await getEdgeSecurityCache(db, true);
+    }
 
-      if (secState.blockedSet.has(clientIp)) {
+    if (secState.blockedSet.has(clientIp)) {
+      return makeEdgeForbiddenResponse(
+        lowerPath,
+        `Access Denied: Your IP address (${clientIp}) has been restricted across this site.`
+      );
+    }
+
+    const isExemptFromAutoVpn = secState.allowlistSet.has(clientIp);
+    if (!isExemptFromAutoVpn && !isPrivateOrDevIp(clientIp)) {
+      const memVpnBan = VPN_BANNED_IPS.get(clientIp);
+      if (memVpnBan) {
         return makeEdgeForbiddenResponse(
           lowerPath,
-          `Access Denied: Your IP address (${clientIp}) has been restricted across this site.`
+          `Access Denied: VPN / Proxy / Tor usage is strictly prohibited (${memVpnBan.reason}). Your IP (${clientIp}) has been banned.`,
+          { vpn_banned: true, vpn_reason: memVpnBan.reason }
         );
       }
 
-      const isExemptFromAutoVpn = secState.allowlistSet.has(clientIp);
-      if (!isExemptFromAutoVpn && !isPrivateOrDevIp(clientIp)) {
-        const memVpnBan = VPN_BANNED_IPS.get(clientIp);
-        if (memVpnBan) {
-          return makeEdgeForbiddenResponse(
-            lowerPath,
-            `Access Denied: VPN / Proxy / Tor usage is strictly prohibited (${memVpnBan.reason}). Your IP (${clientIp}) has been banned.`,
-            { vpn_banned: true, vpn_reason: memVpnBan.reason }
-          );
+      if (vpnInfo.isVpn) {
+        VPN_BANNED_IPS.set(clientIp, { reason: vpnInfo.reason, bannedAt: now });
+        secState.blockedSet.add(clientIp);
+        const persistPromise = persistEdgeVpnBan(db, clientIp, vpnInfo, request, pathname);
+        if (typeof context.waitUntil === 'function') {
+          context.waitUntil(persistPromise);
+        } else {
+          await persistPromise;
         }
-
-        if (vpnInfo.isVpn) {
-          VPN_BANNED_IPS.set(clientIp, { reason: vpnInfo.reason, bannedAt: now });
-          secState.blockedSet.add(clientIp);
-          const persistPromise = persistEdgeVpnBan(db, clientIp, vpnInfo, request, pathname);
-          if (typeof context.waitUntil === 'function') {
-            context.waitUntil(persistPromise);
-          } else {
-            await persistPromise;
-          }
-          return makeEdgeForbiddenResponse(
-            lowerPath,
-            `Access Denied: VPN / Proxy / Tor usage is strictly prohibited on this site (${vpnInfo.reason}). Your IP (${clientIp}) has been banned immediately.`,
-            { vpn_banned: true, vpn_reason: vpnInfo.reason }
-          );
-        }
+        return makeEdgeForbiddenResponse(
+          lowerPath,
+          `Access Denied: VPN / Proxy / Tor usage is strictly prohibited on this site (${vpnInfo.reason}). Your IP (${clientIp}) has been banned immediately.`,
+          { vpn_banned: true, vpn_reason: vpnInfo.reason }
+        );
       }
     }
 

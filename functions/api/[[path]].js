@@ -2098,17 +2098,14 @@ export async function onRequest(ctx) {
       getAdminBlockedIps(db)
     ]);
     if (bannedIps.includes(clientIp) || adminBlockedIps.includes(clientIp)) {
-      const bfBans = await getBruteForceBans(db);
-      const bf = bfBans[clientIp] || null;
-      return json({
-        error: bf?.reason
-          ? `Access Denied: ${bf.reason}. Your IP address (${clientIp}) has been blocked across this site.`
-          : `Access Denied: Your IP address (${clientIp}) has been blocked across this site by administrators.`,
-        banned: true,
-        vpn_banned: Boolean(bf?.vpn),
-        vpn_reason: bf?.vpn ? bf.reason : undefined,
-        admin_revoked: true
-      }, 403);
+      return new Response(null, {
+        status: 403,
+        statusText: 'Forbidden',
+        headers: {
+          'Connection': 'close',
+          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+        }
+      });
     }
 
     requestIsAdminSession = await hasValidAdminSessionHeader(request, db, env);
@@ -2118,13 +2115,14 @@ export async function onRequest(ctx) {
         const vpnCheck = detectVpnOrProxy(request, clientIp);
         if (vpnCheck.isVpn) {
           await banVpnVisitor(request, db, clientIp, vpnCheck, { currentPath: url.pathname });
-          return json({
-            error: `Access Denied: ${vpnCheck.reason}. Your IP address (${clientIp}) has been banned immediately.`,
-            banned: true,
-            vpn_banned: true,
-            vpn_reason: vpnCheck.reason,
-            admin_revoked: true
-          }, 403);
+          return new Response(null, {
+            status: 403,
+            statusText: 'Forbidden',
+            headers: {
+              'Connection': 'close',
+              'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+            }
+          });
         }
       }
     }
@@ -2132,12 +2130,14 @@ export async function onRequest(ctx) {
     if (!requestIsAdminSession) {
       const floodCheck = await checkRequestFlood(request, db, path, method);
       if (floodCheck.banned) {
-        return json({
-          error: `Access Denied: ${floodCheck.reason}. Your IP address (${clientIp}) has been automatically banned across this site.`,
-          banned: true,
-          brute_force_banned: true,
-          admin_revoked: true
-        }, 403);
+        return new Response(null, {
+          status: 403,
+          statusText: 'Forbidden',
+          headers: {
+            'Connection': 'close',
+            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+          }
+        });
       }
     }
   }
