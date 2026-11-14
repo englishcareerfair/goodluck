@@ -372,7 +372,7 @@ async function blockIpAcrossSite(db, ip, vpnReason = '') {
 
 // DDoS & Rate Limit Config: Dual-layer (1-second burst & 60-second sustained)
 const BF_BURST_WINDOW_MS = 1000;           // 1-second burst inspection window
-const BF_BURST_MAX_REQS = 30;              // Maximum 30 requests in 1 second
+const BF_BURST_MAX_REQS = 5;               // Maximum 5 requests in 1 second
 const BF_FLOOD_WINDOW_MS = 60 * 1000;      // 60-second sliding inspection window
 const BF_FLOOD_MAX_REQS = 150;             // Maximum 150 requests in 60 seconds
 
@@ -516,19 +516,9 @@ async function pruneExpiredDdosBans(db) {
 
     if (migrationDone !== '1') {
       GLOBAL_CACHE.ddos_burst_bugfix_v2 = true;
-      GLOBAL_CACHE.banned_ips = [];
-      GLOBAL_CACHE.brute_force_bans = {};
-      GLOBAL_CACHE.brute_force_tracker = {};
-      await Promise.all([
-        kvSet(db, 'banned_ips', '[]'),
-        kvSet(db, 'brute_force_bans', '{}'),
-        kvSet(db, 'brute_force_tracker', '{}'),
-        kvSet(db, DDOS_BURST_MIGRATION_KEY, '1')
-      ]);
       try {
-        await db.prepare("UPDATE live_visitors SET is_banned = 0, is_vpn = 0 WHERE is_banned = 1").run();
+        await kvSet(db, DDOS_BURST_MIGRATION_KEY, '1');
       } catch {}
-      return;
     }
 
     let bans = {};
@@ -625,7 +615,7 @@ async function checkRequestFlood(req, db, path, method) {
   if (burstCount > effectiveBurstMax) {
     const reason = isVerifiedAdminRead
       ? `DDoS Burst Attack: Exceeded ${effectiveBurstMax} admin read requests in 1 second (${burstCount} requests/sec)`
-      : `DDoS Burst Attack: Exceeded 3 requests in 1 second (${burstCount} requests/sec)`;
+      : `DDoS Burst Attack: Exceeded ${effectiveBurstMax} requests in 1 second (${burstCount} requests/sec)`;
     await blockIpAcrossSite(db, clientIp);
     await recordBruteForceBan(db, clientIp, reason, burstCount, req.headers.get('user-agent') || '');
     await saveBruteForceTracker(db, tracker);
@@ -698,11 +688,16 @@ const API_KNOWN_VPN_ASNS = new Set([
   39572, 208323, 398493, 202425, 206238, 44907, 49981, 53667, 60781,
   28753, 14061, 20473, 24940, 16276, 63949, 51167, 31898, 16509, 14618,
   8075, 45102, 132203, 396982, 47583, 36352, 8100, 36007, 50673, 46844,
-  11878, 21859, 12876, 202053, 8560, 398324, 204957, 62240
+  11878, 21859, 12876, 202053, 8560, 398324, 204957, 62240, 205016,
+  174, 1299, 3257, 6939, 13335, 32934, 15169, 2906, 20940, 22822, 54113,
+  209242, 34665, 35913, 40676, 25820, 7489, 26347, 32613, 36236, 53755,
+  200019, 210558, 138915, 135377, 58466, 3214, 34927, 210320, 206264,
+  43350, 35017, 51852, 57169, 61317, 199524, 47447, 198047, 147049, 206804
 ]);
 
 const API_RESIDENTIAL_ISP_ALLOWLIST = /\b(jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
-const API_VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton\s*(vpn|ag)|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs)\b/i;
+const API_VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton\s*(vpn|ag)|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs)\b/i;
+const API_DATACENTER_ORG_REGEX = /\b(labs?\s+ab|hosting|datacenter|data\s*center|colocation|colo\b|dedicated|server\s*farm|cloud\s*(host|services?|solutions?)|vps|bare\s*metal|managed\s*server|internet\s*exchange|ix\b|transit|peering|fiber\s*net|network\s*solutions?|cyber\s*hub|tech\s*solutions?|web\s*services?|server\s*solutions?|cloud\s*computing|it\s*infrastructure|noc\b|telecom\s*services?)\b/i;
 
 const TIMEZONE_COUNTRY_HINTS = {
   'asia/kolkata': 'IN',
@@ -869,6 +864,20 @@ function detectVpnOrProxy(req, clientIp, clientSignals = null) {
         ...base,
         isVpn: true,
         reason: `VPN / Anonymizer Network (${asOrg})`
+      };
+    }
+    if (asOrg && API_DATACENTER_ORG_REGEX.test(asOrg)) {
+      return {
+        ...base,
+        isVpn: true,
+        reason: `Datacenter / Hosting Network (${asOrg})`
+      };
+    }
+    if (asn > 0 && country !== 'IN' && asOrg && !API_RESIDENTIAL_ISP_ALLOWLIST.test(asOrg)) {
+      return {
+        ...base,
+        isVpn: true,
+        reason: `Non-Residential Network (AS${asn} · ${asOrg} · ${country})`
       };
     }
   }

@@ -452,6 +452,19 @@
       }
     } catch (_) {}
 
+    // Check live DOM elements if currently active on the page for zero-lag sync
+    if (typeof document !== 'undefined') {
+      const liveName = document.getElementById('biz-name')?.value?.trim();
+      const liveEmail = document.getElementById('biz-email')?.value?.trim();
+      const livePhone = document.getElementById('biz-phone')?.value?.trim();
+      if (liveName) {
+        bcStudentName = liveName;
+        if (!studentName || studentName === 'Career Fair Student') studentName = liveName;
+      }
+      if (liveEmail) bcEmail = liveEmail;
+      if (livePhone) bcPhone = livePhone;
+    }
+
     // Auto-format phone with space if 10 digits (XXXXX XXXXX)
     if (bcPhone) {
       const pDigits = String(bcPhone).replace(/\D/g, '');
@@ -461,8 +474,10 @@
     }
 
     // Fallback honors check
-    const altHonors = localStorage.getItem('ecf_bizcard_honors');
-    if (altHonors) bcHonors = altHonors;
+    if (!bcHonors) {
+      const altHonors = localStorage.getItem('ecf_bizcard_honors');
+      if (altHonors) bcHonors = altHonors;
+    }
 
     // Student reflection / feedback
     let feedbackText = "";
@@ -601,9 +616,9 @@
     ctx.stroke();
 
     // 2. Student Metadata Profile Card
-    const metaY = 184;
+    const metaY = 180;
     const metaW = CW - 160;
-    const metaH = 96;
+    const metaH = 88;
     drawCard(ctx, 80, metaY, metaW, metaH, 16, C);
 
     const metaCols = [
@@ -624,7 +639,7 @@
 
       ctx.font = '700 11px "Space Grotesk", sans-serif';
       ctx.fillStyle = C.textDim;
-      ctx.fillText(col.label, cX, metaY + 34);
+      ctx.fillText(col.label, cX, metaY + 30);
 
       let fittedVal = col.val;
       if (idx === 0) {
@@ -635,21 +650,21 @@
         fittedVal = fitTextToWidth(ctx, col.val, availW, '700', 14, 10, '"Space Grotesk", sans-serif');
       }
       ctx.fillStyle = col.color;
-      ctx.fillText(fittedVal, cX, metaY + 68);
+      ctx.fillText(fittedVal, cX, metaY + 62);
       ctx.restore();
 
       if (idx < 2) {
         ctx.strokeStyle = C.innerBorder;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(80 + (idx + 1) * colW, metaY + 16);
-        ctx.lineTo(80 + (idx + 1) * colW, metaY + metaH - 16);
+        ctx.moveTo(80 + (idx + 1) * colW, metaY + 14);
+        ctx.lineTo(80 + (idx + 1) * colW, metaY + metaH - 14);
         ctx.stroke();
       }
     });
 
         // 3. Platform Suite Ecosystem Showcase (Placed at top per user request so Business Card is at the very end!)
-    const platY = 278;
+    const platY = 280;
     const platW = metaW;
 
     // Badges above title

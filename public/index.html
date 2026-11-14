@@ -19,8 +19,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="styles.css?v=28.5">
+  <link rel="stylesheet" href="styles.css?v=28.6">
   <script src="/qrcode.min.js" defer></script>
+  <script src="https://www.youtube.com/iframe_api" defer></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
@@ -28,13 +29,13 @@
       });
     }
   </script>
-  <script src="dossier-pdf.js?v=28.5" defer></script>
-  <script src="dopamine-engine.js?v=28.5" defer></script>
-  <script src="game-completion-detector.js?v=28.5" defer></script>
-  <script src="offline-stt.js?v=28.5" defer></script>
-  <script src="guide-avatar.js?v=28.5" defer></script>
-  <script src="loader.js?v=28.5"></script>
-  <script src="app.js?v=28.5" defer></script>
+  <script src="dossier-pdf.js?v=28.6" defer></script>
+  <script src="dopamine-engine.js?v=28.6" defer></script>
+  <script src="game-completion-detector.js?v=28.6" defer></script>
+  <script src="offline-stt.js?v=28.6" defer></script>
+  <script src="guide-avatar.js?v=28.6" defer></script>
+  <script src="loader.js?v=28.6"></script>
+  <script src="app.js?v=28.6" defer></script>
   <!-- Critical Inlined CSS for Instant Loading Screen (Prevents FOUC on First Open) -->
   <style id="loader-critical-css">
     .site-loader {
@@ -1741,7 +1742,7 @@
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn btn-secondary btn-sm" id="btn-refresh-admin-feedback" type="button">🔄 Refresh</button>
-                <button class="btn btn-accent btn-sm" id="btn-clear-all-feedback" type="button" style="background:rgba(239,68,68,0.12);color:#ef4444;border-color:rgba(239,68,68,0.3);">🗑️ Delete All Reflections</button>
+                <button class="btn btn-accent btn-sm" id="btn-clear-all-feedback" type="button" style="background:rgba(239,68,68,0.12);color:#ef4444;border-color:rgba(239,68,68,0.3);"><span style="font-weight:700;color:#ef4444;">✕</span> Delete All Reflections</button>
               </div>
             </div>
 
@@ -1898,8 +1899,9 @@
             </div>
 
             <div style="display:flex;gap:10px;margin:14px 0;flex-wrap:wrap;">
-              <input type="text" id="admin-revoke-ip-input" placeholder="Enter device IP address to block across site (e.g. 203.0.113.42)..." style="flex:1;min-width:240px;padding:9px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-input);color:var(--text-main);font-family:var(--font-mono);font-size:13px;">
-              <button type="button" class="btn btn-primary btn-sm" id="btn-admin-revoke-ip" style="background:#ef4444;border-color:#dc2626;">🚫 Block IP Across Site</button>
+              <input type="text" id="admin-revoke-ip-input" placeholder="Enter device IP address to manage (e.g. 203.0.113.42)..." style="flex:1;min-width:240px;padding:9px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-input);color:var(--text-main);font-family:var(--font-mono);font-size:13px;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-admin-remove-access" style="background:rgba(239,68,68,0.12);color:#fca5a5;border:1px solid rgba(239,68,68,0.35);" title="Remove admin rights without blocking IP from the site">🔒 Remove Admin Access</button>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-admin-revoke-ip" style="background:#ef4444;border-color:#dc2626;" title="Block IP completely across the entire website">🚫 Block IP Across Site</button>
             </div>
 
             <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Devices With Admin Access History:</div>

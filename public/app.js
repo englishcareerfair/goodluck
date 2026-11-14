@@ -13833,7 +13833,7 @@ async function loadLeaderboard(filterPack = 'All') {
       ? `<button type="button" class="btn btn-sm btn-lb-rename" title="Change Player Name (Admin)" style="margin-left:6px;padding:2px 6px;font-size:11px;background:rgba(0,240,255,0.12);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:4px;cursor:pointer;" data-id="${escapeHtml(String(sc.id || ''))}" data-name="${encodeURIComponent(sc.name || '')}">✏️</button>`
       : '';
     const delBtnHtml = isAdmin
-      ? `<button type="button" class="btn btn-sm btn-lb-delete" title="Delete Score Attempt (Admin)" style="margin-left:4px;padding:2px 6px;font-size:11px;background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:4px;cursor:pointer;" data-id="${escapeHtml(String(sc.id || ''))}" data-name="${encodeURIComponent(sc.name || '')}">🗑️</button>`
+      ? `<button type="button" class="btn btn-sm btn-lb-delete" title="Delete Score Attempt (Admin)" style="margin-left:4px;padding:2px 6px;font-size:11px;background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:4px;cursor:pointer;" data-id="${escapeHtml(String(sc.id || ''))}" data-name="${encodeURIComponent(sc.name || '')}"><span style="font-weight:700;color:#ef4444;font-size:12px;">✕</span></button>`
       : '';
 
     let userTitlesMap = {};
@@ -14115,7 +14115,7 @@ async function loadFeedbackWall() {
                🏷️ Title
              </button>
              <button type="button" class="btn btn-sm btn-admin-feedback btn-admin-del btn-fb-del" title="Delete this reflection (Admin)" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" data-id="${escapeHtml(String(f.id || ''))}" data-comment="${encodeURIComponent(f.comment || '')}">
-               🗑️
+               <span style="font-weight:700;color:#ef4444;font-size:12px;">✕</span>
              </button>
            </div>`
         : '';
@@ -14593,7 +14593,7 @@ window.renderAdminIssues = async function() {
             </button>
           ` : ''}
           <button class="btn btn-xs" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);padding:4px 8px;font-size:11.5px;border-radius:4px;cursor:pointer;" data-del-issue-id="${escapeHtml(String(iss.id || ''))}" title="Delete Inquiry">
-            🗑️
+            <span style="font-weight:700;color:#ef4444;font-size:12px;">✕</span>
           </button>
         </div>
       </div>
@@ -14621,7 +14621,7 @@ window.adminDeleteIssue = async function(issueId) {
     const filtered = local.filter(i => String(i.id) !== String(issueId));
     localStorage.setItem('cf_local_issues', JSON.stringify(filtered));
   } catch {}
-  showToast('🗑️ Inquiry deleted successfully');
+  showToast('Inquiry deleted successfully');
   window.renderAdminIssues();
 };
 
@@ -14689,7 +14689,7 @@ async function renderAdminModeration() {
             </div>
             <div style="display:flex;align-items:center;gap:6px;">
               <button type="button" class="btn btn-sm btn-fb-rename" style="background:rgba(0,240,255,0.15);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap;" data-id="${escapeHtml(String(f.id || ''))}" data-name="${encodeURIComponent(f.name || '')}" data-comment="${encodeURIComponent(f.comment || '')}">✏️ Rename</button>
-              <button type="button" class="btn btn-sm btn-fb-del" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap;" data-id="${escapeHtml(String(f.id || ''))}" data-comment="${encodeURIComponent(f.comment || '')}">🗑️ Delete</button>
+              <button type="button" class="btn btn-sm btn-fb-del" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap;" data-id="${escapeHtml(String(f.id || ''))}" data-comment="${encodeURIComponent(f.comment || '')}"><span style="font-weight:700;color:#ef4444;">✕</span> Delete</button>
             </div>
           </div>
         `;
@@ -14729,7 +14729,7 @@ async function renderAdminModeration() {
             <td style="font-size:12px;color:var(--text-dim);">${timeStr}</td>
             <td style="text-align:center;white-space:nowrap;">
               <button type="button" class="btn btn-sm btn-lb-rename" style="background:rgba(0,240,255,0.15);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:4px;padding:2px 8px;font-size:11.5px;cursor:pointer;margin-right:4px;" data-id="${escapeHtml(String(sc.id || ''))}" data-name="${encodeURIComponent(sc.name || '')}">✏️ Rename</button>
-              <button type="button" class="btn btn-sm btn-lb-delete" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:4px;padding:2px 8px;font-size:11.5px;cursor:pointer;" data-id="${escapeHtml(String(sc.id || ''))}" data-name="${encodeURIComponent(sc.name || '')}">🗑️ Delete</button>
+              <button type="button" class="btn btn-sm btn-lb-delete" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:4px;padding:2px 8px;font-size:11.5px;cursor:pointer;" data-id="${escapeHtml(String(sc.id || ''))}" data-name="${encodeURIComponent(sc.name || '')}"><span style="font-weight:700;color:#ef4444;">✕</span> Delete</button>
             </td>
           </tr>
         `;
@@ -16008,6 +16008,21 @@ function initAdminWorkspace() {
       if (typeof window.renderAdminDevices === 'function') window.renderAdminDevices();
     });
   }
+  const btnRemoveAccess = $('#btn-admin-remove-access');
+  if (btnRemoveAccess && !btnRemoveAccess.dataset.wired) {
+    btnRemoveAccess.dataset.wired = 'true';
+    btnRemoveAccess.addEventListener('click', () => {
+      const inputVal = ($('#admin-revoke-ip-input')?.value || '').trim();
+      if (!inputVal) {
+        showToast('Please enter an IP address to remove admin access.');
+        return;
+      }
+      const isCur = Boolean(STATE?.currentIp && inputVal === STATE.currentIp);
+      if (typeof window.adminRemoveAdminAccess === 'function') {
+        window.adminRemoveAdminAccess(inputVal, isCur);
+      }
+    });
+  }
   const btnRevokeDeviceIp = $('#btn-admin-revoke-ip');
   if (btnRevokeDeviceIp && !btnRevokeDeviceIp.dataset.wired) {
     btnRevokeDeviceIp.dataset.wired = 'true';
@@ -17097,6 +17112,7 @@ function playSynthesizedSound(type) {
 // =========================================================================
 function startGlobalD1SyncPoller() {
   setInterval(async () => {
+    if (document.hidden || STATE.isSiteBlocked) return;
     const secLeaderboard = $('#sec-leaderboard');
     if (secLeaderboard && !secLeaderboard.hidden) {
       const activeBtn = $('#leaderboard-pack-filters .filter-chip.active');
@@ -17450,7 +17466,7 @@ window.adminRemoveVisitorIp = async function(ip) {
         _cachedAdminVisitorsPayload.visitors = _cachedAdminVisitorsPayload.visitors.filter(v => v && v.ip !== cleanIp);
         renderAdminVisitorsRows(_cachedAdminVisitorsPayload);
       }
-      showToast(`IP "${cleanIp}" removed from visitor list 🗑️`);
+      showToast(`IP "${cleanIp}" removed from visitor list ✕`);
       if (typeof window.renderAdminVisitors === 'function') window.renderAdminVisitors();
     } else {
       showToast('Failed to remove visitor IP.');
@@ -17642,7 +17658,7 @@ function renderAdminVisitorsRows(payload) {
     const primaryBtn = v.is_banned
       ? `<button type="button" class="btn btn-secondary btn-xs" data-visitor-unban-ip="${safeIp}">✅ Unban</button>`
       : `<button type="button" class="btn btn-primary btn-xs" style="background:#ef4444;border-color:#dc2626;" data-visitor-ban-ip="${safeIp}">🚫 Ban IP</button>`;
-    const removeBtn = `<button type="button" class="btn btn-xs" data-visitor-remove-ip="${safeIp}" title="Remove IP from visitor list" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.4);border-radius:6px;padding:3px 8px;font-weight:700;font-size:12px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;">❌</button>`;
+    const removeBtn = `<button type="button" class="btn btn-xs" data-visitor-remove-ip="${safeIp}" title="Remove IP from visitor list" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.4);border-radius:6px;padding:3px 8px;font-weight:700;font-size:12px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;"><span style="font-weight:700;color:#ef4444;font-size:13px;">✕</span></button>`;
 
     return `
       <tr style="border-top:1px solid var(--border);">
@@ -17833,7 +17849,7 @@ window.initDynamicApiPools = function() {
       return `
         <div class="api-key-row" data-index="${i}">
           <span class="api-key-label-pill ${pillClass}">${label}</span>
-          <input type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" style="-webkit-text-security:disc;text-security:disc;" class="api-key-input gemini-key-field" data-index="${i}" value="${escapeHtml(key)}" placeholder="${i === 0 ? 'AIzaSy... (Main Gemini Key)' : 'AIzaSy... (Backup Key ' + i + ')'}">
+          <input type="text" name="gemini_api_token_${i}" id="gemini-key-${i}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" data-bitwarden-watching="false" style="-webkit-text-security:disc;text-security:disc;" class="api-key-input gemini-key-field" data-index="${i}" value="${escapeHtml(key)}" placeholder="${i === 0 ? 'AIzaSy... (Main Gemini Key)' : 'AIzaSy... (Backup Key ' + i + ')'}">
           ${removeBtn}
         </div>
       `;
@@ -17975,7 +17991,7 @@ window.initDynamicApiPools = function() {
       return `
         <div class="api-key-row" data-index="${i}">
           <span class="api-key-label-pill ${pillClass}">${label}</span>
-          <input type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" style="-webkit-text-security:disc;text-security:disc;" class="api-key-input eleven-key-field" data-index="${i}" value="${escapeHtml(key)}" placeholder="${i === 0 ? 'xi-... (Main ElevenLabs Key)' : 'xi-... (Backup Key ' + i + ')'}">
+          <input type="text" name="eleven_api_token_${i}" id="eleven-key-${i}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" data-bitwarden-watching="false" style="-webkit-text-security:disc;text-security:disc;" class="api-key-input eleven-key-field" data-index="${i}" value="${escapeHtml(key)}" placeholder="${i === 0 ? 'xi-... (Main ElevenLabs Key)' : 'xi-... (Backup Key ' + i + ')'}">
           ${removeBtn}
         </div>
       `;
