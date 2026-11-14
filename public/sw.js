@@ -1,18 +1,18 @@
 // Career Fair 2026 - Service Worker
-const CACHE_NAME = 'cf-cache-v29.0-fast';
+const CACHE_NAME = 'cf-cache-v29.1-fast';
 
 // Lean app-shell pre-cache (audio MP3s stream/cache on demand so install is fast)
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/styles.css?v=29.0',
-  '/loader.js?v=29.0',
-  '/offline-stt.js?v=29.0',
-  '/app.js?v=29.0',
-  '/dopamine-engine.js?v=29.0',
-  '/game-completion-detector.js?v=29.0',
-  '/dossier-pdf.js?v=29.0',
-  '/guide-avatar.js?v=29.0',
+  '/styles.css?v=29.1',
+  '/loader.js?v=29.1',
+  '/offline-stt.js?v=29.1',
+  '/app.js?v=29.1',
+  '/dopamine-engine.js?v=29.1',
+  '/game-completion-detector.js?v=29.1',
+  '/dossier-pdf.js?v=29.1',
+  '/guide-avatar.js?v=29.1',
   '/qrcode.min.js',
   '/logo.png',
   '/icon-192.png',

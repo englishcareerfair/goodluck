@@ -7004,28 +7004,20 @@ function analyzeSpeechLabSample(snapshot = null, options = {}) {
   // Resolve Student Name for Exhibition Leaderboard mapping
   const speechLabNameInput = $('#speech-lab-student-name');
   let rawName = (speechLabNameInput ? speechLabNameInput.value : '').trim() ||
-                ($('#speak-student-name')?.value || '').trim();
+                ($('#speak-student-name')?.value || '').trim() ||
+                (STATE.studentName || '').trim() ||
+                (STATE.studentProfile?.name || '').trim() ||
+                ($('#biz-name')?.value || '').trim() ||
+                ($('#tutorial-student-name-input')?.value || '').trim();
 
-  // If student hasn't entered their name, highlight the input at the top and prompt them
   if (!rawName) {
-    STATE.speechLabPendingEval = { accuracy, fluency, clarity, text, currentSpeechLabSentence };
-    if (speechLabNameInput) {
-      speechLabNameInput.focus();
-      speechLabNameInput.style.borderColor = '#ef4444';
-      speechLabNameInput.style.boxShadow = '0 0 14px rgba(239, 68, 68, 0.6)';
-      setTimeout(() => {
-        speechLabNameInput.style.borderColor = '';
-        speechLabNameInput.style.boxShadow = '';
-      }, 3500);
-    }
-    showToast('⚠️ Please enter your name at the top to map your score to the leaderboard!');
-    return;
+    rawName = 'Explorer';
   }
 
   STATE.speechLabPendingEval = null;
   const name = capitalizeName(rawName);
-  if (speechLabNameInput) speechLabNameInput.value = name;
-  if ($('#speak-student-name')) $('#speak-student-name').value = name;
+  if (speechLabNameInput && !speechLabNameInput.value) speechLabNameInput.value = name;
+  if ($('#speak-student-name') && !$('#speak-student-name').value) $('#speak-student-name').value = name;
   STATE.studentName = name;
 
   // Save attempt to local scores so it is reflected immediately
@@ -7118,6 +7110,87 @@ function analyzeSpeechLabSample(snapshot = null, options = {}) {
 
   showToast(`Speech Analysis Complete! Score (${accuracy}%) mapped to Leaderboard.`);
 }
+
+window.recordLeaderboardScore = async function({
+  name = '',
+  pack = 'Everyday',
+  acc = 0,
+  fluency = null,
+  clarity = null,
+  wpm = null,
+  target = '',
+  level = 1,
+  className = ''
+} = {}) {
+  let studentName = (name || '').trim() ||
+                    ($('#speech-lab-student-name')?.value || '').trim() ||
+                    ($('#speak-student-name')?.value || '').trim() ||
+                    (STATE.studentName || '').trim() ||
+                    (STATE.studentProfile?.name || '').trim() ||
+                    ($('#biz-name')?.value || '').trim() ||
+                    'Student Explorer';
+  studentName = capitalizeName(studentName);
+
+  const studentClass = className || STATE.studentClass || 'Class 10';
+  const targetCareer = STATE.studentProfile?.targetCareer || STATE.targetCareer || '';
+  const numAcc = Math.max(0, Math.min(100, Math.round(Number(acc) || 0)));
+  const numFluency = fluency !== null ? Math.max(0, Math.min(100, Math.round(Number(fluency)))) : Math.min(100, numAcc + 5);
+  const numClarity = clarity !== null ? Math.max(0, Math.min(100, Math.round(Number(clarity)))) : Math.min(100, numAcc + 2);
+  const numWpm = wpm !== null ? Math.max(0, Math.min(400, Math.round(Number(wpm)))) : 130;
+
+  const localScoreObj = {
+    id: 'sc_' + Date.now(),
+    name: studentName,
+    pack,
+    level,
+    acc: numAcc,
+    fluency: numFluency,
+    clarity: numClarity,
+    wpm: numWpm,
+    class_name: studentClass,
+    target_career: targetCareer,
+    ts: Date.now()
+  };
+
+  try {
+    const curScores = JSON.parse(localStorage.getItem('cf_user_scores') || '[]');
+    const sIdx = curScores.findIndex(s => (s.name || '').toLowerCase() === studentName.toLowerCase());
+    if (sIdx === -1) {
+      curScores.unshift(localScoreObj);
+    } else if (numAcc >= (curScores[sIdx].acc || 0)) {
+      curScores[sIdx] = localScoreObj;
+    }
+    localStorage.setItem('cf_user_scores', JSON.stringify(curScores));
+  } catch (e) {}
+
+  // Post to Cloudflare D1 Backend /api/attempt
+  try {
+    await fetchApi('attempt', 'POST', {
+      name: studentName,
+      pack,
+      level,
+      target: target || pack,
+      fallback_text: target || pack,
+      class_name: studentClass,
+      target_career: targetCareer,
+      acc: numAcc,
+      fluency: numFluency,
+      clarity: numClarity,
+      wpm: numWpm
+    });
+  } catch (e) {
+    console.warn('Score submission note:', e);
+  }
+
+  // Refresh leaderboard immediately so user sees their rank without delay
+  try {
+    const activeBtn = $('#leaderboard-pack-filters .filter-chip.active');
+    const curPack = activeBtn ? activeBtn.dataset.boardPack : 'All';
+    await loadLeaderboard(curPack);
+  } catch (e) {}
+
+  return localScoreObj;
+};
 
 function drawSpiderRadar(scores) {
   const canvas = $('#radar-canvas');
@@ -9299,6 +9372,15 @@ function launchQuestScribe(mount) {
       });
     } else {
       choicesBox.innerHTML = '<div style="padding:14px;background:var(--surface);border-radius:var(--radius-md);color:var(--accent-cyan);font-weight:600;">✨ The tale has reached its dramatic conclusion. Click "Start New Tale" to venture forth again.</div>';
+      if (typeof window.recordLeaderboardScore === 'function') {
+        window.recordLeaderboardScore({
+          pack: 'The Scribe',
+          acc: 95,
+          fluency: 96,
+          clarity: 98,
+          target: 'The Scribe Quest Complete'
+        });
+      }
     }
   };
 
@@ -9612,6 +9694,16 @@ function launchQuestBard(mount) {
       <div class="quest-output-box" style="font-family:Georgia, serif;font-size:15px;line-height:1.75;background:var(--surface);white-space:pre-line;">${escapeHtml(reply)}</div>
       <button class="btn btn-secondary btn-sm" id="btn-bard-listen" type="button">🔊 Recite in Indian Accent</button>
     `;
+
+    if (typeof window.recordLeaderboardScore === 'function') {
+      window.recordLeaderboardScore({
+        pack: "The Bard's Mirror",
+        acc: 90,
+        fluency: 94,
+        clarity: 96,
+        target: mode
+      });
+    }
 
     $('#btn-bard-listen')?.addEventListener('click', function() {
       speak(reply, this);
@@ -10263,6 +10355,17 @@ CRITICAL INSTRUCTIONS:
         // Trigger victory sound & celebration toast
         if (typeof playSynthesizedSound === 'function') playSynthesizedSound('correct');
         showToast('🎉 Mystery Solved! Next Difficulty Unlocked!');
+
+        // Record leaderboard score for solving archive mystery
+        if (typeof window.recordLeaderboardScore === 'function') {
+          window.recordLeaderboardScore({
+            pack: 'The Ink Cipher',
+            acc: Math.min(100, 85 + (currentCaseIndex + 1) * 5),
+            fluency: 96,
+            clarity: 98,
+            target: `Mystery ${currentCaseIndex + 1}: ${currentCase.title}`
+          });
+        }
       } else {
         if (typeof playSynthesizedSound === 'function') playSynthesizedSound('wrong');
         verdictMount.innerHTML = `
@@ -10633,6 +10736,17 @@ function renderWordle(mount) {
 
       // Audio praise inspired by careers-site
       speak('Congratulations! You got the word right.');
+
+      // Record leaderboard score for solving Wordle
+      if (typeof window.recordLeaderboardScore === 'function') {
+        window.recordLeaderboardScore({
+          pack: 'Wordle',
+          acc: Math.max(75, 105 - (row + 1) * 5),
+          fluency: 92,
+          clarity: 95,
+          target: secret
+        });
+      }
 
       const resultMount = $('#wordle-result-mount');
       if (resultMount) {
@@ -11088,6 +11202,16 @@ function renderSpellingBee(mount) {
         input.disabled = true;
         $('#btn-bee-submit').disabled = true;
 
+        if (typeof window.recordLeaderboardScore === 'function') {
+          window.recordLeaderboardScore({
+            pack: 'Spelling Bee',
+            acc: Math.min(100, 80 + streak * 4),
+            fluency: 95,
+            clarity: 98,
+            target: curWord.word
+          });
+        }
+
         fb.innerHTML = `
           <div class="game-result-box" style="margin-top:16px;padding:18px;border:2px solid var(--accent-emerald);">
             <div style="font-size:28px;margin-bottom:6px;">🎉</div>
@@ -11175,6 +11299,7 @@ function renderHangman(mount) {
   let current = WORDS[Math.floor(Math.random() * WORDS.length)] || { word: "DISCOVERY", clue: "Uncovering new horizons" };
   let guessedLetters = new Set();
   let remainingMistakes = 6;
+  let hasRecordedHangmanScore = false;
 
   function renderState() {
     const wordLetters = current.word.split('');
@@ -11196,6 +11321,19 @@ function renderHangman(mount) {
 
     const isWon = current.word.split('').every(l => guessedLetters.has(l));
     const isLost = remainingMistakes <= 0;
+
+    if (isWon && !hasRecordedHangmanScore) {
+      hasRecordedHangmanScore = true;
+      if (typeof window.recordLeaderboardScore === 'function') {
+        window.recordLeaderboardScore({
+          pack: 'Hangman',
+          acc: Math.max(70, 70 + remainingMistakes * 5),
+          fluency: 90,
+          clarity: 95,
+          target: current.word
+        });
+      }
+    }
 
     mount.innerHTML = `
       <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:16px;">
@@ -11278,6 +11416,7 @@ function renderHangman(mount) {
       current = WORDS[Math.floor(Math.random() * WORDS.length)];
       guessedLetters.clear();
       remainingMistakes = 6;
+      hasRecordedHangmanScore = false;
       renderState();
     });
 
@@ -13026,7 +13165,7 @@ function renderFutureBusinessCard(mount) {
   const totalCareerCount = CAREERS_DATA.length;
 
   // Build career options HTML grouped by category
-  let careerOptionsHtml = '<option value="" disabled selected>-- Select Your Dream Career (Mandatory) --</option>';
+  let careerOptionsHtml = '<option value="" selected>-- Select Your Dream Career (Mandatory) --</option>';
   for (const [catName, list] of Object.entries(categories)) {
     careerOptionsHtml += `<optgroup label="── ${escapeHtml(catName)} ──">`;
     list.forEach(c => {
@@ -13070,7 +13209,7 @@ function renderFutureBusinessCard(mount) {
               <span>✍️</span> <span>Custom Profession</span>
             </button>
           </div>
-          <select id="biz-career-select" class="form-select" style="width:100%;">
+          <select id="biz-career-select" class="form-select" style="width:100%;" autocomplete="off">
             ${careerOptionsHtml}
           </select>
           <div id="biz-custom-career-container" style="display:none;margin-top:8px;">
@@ -13083,7 +13222,7 @@ function renderFutureBusinessCard(mount) {
           <label for="biz-creds-select" style="font-size:13px;font-weight:700;display:block;margin-bottom:6px;">
             Credentials / Honors (Specialized by Career):
           </label>
-          <select id="biz-creds-select" class="form-select" style="width:100%;">
+          <select id="biz-creds-select" class="form-select" style="width:100%;" autocomplete="off">
             <!-- Populated dynamically based on career choice -->
           </select>
           <input type="text" id="biz-creds-custom" placeholder="Type your custom degrees, licenses or honors..." style="display:none;margin-top:8px;">
@@ -13205,7 +13344,7 @@ function renderFutureBusinessCard(mount) {
   const populateCredentialsForCareer = (careerName) => {
     if (!credsSelect) return;
     if (!careerName || careerName === '') {
-      credsSelect.innerHTML = '<option value="" disabled selected>-- Select Credentials / Honors (Mandatory) --</option>';
+      credsSelect.innerHTML = '<option value="" selected>-- Select Credentials / Honors (Mandatory) --</option>';
       if (credsCustomInput) {
         credsCustomInput.style.display = 'none';
         credsCustomInput.value = '';
@@ -13219,7 +13358,7 @@ function renderFutureBusinessCard(mount) {
       "Class of 2040 · International Honors Graduate"
     ];
 
-    let opts = '<option value="" disabled selected>-- Select Credentials / Honors (Mandatory) --</option>';
+    let opts = '<option value="" selected>-- Select Credentials / Honors (Mandatory) --</option>';
     credsList.forEach((c) => {
       opts += `<option value="${escapeHtml(c)}">🎖️ ${escapeHtml(c)}</option>`;
     });
@@ -13373,8 +13512,15 @@ function renderFutureBusinessCard(mount) {
       }
     }
   } else {
-    if (careerSelect) careerSelect.value = '';
+    if (careerSelect) {
+      careerSelect.value = '';
+      careerSelect.selectedIndex = 0;
+    }
     populateCredentialsForCareer('');
+    if (credsSelect) {
+      credsSelect.value = '';
+      credsSelect.selectedIndex = 0;
+    }
   }
   updateCard(false);
 
@@ -13851,6 +13997,9 @@ async function loadLeaderboard(filterPack = 'All') {
       const p = (s.pack || '').toLowerCase();
       if (fLower === 'speech lab' || fLower === 'ai speech lab') {
         return p.includes('speech');
+      }
+      if (fLower === 'arcade') {
+        return ['arcade', 'wordle', 'hangman', 'spelling bee', 'the scribe', "the bard's mirror", 'the ink cipher', 'flashcards', 'quests'].includes(p) || p.includes('arcade');
       }
       return p === fLower;
     });
@@ -17187,9 +17336,11 @@ function playSynthesizedSound(type) {
 }
 
 // =========================================================================
-// REAL-TIME GLOBAL D1 SYNC POLLER (12s Automatic Cross-Device Refresh)
+// REAL-TIME GLOBAL D1 SYNC POLLER (7s Automatic Cross-Device Refresh)
 // =========================================================================
 function startGlobalD1SyncPoller() {
+  if (window._d1SyncPollerStarted) return;
+  window._d1SyncPollerStarted = true;
   setInterval(async () => {
     if (document.hidden || STATE.isSiteBlocked) return;
     const secLeaderboard = $('#sec-leaderboard');
@@ -17207,8 +17358,9 @@ function startGlobalD1SyncPoller() {
     if (typeof window.loadUserTitles === 'function') {
       window.loadUserTitles();
     }
-  }, 12000);
+  }, 7000);
 }
+startGlobalD1SyncPoller();
 
 
 // ─── ADMIN EXPANDED CONTROLS: PINNING, TITLES, IP BAN, DYNAMIC API POOLS ──────

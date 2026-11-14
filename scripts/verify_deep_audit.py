@@ -58,10 +58,10 @@ async def run_verification():
         scripts = await page.evaluate("""() => {
             return Array.from(document.querySelectorAll('script[src], link[rel="stylesheet"]')).map(el => el.src || el.href);
         }""")
-        v290_count = sum(1 for s in scripts if 'v=29.0' in s)
-        assert v290_count >= 5, f"Expected cache-busting v=29.0 assets, got {v290_count}"
-        print(f"  [PASS] Assets loaded with cache-busting v=29.0 ({v290_count} tags confirmed)")
-        results.append(("Asset Cache Versioning (v29.0)", "PASS"))
+        v29_count = sum(1 for s in scripts if 'v=29.' in s)
+        assert v29_count >= 5, f"Expected cache-busting v=29.x assets, got {v29_count}"
+        print(f"  [PASS] Assets loaded with cache-busting v=29.x ({v29_count} tags confirmed)")
+        results.append(("Asset Cache Versioning (v29.x)", "PASS"))
 
         # ─── 2. Password Manager Anti-Autofill Attributes ───
         print("\n[CHECK 2] Verifying Password Manager Anti-Autofill attributes...")

@@ -2416,8 +2416,11 @@ export async function onRequest(ctx) {
       if (pack.toLowerCase() === 'speech lab' || pack.toLowerCase() === 'ai speech lab') {
         conditions.push('(pack = ? OR pack = ? OR LOWER(pack) LIKE ?)');
         binds.push('Speech Lab', 'AI Speech Lab', '%speech%');
+      } else if (pack.toLowerCase() === 'arcade') {
+        conditions.push('(LOWER(pack) IN (?, ?, ?, ?, ?, ?, ?) OR LOWER(pack) LIKE ?)');
+        binds.push('arcade', 'wordle', 'hangman', 'spelling bee', 'the scribe', "the bard's mirror", 'the ink cipher', '%arcade%');
       } else {
-        conditions.push('pack=?');
+        conditions.push('LOWER(pack) = LOWER(?)');
         binds.push(pack);
       }
     }
@@ -2447,7 +2450,13 @@ export async function onRequest(ctx) {
       let cached = [...GLOBAL_CACHE.scores];
       if (pack && pack !== 'All') {
         const isSpeech = (pack.toLowerCase() === 'speech lab' || pack.toLowerCase() === 'ai speech lab');
-        cached = cached.filter(s => isSpeech ? (s.pack || '').toLowerCase().includes('speech') : s.pack === pack);
+        const isArcade = pack.toLowerCase() === 'arcade';
+        cached = cached.filter(s => {
+          const p = (s.pack || '').toLowerCase();
+          if (isSpeech) return p.includes('speech');
+          if (isArcade) return ['arcade', 'wordle', 'hangman', 'spelling bee', 'the scribe', "the bard's mirror", 'the ink cipher'].includes(p) || p.includes('arcade');
+          return p === pack.toLowerCase();
+        });
       }
       if (className && className !== 'All') {
         cached = cached.filter(s => s.class_name === className);
@@ -2460,8 +2469,8 @@ export async function onRequest(ctx) {
     return json(results);
   }
 
-  // ── 4. POST /attempt (Global D1 Leaderboard Attempt Persistence) ──────
-  if (path === '/attempt' && method === 'POST') {
+  // ── 4. POST /attempt or POST /scores (Global D1 Leaderboard Attempt Persistence) ──────
+  if ((path === '/attempt' || path === '/scores') && method === 'POST') {
     const rawAuth = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim() ||
                     (url ? (url.searchParams.get('key') || url.searchParams.get('auth') || '').trim() : '');
     if (rawAuth && rawAuth.startsWith('ecf_')) {
@@ -2552,7 +2561,8 @@ export async function onRequest(ctx) {
     transcript = stripSpeechNoiseTags(transcript);
     const spokenClean = norm(transcript);
     const targetClean = norm(target);
-    const hasSpokenSpeech = spokenClean.length > 0;
+    const hasExplicitAcc = (inputAcc !== null && !isNaN(inputAcc) && inputAcc > 0);
+    const hasSpokenSpeech = spokenClean.length > 0 || hasExplicitAcc;
 
     let acc = 0;
     let fluency = 0;
@@ -2561,7 +2571,7 @@ export async function onRequest(ctx) {
     let passed = false;
 
     if (hasSpokenSpeech) {
-      acc = (inputAcc !== null && !isNaN(inputAcc))
+      acc = hasExplicitAcc
         ? Math.round(inputAcc)
         : (targetClean ? calculateAccuracy(target, transcript) : 0);
       acc = Math.max(0, Math.min(100, acc));
@@ -2586,8 +2596,8 @@ export async function onRequest(ctx) {
 
     level = Math.max(1, Math.min(10, level));
 
-    // Persist score in database & memory only when actual speech was detected with non-zero accuracy
-    if (name && hasSpokenSpeech && acc > 0) {
+    // Persist score in database & memory whenever valid score/activity is achieved
+    if (name && acc > 0) {
       const scoreObj = {
         name,
         pack,
