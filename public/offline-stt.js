@@ -574,11 +574,6 @@
     if (modeHint) formData.append('mode', modeHint);
 
     const headers = {};
-    try {
-      const k = localStorage.getItem('cf_eleven_key') || global.STATE?.config?.eleven_key || '';
-      if (k && k !== 'configured') headers['xi-api-key'] = k.split(/[\r\n,]+/)[0].trim();
-    } catch {}
-
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 9000);
     try {

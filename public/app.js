@@ -859,8 +859,7 @@ async function speak(text, btn = null) {
       const activeKey = elevenKeyList[0];
       try {
         const reqHeaders = {
-          'Content-Type': 'application/json',
-          'xi-api-key': activeKey
+          'Content-Type': 'application/json'
         };
         const admToken = (typeof getActiveAdminToken === 'function') ? getActiveAdminToken() : (sessionStorage.getItem('cf_admin_key') || localStorage.getItem('cf_admin_key'));
         if (admToken) {
@@ -873,9 +872,7 @@ async function speak(text, btn = null) {
           body: JSON.stringify({
             text: text,
             voiceId: savedVoiceId,
-            accent: 'indian',
-            apiKey: activeKey,
-            keysPool: elevenKeyList
+            accent: 'indian'
           }),
           signal: abortSignal
         });
@@ -15543,13 +15540,12 @@ function initAdminWorkspace() {
       const vHeaders = { 'Content-Type': 'application/json' };
       const _adminTok = (typeof getActiveAdminToken === 'function') ? getActiveAdminToken() : '';
       if (_adminTok) vHeaders['Authorization'] = 'Bearer ' + _adminTok;
-      if (effectiveKey && effectiveKey !== 'configured') vHeaders['xi-api-key'] = effectiveKey;
 
-      const keysToSend = combinedKeys.length ? combinedKeys : (effectiveKey && effectiveKey !== 'configured' ? [effectiveKey] : []);
+      // Query voice list securely through backend proxy without exposing raw xi-api-key header in client inspector
       const res = await fetch(getApiUrl('api/tts/voices'), {
         method: 'POST',
         headers: vHeaders,
-        body: JSON.stringify({ keysPool: keysToSend })
+        body: JSON.stringify({})
       });
 
       const data = await safeJsonResponse(res);
