@@ -58,10 +58,10 @@ async def run_verification():
         scripts = await page.evaluate("""() => {
             return Array.from(document.querySelectorAll('script[src], link[rel="stylesheet"]')).map(el => el.src || el.href);
         }""")
-        v287_count = sum(1 for s in scripts if 'v=28.7' in s)
-        assert v287_count >= 5, f"Expected cache-busting v=28.7 assets, got {v287_count}"
-        print(f"  [PASS] Assets loaded with cache-busting v=28.7 ({v287_count} tags confirmed)")
-        results.append(("Asset Cache Versioning (v28.7)", "PASS"))
+        v288_count = sum(1 for s in scripts if 'v=28.8' in s)
+        assert v288_count >= 5, f"Expected cache-busting v=28.8 assets, got {v288_count}"
+        print(f"  [PASS] Assets loaded with cache-busting v=28.8 ({v288_count} tags confirmed)")
+        results.append(("Asset Cache Versioning (v28.8)", "PASS"))
 
         # ─── 2. Password Manager Anti-Autofill Attributes ───
         print("\n[CHECK 2] Verifying Password Manager Anti-Autofill attributes...")
@@ -173,6 +173,7 @@ async def run_verification():
 
         # ─── 4. PDF Generation Layout & Overlap Audit ───
         print("\n[CHECK 4] Verifying PDF Generation, layout coordinates & zero overlap...")
+        await page.wait_for_function("() => typeof window.generateStudentBookletPDF === 'function'", timeout=10000)
         pdf_audit = await page.evaluate("""async () => {
             if (typeof window.generateStudentBookletPDF !== 'function') {
                 return { error: 'generateStudentBookletPDF not available' };

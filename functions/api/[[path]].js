@@ -3899,7 +3899,7 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     return json({ ok: true }, 200, { 'Cache-Control': 'no-store' });
   }
 
-  if (path === '/admin/ping' && method === 'GET') {
+  if ((path === '/admin/ping' || path === '/admin/verify') && (method === 'GET' || method === 'POST')) {
     const authCheck = await verifyAuth(request, env, db, 'manage:config', url);
     if (!authCheck.ok) {
       return json({

@@ -4,6 +4,21 @@
  * interactive exhibition tips, and smooth automated entry into the fair.
  */
 (function() {
+  // Suppress Chromium Windows WebGPU powerPreference diagnostic warning (crbug.com/369219127)
+  if (typeof navigator !== 'undefined' && navigator.gpu && typeof navigator.gpu.requestAdapter === 'function') {
+    try {
+      const _origGpuReq = navigator.gpu.requestAdapter.bind(navigator.gpu);
+      navigator.gpu.requestAdapter = function(options) {
+        if (options && typeof options === 'object' && 'powerPreference' in options) {
+          const clean = Object.assign({}, options);
+          delete clean.powerPreference;
+          return _origGpuReq(clean);
+        }
+        return _origGpuReq(options);
+      };
+    } catch (_) {}
+  }
+
   let isDismissed = false;
   let currentTipIndex = 0;
   let userInteracted = false;

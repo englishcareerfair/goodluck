@@ -4,6 +4,21 @@
 (function (global) {
   'use strict';
 
+  // Suppress Chromium Windows WebGPU powerPreference diagnostic warning (crbug.com/369219127)
+  if (typeof navigator !== 'undefined' && navigator.gpu && typeof navigator.gpu.requestAdapter === 'function') {
+    try {
+      const _origGpuReq = navigator.gpu.requestAdapter.bind(navigator.gpu);
+      navigator.gpu.requestAdapter = function(options) {
+        if (options && typeof options === 'object' && 'powerPreference' in options) {
+          const clean = Object.assign({}, options);
+          delete clean.powerPreference;
+          return _origGpuReq(clean);
+        }
+        return _origGpuReq(options);
+      };
+    } catch (_) {}
+  }
+
   const TRANSFORMERS_CDN_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1/dist/transformers.min.js';
   const VOICEFORGE_LOCAL_URL = 'http://127.0.0.1:8765';
   const ALLOWED_STT_MODES = ['auto', 'whisper-offline', 'cloud-elevenlabs', 'browser-native'];

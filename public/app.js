@@ -117,11 +117,10 @@ async function verifyAdminSessionWithServer(token) {
   if (!token) return { ok: false, status: 401 };
   try {
     const isFile = (typeof window !== 'undefined' && window.location.protocol === 'file:');
-    const url = isFile ? `${PRIMARY_D1_ORIGIN}/api/admin/verify` : `/api/admin/verify`;
+    const url = isFile ? `${PRIMARY_D1_ORIGIN}/api/admin/ping` : `/api/admin/ping`;
     const res = await fetch(url, {
-      method: 'POST',
+      method: 'GET',
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + token
       },
       cache: 'no-store'
