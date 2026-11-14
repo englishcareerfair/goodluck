@@ -1847,16 +1847,7 @@ const GLOBAL_CACHE = {
     stream_active: '1'
   },
   scores: [],
-  feedback: [
-    { id: 1, name: 'Shrija Limaye', role: 'Teacher', class_info: 'Class 10', r_useful: 5, r_games: 5, r_speaking: 5, comment: 'Very nice work by the students. Excellent! Keep it up!', approved: 1, pinned: 1, ts: 1793297127751 },
-    { id: 2, name: 'Vidhi Mangal', role: 'Teacher', class_info: 'Class 10', r_useful: 5, r_games: 5, r_speaking: 5, comment: 'Excellent work done by the students.', approved: 1, pinned: 1, ts: 1793297127752 },
-    { id: 3, name: 'Aarush Anoor', role: 'Student', class_info: 'Class 10', r_useful: 5, r_games: 5, r_speaking: 5, comment: 'Very good', approved: 1, pinned: 0, ts: 1793297127753 },
-    { id: 4, name: 'Sadiya Khan', role: 'Teacher', class_info: 'Class 10', r_useful: 5, r_games: 5, r_speaking: 5, comment: 'Audio Recording news reporter part was the best part', approved: 1, pinned: 1, ts: 1793297127754 },
-    { id: 5, name: 'Jagannath Padhy', role: 'Parent', class_info: 'Class 10', r_useful: 5, r_games: 5, r_speaking: 5, comment: 'great job by the students. interesting and very well designed and explained', approved: 1, pinned: 0, ts: 1793297127755 },
-    { id: 6, name: 'Pinky', role: 'Parent', class_info: 'Class 10', r_useful: 5, r_games: 5, r_speaking: 5, comment: 'The explanation was excellent.  Overall  very good', approved: 1, pinned: 0, ts: 1793297127756 },
-    { id: 7, name: 'Susan', role: 'Teacher', class_info: 'Class 10', r_useful: 5, r_games: 5, r_speaking: 5, comment: 'Very Good!!! Impressive.', approved: 1, pinned: 0, ts: 1793297127757 },
-    { id: 8, name: 'Rupesh Sawant', role: 'Teacher', class_info: 'Class 10', r_useful: 5, r_games: 5, r_speaking: 5, comment: 'Excellent work done by the students. Very helpful for the people who want to improve their communication skills.', approved: 1, pinned: 0, ts: 1793297127758 }
-  ],
+  feedback: [],
   api_keys: [],
   telemetry: [],
   user_titles: {},
@@ -4182,6 +4173,12 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     try { body = await request.json(); } catch { return err('Invalid JSON'); }
     const id = body.id;
     const comment = body.comment ? String(body.comment).trim() : '';
+    let targetName = body.name ? String(body.name).trim() : '';
+
+    if (!targetName && Array.isArray(GLOBAL_CACHE.feedback)) {
+      const memMatch = GLOBAL_CACHE.feedback.find(f => (id && String(f.id).trim() === String(id).trim()) || (comment && (f.comment || '').trim() === comment));
+      if (memMatch && memMatch.name) targetName = String(memMatch.name).trim();
+    }
 
     // 1. Purge from in-memory cache (match by id OR trimmed comment)
     GLOBAL_CACHE.feedback = (GLOBAL_CACHE.feedback || []).filter(f => {
@@ -4201,6 +4198,20 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     // 2. Purge from persistent Cloudflare D1 database
     if (db) {
       try {
+        if (!targetName) {
+          try {
+            let row = null;
+            if (id && !isNaN(Number(id))) {
+              row = await db.prepare('SELECT name FROM feedback WHERE id=?').bind(Number(id)).first().catch(() => null);
+            } else if (id) {
+              row = await db.prepare('SELECT name FROM feedback WHERE id=?').bind(String(id)).first().catch(() => null);
+            }
+            if (!row && comment) {
+              row = await db.prepare('SELECT name FROM feedback WHERE TRIM(comment)=?').bind(comment).first().catch(() => null);
+            }
+            if (row && row.name) targetName = String(row.name).trim();
+          } catch {}
+        }
         let deleted = 0;
         if (id && !isNaN(Number(id))) {
           const r = await db.prepare('DELETE FROM feedback WHERE id=?').bind(Number(id)).run();
@@ -4226,6 +4237,44 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
             await kvSet(db, 'pinned_feedbacks', JSON.stringify(nextPinned));
           }
         } catch {}
+
+        // Check remaining feedback count
+        const remFb = await db.prepare('SELECT COUNT(*) as c FROM feedback').first().catch(() => null);
+        if (Number(remFb?.c || 0) === 0) {
+          try { await kvSet(db, 'feedback_cleared', '1'); } catch {}
+          MEM_FEEDBACK_CLEARED = true;
+        }
+
+        // Clean user title if this user has no other feedback and no scores
+        if (targetName) {
+          try {
+            const [fbUser, scoreUser] = await Promise.all([
+              db.prepare('SELECT COUNT(*) as c FROM feedback WHERE TRIM(LOWER(name))=TRIM(LOWER(?))').bind(targetName).first().catch(() => ({ c: 0 })),
+              db.prepare('SELECT COUNT(*) as c FROM scores WHERE TRIM(LOWER(name))=TRIM(LOWER(?))').bind(targetName).first().catch(() => ({ c: 0 }))
+            ]);
+            if (Number(fbUser?.c || 0) === 0 && Number(scoreUser?.c || 0) === 0) {
+              const rawT = await kvGet(db, 'user_titles', '{}');
+              const tMap = JSON.parse(rawT);
+              let changed = false;
+              for (const k of Object.keys(tMap)) {
+                if (k.trim().toLowerCase() === targetName.toLowerCase()) {
+                  delete tMap[k];
+                  changed = true;
+                }
+              }
+              if (changed) {
+                await kvSet(db, 'user_titles', JSON.stringify(tMap));
+                if (GLOBAL_CACHE.user_titles) {
+                  for (const k of Object.keys(GLOBAL_CACHE.user_titles)) {
+                    if (k.trim().toLowerCase() === targetName.toLowerCase()) {
+                      delete GLOBAL_CACHE.user_titles[k];
+                    }
+                  }
+                }
+              }
+            }
+          } catch {}
+        }
       } catch (e) {
         console.warn('D1 feedback delete error:', e);
       }
@@ -4330,10 +4379,12 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     MEM_FEEDBACK_CLEARED = true;
     GLOBAL_CACHE.feedback = [];
     GLOBAL_CACHE.pinned_feedbacks = [];
+    GLOBAL_CACHE.user_titles = {};
     if (db) {
       try { await db.prepare('DELETE FROM feedback').run(); } catch {}
       try { await kvSet(db, 'feedback_cleared', '1'); } catch {}
       try { await kvSet(db, 'pinned_feedbacks', '[]'); } catch {}
+      try { await kvSet(db, 'user_titles', '{}'); } catch {}
     }
     return json({ ok: true, message: 'All feedback reset' });
   }

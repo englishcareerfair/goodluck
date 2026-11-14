@@ -5284,15 +5284,66 @@ function renderColleges() {
   let activeRegion = 'Maharashtra';
   let activeAccred = 'All';
 
+  // Dynamic accreditation configurations mapped by active tab
+  const ACCRED_CONFIGS = {
+    Maharashtra: [
+      { value: 'All', label: 'All Accreditations' },
+      { value: 'NAAC A++', label: 'NAAC A++ (Highest Grade)' },
+      { value: 'NAAC A+', label: 'NAAC A+ / A' },
+      { value: 'NIRF Top', label: 'NIRF Top Ranked' },
+      { value: 'Autonomous', label: 'UGC Autonomous / Star College' },
+      { value: 'University', label: 'State & Deemed Universities' }
+    ],
+    PanIndia: [
+      { value: 'All', label: 'All Accreditations' },
+      { value: 'INI', label: 'Institutes of National Importance (INI)' },
+      { value: 'NIRF #1', label: 'NIRF Rank #1 & Top Ranked' },
+      { value: 'NAAC A++', label: 'NAAC A++ (Highest Grade)' },
+      { value: 'BCI', label: 'Bar Council of India (BCI) Approved' },
+      { value: 'Professional', label: 'NMC / DGCA / EQUIS / MHRD' }
+    ],
+    Abroad: [
+      { value: 'All', label: 'All Accreditations' },
+      { value: 'QS Top 25', label: 'QS World Top 25 Tier' },
+      { value: 'THE World', label: 'THE World Ranked / Global #1' },
+      { value: 'Ivy / AAU', label: 'Ivy League / US AAU Member' },
+      { value: 'Russell Group', label: 'Russell Group (UK Elite)' },
+      { value: 'U15 / Go8', label: 'Canada U15 / Australia Go8' }
+    ]
+  };
+
+  function updateAccredDropdown(region) {
+    if (!accredFilter) return;
+    const configs = ACCRED_CONFIGS[region] || ACCRED_CONFIGS.Maharashtra;
+    accredFilter.innerHTML = configs.map(opt => `<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`).join('');
+    accredFilter.value = 'All';
+    activeAccred = 'All';
+  }
+
   const update = () => {
     const list = COLLEGES_DATA[activeRegion] || [];
     const filtered = list.filter(col => {
       if (activeAccred === 'All') return true;
-      if (activeAccred === 'NAAC A++') return col.accreditation.naac.includes('A++');
-      if (activeAccred === 'NAAC A+') return col.accreditation.naac.includes('A+') || col.accreditation.naac.includes("'A'");
-      if (activeAccred === 'NIRF Top') return col.accreditation.nirf.includes('Rank') || col.accreditation.nirf.includes('Top');
-      if (activeAccred === 'Autonomous') return col.accreditation.status.includes('Autonomous') || col.accreditation.status.includes('INI');
-      if (activeAccred === 'Professional') return col.accreditation.status.includes('BCI') || col.accreditation.status.includes('NMC') || col.accreditation.status.includes('DGCA') || col.accreditation.status.includes('NBA');
+
+      if (activeRegion === 'Maharashtra') {
+        if (activeAccred === 'NAAC A++') return col.accreditation.naac.includes('A++');
+        if (activeAccred === 'NAAC A+') return col.accreditation.naac.includes('A+') || col.accreditation.naac.includes("'A'");
+        if (activeAccred === 'NIRF Top') return col.accreditation.nirf.includes('Rank') || col.accreditation.nirf.includes('Top');
+        if (activeAccred === 'Autonomous') return col.accreditation.status.includes('Autonomous') || col.accreditation.status.includes('Excellence') || col.accreditation.status.includes('Star');
+        if (activeAccred === 'University') return col.accreditation.status.includes('University') || col.name.includes('University');
+      } else if (activeRegion === 'PanIndia') {
+        if (activeAccred === 'INI') return col.accreditation.naac.includes('INI') || col.accreditation.status.includes('INI');
+        if (activeAccred === 'NIRF #1') return col.accreditation.nirf.includes('#1') || col.accreditation.nirf.includes('#3') || col.accreditation.nirf.includes('Top') || col.accreditation.nirf.includes('Rank');
+        if (activeAccred === 'NAAC A++') return col.accreditation.naac.includes('A++');
+        if (activeAccred === 'BCI') return col.accreditation.status.includes('BCI') || col.accreditation.status.includes('Bar Council');
+        if (activeAccred === 'Professional') return col.accreditation.status.includes('NMC') || col.accreditation.naac.includes('DGCA') || col.accreditation.naac.includes('EQUIS') || col.accreditation.status.includes('Govt of India');
+      } else if (activeRegion === 'Abroad') {
+        if (activeAccred === 'QS Top 25') return col.accreditation.naac.includes('QS') && (col.accreditation.naac.includes('#2') || col.accreditation.naac.includes('#3') || col.accreditation.naac.includes('#13') || col.accreditation.naac.includes('#21') || col.accreditation.naac.includes('Top 25'));
+        if (activeAccred === 'THE World') return col.accreditation.naac.includes('THE') || col.accreditation.nirf.includes('World #1');
+        if (activeAccred === 'Ivy / AAU') return col.accreditation.nirf.includes('Ivy League') || col.accreditation.status.includes('AAU');
+        if (activeAccred === 'Russell Group') return col.accreditation.status.includes('Russell Group');
+        if (activeAccred === 'U15 / Go8') return col.accreditation.status.includes('U15') || col.accreditation.nirf.includes('Go8') || col.accreditation.nirf.includes('Group of Eight');
+      }
       return true;
     });
 
@@ -5351,6 +5402,7 @@ function renderColleges() {
         regionFilters.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         activeRegion = btn.dataset.region;
+        updateAccredDropdown(activeRegion);
         container._updateColleges?.();
         if (window.AppRouter) {
           window.AppRouter.navigate('/colleges', { silent: true });
@@ -5370,6 +5422,7 @@ function renderColleges() {
     return;
   }
 
+  updateAccredDropdown(activeRegion);
   update();
 }
 
@@ -6615,6 +6668,15 @@ function initSpeechLab() {
           reactionEl.textContent = '🎙️ Sample Loaded! Review scores & click Next Exhibit';
         }
       }
+    });
+  }
+  const changeSentBtn = $('#btn-speech-lab-change-sentence');
+  if (changeSentBtn && !changeSentBtn.dataset.bound) {
+    changeSentBtn.dataset.bound = 'true';
+    changeSentBtn.addEventListener('click', function() {
+      stopAllVoice();
+      changeSpeechLabSentence(true);
+      showToast('New practice sentence loaded 🔄');
     });
   }
   if (refreshTipBtn && !refreshTipBtn.dataset.bound) {
@@ -13998,9 +14060,6 @@ async function loadLeaderboard(filterPack = 'All') {
       if (fLower === 'speech lab' || fLower === 'ai speech lab') {
         return p.includes('speech');
       }
-      if (fLower === 'arcade') {
-        return ['arcade', 'wordle', 'hangman', 'spelling bee', 'the scribe', "the bard's mirror", 'the ink cipher', 'flashcards', 'quests'].includes(p) || p.includes('arcade');
-      }
       return p === fLower;
     });
   }
@@ -14239,9 +14298,9 @@ async function loadFeedbackWall() {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) return parsed;
       }
-      return DEFAULT_COMMUNITY_FEEDBACKS;
+      return [];
     } catch {
-      return DEFAULT_COMMUNITY_FEEDBACKS;
+      return [];
     }
   }
 
@@ -14335,7 +14394,7 @@ async function loadFeedbackWall() {
              <button type="button" class="btn btn-sm btn-admin-feedback btn-assign-title" title="Assign Official Title (e.g. Vice-Principal)" style="background:rgba(0,240,255,0.1);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" data-name="${encodeURIComponent(f.name || '')}">
                🏷️ Title
              </button>
-             <button type="button" class="btn btn-sm btn-admin-feedback btn-admin-del btn-fb-del" title="Delete this reflection (Admin)" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" data-id="${escapeHtml(String(f.id || ''))}" data-comment="${encodeURIComponent(f.comment || '')}">
+             <button type="button" class="btn btn-sm btn-admin-feedback btn-admin-del btn-fb-del" title="Delete this reflection (Admin)" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" data-id="${escapeHtml(String(f.id || ''))}" data-name="${encodeURIComponent(f.name || '')}" data-comment="${encodeURIComponent(f.comment || '')}">
                <span style="font-weight:700;color:#ef4444;font-size:12px;">✕</span>
              </button>
            </div>`
@@ -14686,13 +14745,25 @@ window.adminChangeScoreName = async function(id, currentName) {
   }
 };
 
-window.adminDeleteFeedback = async function(id, comment) {
+window.adminDeleteFeedback = async function(id, comment, reviewerName) {
   if (!confirm('Are you sure you want to delete this visitor reflection?')) return;
   
+  let targetName = (reviewerName || '').trim();
+  if (!targetName) {
+    try {
+      const raw = localStorage.getItem('cf_user_feedbacks');
+      if (raw) {
+        const items = JSON.parse(raw);
+        const match = items.find(f => (id && String(f.id).trim() === String(id).trim()) || (comment && String(f.comment).trim() === String(comment).trim()));
+        if (match && match.name) targetName = match.name.trim();
+      }
+    } catch (e) {}
+  }
+
   try {
     await fetchApi('admin/del-feedback', {
       method: 'POST',
-      body: JSON.stringify({ id, comment })
+      body: JSON.stringify({ id, comment, name: targetName })
     });
   } catch (e) {
     console.error('Delete reflection error:', e);
@@ -14702,6 +14773,10 @@ window.adminDeleteFeedback = async function(id, comment) {
     const raw = localStorage.getItem('cf_user_feedbacks');
     if (raw) {
       let items = JSON.parse(raw);
+      if (!targetName) {
+        const match = items.find(f => (id && String(f.id).trim() === String(id).trim()) || (comment && String(f.comment).trim() === String(comment).trim()));
+        if (match && match.name) targetName = match.name.trim();
+      }
       items = items.filter(f => {
         if (id && String(f.id).trim() === String(id).trim()) return false;
         if (comment && String(f.comment).trim() === String(comment).trim()) return false;
@@ -14710,6 +14785,35 @@ window.adminDeleteFeedback = async function(id, comment) {
       localStorage.setItem('cf_user_feedbacks', JSON.stringify(items));
       if (items.length === 0) {
         localStorage.setItem('cf_feedback_reset', 'true');
+      }
+      if (targetName) {
+        const hasOtherReviews = items.some(f => (f.name || '').trim().toLowerCase() === targetName.toLowerCase());
+        let hasScores = false;
+        try {
+          const sRaw = localStorage.getItem('cf_user_scores');
+          if (sRaw) {
+            const scores = JSON.parse(sRaw);
+            hasScores = scores.some(s => (s.name || '').trim().toLowerCase() === targetName.toLowerCase());
+          }
+        } catch (e) {}
+        if (!hasOtherReviews && !hasScores) {
+          try {
+            const tRaw = localStorage.getItem('cf_user_titles');
+            if (tRaw) {
+              const titles = JSON.parse(tRaw);
+              let changed = false;
+              for (const k of Object.keys(titles)) {
+                if (k.trim().toLowerCase() === targetName.toLowerCase()) {
+                  delete titles[k];
+                  changed = true;
+                }
+              }
+              if (changed) {
+                localStorage.setItem('cf_user_titles', JSON.stringify(titles));
+              }
+            }
+          } catch (e) {}
+        }
       }
     }
   } catch (e) {}
@@ -14910,7 +15014,7 @@ async function renderAdminModeration() {
             </div>
             <div style="display:flex;align-items:center;gap:6px;">
               <button type="button" class="btn btn-sm btn-fb-rename" style="background:rgba(0,240,255,0.15);color:#38bdf8;border:1px solid rgba(0,240,255,0.3);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap;" data-id="${escapeHtml(String(f.id || ''))}" data-name="${encodeURIComponent(f.name || '')}" data-comment="${encodeURIComponent(f.comment || '')}">✏️ Rename</button>
-              <button type="button" class="btn btn-sm btn-fb-del" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap;" data-id="${escapeHtml(String(f.id || ''))}" data-comment="${encodeURIComponent(f.comment || '')}"><span style="font-weight:700;color:#ef4444;">✕</span> Delete</button>
+              <button type="button" class="btn btn-sm btn-fb-del" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap;" data-id="${escapeHtml(String(f.id || ''))}" data-name="${encodeURIComponent(f.name || '')}" data-comment="${encodeURIComponent(f.comment || '')}"><span style="font-weight:700;color:#ef4444;">✕</span> Delete</button>
             </div>
           </div>
         `;
@@ -16188,6 +16292,8 @@ function initAdminWorkspace() {
     try {
       localStorage.setItem('cf_feedback_reset', 'true');
       localStorage.setItem('cf_user_feedbacks', '[]');
+      localStorage.removeItem('cf_user_titles');
+      localStorage.setItem('cf_user_titles', '{}');
     } catch {}
     STATE.feedback = [];
     let apiOk = false;
@@ -19380,7 +19486,11 @@ if (!window._delegatedSiteActionsBound) {
 
     const btnFbDel = target.closest('.btn-fb-del');
     if (btnFbDel) {
-      window.adminDeleteFeedback?.(btnFbDel.dataset.id, decodeURIComponent(btnFbDel.dataset.comment || ''));
+      window.adminDeleteFeedback?.(
+        btnFbDel.dataset.id,
+        decodeURIComponent(btnFbDel.dataset.comment || ''),
+        decodeURIComponent(btnFbDel.dataset.name || '')
+      );
       return;
     }
 
