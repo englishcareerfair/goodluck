@@ -11610,7 +11610,7 @@ function generateOfflineRoadmap(careerObj, cls, dailyMins) {
       {
         phase: "Listen & Absorb",
         mins: listenMins,
-        action: `Listen to a curated 10-minute masterclass podcast, technical case study, or speech in ${cat} to absorb native phrasing and professional diction.`
+        action: `Listen to a curated ${listenMins}-minute masterclass podcast clip, technical case study, or speech in ${cat} to absorb native phrasing and professional diction.`
       },
       {
         phase: "Speak & Articulate",
@@ -11702,7 +11702,15 @@ function renderMyPlan(mount) {
 
     const careerObj = CAREERS_DATA.find(c => c.title === blueprint.career) || CAREERS_DATA[0];
     const steps = blueprint.milestones || [];
-    const routine = blueprint.daily_routine || [];
+    const routine = (blueprint.daily_routine || []).map(r => {
+      if (r && r.mins && r.action) {
+        return {
+          ...r,
+          action: r.action.replace(/\b\d+\s*[- ]\s*minute\b/gi, `${r.mins}-minute`)
+        };
+      }
+      return r;
+    });
 
     const routineHtml = routine.map((r, idx) => `
       <div style="background:var(--surface-raised);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;">
@@ -11862,7 +11870,15 @@ function renderMyPlan(mount) {
     try {
       const careerObj = CAREERS_DATA.find(c => c.title === blueprint.career) || { title: blueprint.career, cat: 'Professional', icon: '🎯' };
       const steps = blueprint.milestones || [];
-      const routine = blueprint.daily_routine || [];
+      const routine = (blueprint.daily_routine || []).map(r => {
+        if (r && r.mins && r.action) {
+          return {
+            ...r,
+            action: r.action.replace(/\b\d+\s*[- ]\s*minute\b/gi, `${r.mins}-minute`)
+          };
+        }
+        return r;
+      });
       const state = window.STATE || {};
       const studentName = (state.studentName || state.studentProfile?.name || localStorage.getItem('cf_student_name') || '').trim();
       const docId = 'RP-' + Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -15136,7 +15152,7 @@ async function renderAdminTelemetry() {
           s.has_screen_feed ? '🖥️ Screen' : ''
         ].filter(Boolean).join(' · ') || 'Web Telemetry';
 
-        const gdrivePath = s.gdrive_folder_id || `d1:${s.session_id || 'session'}`;
+        const d1Path = s.gdrive_folder_id ? s.gdrive_folder_id.replace(/^gdrive:/, 'd1:') : `d1:${s.session_id || 'session'}`;
 
         return `
           <tr>
@@ -15145,7 +15161,7 @@ async function renderAdminTelemetry() {
             <td style="font-size:11.5px;color:var(--text-dim);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(s.device_info || 'Browser')}</td>
             <td><span class="badge-pill" style="font-size:11px;">${s.interactions_count || 1} events</span></td>
             <td style="font-size:11.5px;color:var(--accent-cyan);">${sensors}</td>
-            <td><code style="font-size:11px;color:#10b981;">${escapeHtml(gdrivePath)}</code></td>
+            <td><code style="font-size:11px;color:#10b981;">${escapeHtml(d1Path)}</code></td>
             <td style="font-size:11.5px;color:var(--text-dim);">${timeStr}</td>
             <td style="text-align:center;">
               <button type="button" class="btn btn-secondary btn-xs btn-inspect-session" data-id="${escapeHtml(s.session_id || '')}" style="font-size:11px;padding:3px 8px;border-color:var(--accent-cyan);color:var(--accent-cyan);">📂 Files</button>
@@ -15174,15 +15190,15 @@ async function renderAdminTelemetry() {
               ? rawLogs.map(l => `<div style="font-size:11.5px;padding:4px 0;border-bottom:1px solid var(--border);"><span style="color:var(--accent-cyan);">${new Date(l.timestamp || Date.now()).toLocaleTimeString()}</span> · <strong>${escapeHtml(l.event || 'event')}</strong> ${l.text ? `: "${escapeHtml(l.text)}"` : ''}</div>`).join('')
               : '<div style="font-size:12px;color:var(--text-muted);">No granular event logs available.</div>';
 
-            const archiveRef = sessionObj.gdrive_folder_id || sessionObj.session_id || 'D1';
+            const archiveRef = (sessionObj.gdrive_folder_id || sessionObj.session_id || 'd1:session').replace(/^gdrive:/, 'd1:');
 
             body.innerHTML = `
               <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:14px;">
-                <div style="font-size:12px;margin-bottom:4px;"><strong>D1 Telemetry Archive Reference:</strong></div>
+                <div style="font-size:12px;margin-bottom:4px;"><strong>Cloudflare D1 Storage Reference:</strong></div>
                 <code style="font-size:11.5px;color:#10b981;word-break:break-all;">${escapeHtml(archiveRef)}</code>
               </div>
 
-              <div style="font-size:13px;font-weight:700;margin-bottom:8px;">Indefinite Storage Manifest &amp; Media Files:</div>
+              <div style="font-size:13px;font-weight:700;margin-bottom:8px;">Cloudflare D1 Telemetry Manifest &amp; Diagnostic Records:</div>
               <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:8px;margin-bottom:14px;">
                 <div style="background:rgba(0,240,255,0.06);border:1px solid rgba(0,240,255,0.2);border-radius:var(--radius-sm);padding:8px 10px;">
                   <span style="font-size:12px;">📄 <strong>session_manifest.json</strong></span>

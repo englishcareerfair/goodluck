@@ -3258,10 +3258,10 @@ Requirements:
 2. Milestone 2 - Target Entrance Exams: Name the exact national and international competitive entrance exams required for ${career} (e.g. CLAT, NEET, JEE, DGCA CPL exams, UPSC, NID, CUET). Explain when and how to prepare.
 3. Milestone 3 - Top Accredited Colleges: Mention 3 premier Indian universities or global institutes with NAAC 'A+' / 'A++' grade and NIRF ranking reputation for this pathway. Include the specific degree (e.g. B.A. LL.B., B.Sc Aviation, MBBS, B.Tech).
 4. Milestone 4 - Customized ${dailyMinutes}-Minute Daily Routine: Break down their daily ${dailyMinutes} minutes into 4 time-boxed steps:
-   - Listen & Absorb (minutes allocated & what to listen to for this career)
-   - Speak & Articulate (minutes allocated & specific speaking drill)
-   - Write & Synthesize (minutes allocated & writing exercise)
-   - Reflect & Review (minutes allocated & tracking habit)
+   - Listen & Absorb (${Math.round(dailyMinutes * 0.25)} minutes allocated & what to listen to for this career). The action text MUST strictly match its allocated time (${Math.round(dailyMinutes * 0.25)} minutes) and NEVER state an incompatible duration (e.g. do not say 10-minute when allocated ${Math.round(dailyMinutes * 0.25)} minutes).
+   - Speak & Articulate (${Math.round(dailyMinutes * 0.35)} minutes allocated & specific speaking drill)
+   - Write & Synthesize (${Math.round(dailyMinutes * 0.25)} minutes allocated & writing exercise)
+   - Reflect & Review (${Math.max(2, dailyMinutes - Math.round(dailyMinutes * 0.25) - Math.round(dailyMinutes * 0.35) - Math.round(dailyMinutes * 0.25))} minutes allocated & tracking habit)
 
 Return a strict JSON object with this exact structure:
 {
@@ -3307,6 +3307,13 @@ Return ONLY valid JSON without markdown code fences or extra text.`;
             if (jsonMatch) {
               const blueprint = JSON.parse(jsonMatch[0]);
               if (blueprint && blueprint.milestones && blueprint.milestones.length >= 3) {
+                if (Array.isArray(blueprint.daily_routine)) {
+                  blueprint.daily_routine.forEach(r => {
+                    if (r && r.mins && r.action) {
+                      r.action = r.action.replace(/\b\d+\s*[- ]\s*minute\b/gi, `${r.mins}-minute`);
+                    }
+                  });
+                }
                 return json({ ok: true, blueprint, provider: aiRes.provider });
               }
             }
@@ -3321,6 +3328,7 @@ Return ONLY valid JSON without markdown code fences or extra text.`;
 Generate a comprehensive career roadmap blueprint for an ambitious school student.
 Student Profile: Target Career: ${career}, Class: ${classGrade}, Daily English Practice: ${dailyMinutes} mins/day.
 Return ONLY a valid JSON object with keys: "career", "class_grade", "daily_minutes", "headline", "why_english", "milestones" (array of 3 items with phase, title, description, action_items, skills), "daily_routine" (array of 4 items with phase, mins, action).
+Important: each daily_routine item action MUST specify its exact allocated mins (e.g. ${Math.round(dailyMinutes * 0.25)}-minute for Listen & Absorb) and never a conflicting duration like 10-minute.
 No code fences, no extra text.`;
           const cfRes = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
             prompt: cfPrompt,
@@ -3332,6 +3340,13 @@ No code fences, no extra text.`;
             if (jsonMatch) {
               const blueprint = JSON.parse(jsonMatch[0]);
               if (blueprint && blueprint.milestones && blueprint.milestones.length >= 3) {
+                if (Array.isArray(blueprint.daily_routine)) {
+                  blueprint.daily_routine.forEach(r => {
+                    if (r && r.mins && r.action) {
+                      r.action = r.action.replace(/\b\d+\s*[- ]\s*minute\b/gi, `${r.mins}-minute`);
+                    }
+                  });
+                }
                 return json({ ok: true, blueprint, provider: 'Cloudflare Workers AI (Llama 3.1)' });
               }
             }

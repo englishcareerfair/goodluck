@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="styles.css?v=29.3">
+  <link rel="stylesheet" href="styles.css?v=29.4">
   <script>
     // Suppress Chromium Windows WebGPU powerPreference diagnostic warning (crbug.com/369219127)
     if (typeof navigator !== 'undefined' && navigator.gpu && typeof navigator.gpu.requestAdapter === 'function') {
@@ -45,13 +45,13 @@
       });
     }
   </script>
-  <script src="dossier-pdf.js?v=29.3" defer></script>
-  <script src="dopamine-engine.js?v=29.3" defer></script>
-  <script src="game-completion-detector.js?v=29.3" defer></script>
-  <script src="offline-stt.js?v=29.3" defer></script>
-  <script src="guide-avatar.js?v=29.3" defer></script>
-  <script src="loader.js?v=29.3"></script>
-  <script src="app.js?v=29.3" defer></script>
+  <script src="dossier-pdf.js?v=29.4" defer></script>
+  <script src="dopamine-engine.js?v=29.4" defer></script>
+  <script src="game-completion-detector.js?v=29.4" defer></script>
+  <script src="offline-stt.js?v=29.4" defer></script>
+  <script src="guide-avatar.js?v=29.4" defer></script>
+  <script src="loader.js?v=29.4"></script>
+  <script src="app.js?v=29.4" defer></script>
   <!-- Critical Inlined CSS for Instant Loading Screen (Prevents FOUC on First Open) -->
   <style id="loader-critical-css">
     .site-loader {
@@ -2036,7 +2036,7 @@
       <!-- Statutory Interaction Archive Legal Notice (Terms of Service & Privacy Policy) -->
       <div class="footer-statutory-notice" style="margin-top:16px;padding:12px 16px;background:rgba(0,0,0,0.25);border-radius:var(--radius-sm);border:1px solid var(--border);font-size:11.5px;color:var(--text-dim);line-height:1.5;text-align:left;">
         <strong style="color:var(--text-muted);display:block;margin-bottom:4px;">📜 Statutory Data &amp; Telemetry Retention Notice (TOS &amp; Privacy Policy):</strong>
-        In accordance with institutional exhibition policies, all attendee interactions—including spoken speech evaluation audio, camera presence telemetry, digital guide sessions, screen state transitions, and game score attempts—are securely archived indefinitely to the exhibition's Google Drive archive until administrative deletion. By exploring this platform, attendees consent to this indefinite telemetry capture. <a href="javascript:void(0)" id="link-open-tos" style="color:var(--accent-cyan);text-decoration:underline;">Read Full Terms of Service &amp; Privacy Policy</a>. <a href="javascript:void(0)" id="link-report-issue" style="color:#10b981;font-weight:700;margin-left:10px;text-decoration:underline;">🛠️ Report Error / Request Rectification</a>.
+        In accordance with institutional educational privacy standards, all live camera feeds, video compositions, and spoken speech recordings occur exclusively within your local browser sandbox and are never uploaded or stored on remote servers. Operational telemetry is strictly limited to anonymous interaction counts and diagnostics synchronized via the secure Cloudflare D1 database (<code>careerfair-db</code>) for exhibition monitoring and fair operations. By exploring this platform, attendees consent to this privacy-preserving operational telemetry. <a href="javascript:void(0)" id="link-open-tos" style="color:var(--accent-cyan);text-decoration:underline;">Read Full Terms of Service &amp; Privacy Policy</a>. <a href="javascript:void(0)" id="link-report-issue" style="color:#10b981;font-weight:700;margin-left:10px;text-decoration:underline;">🛠️ Report Error / Request Rectification</a>.
       </div>
     </div>
   </footer>
@@ -2050,7 +2050,7 @@
       <div style="font-size:12.5px;color:var(--text-muted);line-height:1.55;display:flex;flex-direction:column;gap:12px;">
         <p><strong>1. Student Audio, Camera &amp; Personal Data Protection:</strong> We adhere to strict educational data privacy principles. Live camera feeds, teleprompter video streams, and audio speech practice occur exclusively within your local browser sandbox. Video recordings created in the News Anchor Studio are composited entirely client-side and saved directly to the user's personal device; no student video, webcam feed, or raw microphone stream is uploaded to remote storage or persistent public archives.</p>
         <p><strong>2. Academic Evaluation &amp; Speech Scoring:</strong> Spoken audio attempts submitted for Speech Lab phonetics analysis are processed transiently in memory to calculate articulation, fluency, clarity, and words-per-minute metrics. Only verified numerical scores, chosen career milestones, and optional student display names are recorded on the secure Cloudflare D1 exhibition leaderboard.</p>
-        <p><strong>3. Transparency, Local Control &amp; Data Retention:</strong> Student career blueprints and aptitude quiz profiles are stored within browser local storage (localStorage) for the student's convenience and can be cleared at any time by refreshing browser cache or clicking reset. Telemetry sessions are strictly limited to anonymous interaction counts and diagnostics for fair operations.</p>
+        <p><strong>3. Transparency, Local Control &amp; Data Retention:</strong> Student career blueprints and aptitude quiz profiles are stored within browser local storage (localStorage) for the student's convenience and can be cleared at any time by refreshing browser cache or clicking reset. Telemetry sessions are strictly limited to anonymous interaction counts and diagnostics synchronized with Cloudflare D1 for fair operations during the exhibition, and can be purged upon request.</p>
         <p><strong>4. Data Rectification &amp; Error Reporting:</strong> Any student, teacher, or parent who notices an inaccurate score, display discrepancy, or wishes to request record rectification or removal may submit an issue via the platform error reporting tool for immediate administrator action.</p>
         <p><strong>5. Zero Unauthorized Disclosure:</strong> All administrative endpoints and database queries are strictly authenticated through secure bearer authorization, ensuring full confidentiality and protection against unauthorized access.</p>
       </div>
@@ -2112,7 +2112,7 @@
   <div id="admin-session-details-modal" class="mystery-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="admin-session-modal-title">
     <div class="card" style="max-width:640px;width:100%;max-height:85vh;overflow-y:auto;background:var(--surface-card);border:2px solid #10b981;border-radius:var(--radius-lg);padding:24px;position:relative;text-align:left;">
       <button class="mystery-modal-close" id="btn-close-session-modal" aria-label="Close details">✕</button>
-      <h3 id="admin-session-modal-title" style="font-size:18px;font-weight:800;color:var(--text-main);margin-bottom:4px;">📂 Google Drive Interaction Archive</h3>
+      <h3 id="admin-session-modal-title" style="font-size:18px;font-weight:800;color:var(--text-main);margin-bottom:4px;">📂 Cloudflare D1 Telemetry &amp; Interaction Archive</h3>
       <div id="admin-session-modal-subtitle" style="font-size:12px;color:var(--text-dim);margin-bottom:14px;"></div>
       <div id="admin-session-modal-body"></div>
     </div>
