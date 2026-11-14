@@ -295,13 +295,29 @@ async function getEdgeSecurityCache(db, force = false) {
       IP_RATE_LIMITS.delete(ip);
     }
 
-    // One-time self-healing unban in D1: completely unban user's phone, laptop, and false-positive DDoS auto-bans
+    // One-time self-healing: selectively unban admin's own IPs only — never wipe all banned IPs
     if (!HAS_CLEANED_BANS_IN_D1) {
       HAS_CLEANED_BANS_IN_D1 = true;
       try {
-        await db.prepare("INSERT INTO kv (k, v) VALUES ('brute_force_bans', '{}') ON CONFLICT(k) DO UPDATE SET v='{}'").run();
-        await db.prepare("INSERT INTO kv (k, v) VALUES ('banned_ips', '[]') ON CONFLICT(k) DO UPDATE SET v='[]'").run();
-        await db.prepare("UPDATE live_visitors SET is_banned = 0, is_vpn = 0 WHERE is_banned = 1").run();
+        // Selectively remove only the admin's known IPs from the ban lists
+        const ADMIN_OWN_IPS = ['157.119.203.139', '192.159.101.125'];
+        const rawBanned = await db.prepare("SELECT v FROM kv WHERE k='banned_ips'").first('v');
+        const rawBf     = await db.prepare("SELECT v FROM kv WHERE k='brute_force_bans'").first('v');
+        let bannedArr = [];
+        let bfObj = {};
+        try { bannedArr = JSON.parse(rawBanned || '[]'); } catch {}
+        try { bfObj = JSON.parse(rawBf || '{}'); } catch {}
+        // Remove only admin IPs, leave all other bans intact
+        const cleanedBanned = bannedArr.filter(ip => !ADMIN_OWN_IPS.includes(String(ip || '').trim()));
+        for (const ip of ADMIN_OWN_IPS) { delete bfObj[ip]; }
+        await db.prepare("INSERT INTO kv (k,v) VALUES ('banned_ips',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v")
+          .bind(JSON.stringify(cleanedBanned)).run();
+        await db.prepare("INSERT INTO kv (k,v) VALUES ('brute_force_bans',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v")
+          .bind(JSON.stringify(bfObj)).run();
+        // Also clear live_visitors banned flag only for admin IPs
+        for (const ip of ADMIN_OWN_IPS) {
+          await db.prepare("UPDATE live_visitors SET is_banned=0, is_vpn=0 WHERE ip=?").bind(ip).run();
+        }
       } catch {}
     }
 

@@ -324,12 +324,25 @@ async function encryptAdminAuthPayload(purpose, payloadObj) {
     throw new Error('Encrypted browser cryptography requires a secure HTTPS context.');
   }
   const hsPath = `api/admin/auth/handshake?purpose=${encodeURIComponent(purpose)}&_t=${Date.now()}`;
-  let hsRes = await fetch(getApiUrl(hsPath), { cache: 'no-store' });
-  if (!hsRes.ok && window.location.protocol !== 'file:' && window.location.hostname !== 'careerwithenglish.pages.dev') {
-    hsRes = await fetch(`${PRIMARY_D1_ORIGIN}/${hsPath}`, { cache: 'no-store' });
+  let hsRes = null;
+  // Try primary origin, retry once on failure, then try fallback origin
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      hsRes = await fetch(getApiUrl(hsPath), { cache: 'no-store' });
+      if (hsRes.ok) break;
+    } catch {}
+    if (attempt === 0) await new Promise(r => setTimeout(r, 600));
   }
-  if (!hsRes.ok) {
-    throw new Error('Unable to initiate encrypted security handshake.');
+  if ((!hsRes || !hsRes.ok) && window.location.protocol !== 'file:' && window.location.hostname !== 'careerwithenglish.pages.dev') {
+    try { hsRes = await fetch(`${PRIMARY_D1_ORIGIN}/${hsPath}`, { cache: 'no-store' }); } catch {}
+  }
+  if (!hsRes || !hsRes.ok) {
+    // Status 403/429 means the IP is blocked — guide the user to unban themselves
+    const status = hsRes ? hsRes.status : 0;
+    if (status === 403 || status === 429) {
+      throw new Error('Your IP address is currently blocked. Please visit careerwithenglish.pages.dev/unban to restore access, then try again.');
+    }
+    throw new Error('Could not reach the server. Please check your internet connection and try again.');
   }
   const hsCt = (hsRes.headers.get('content-type') || '').toLowerCase();
   if (!hsCt.includes('application/json')) {
@@ -16936,6 +16949,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (submitBtn) submitBtn.disabled = false;
+
+    if (!sessionToken && loginErrorMsg) {
+      // Show inline error below the form instead of a floating toast for important errors
+      let inlineErr = document.getElementById('admin-login-inline-error');
+      if (!inlineErr) {
+        inlineErr = document.createElement('div');
+        inlineErr.id = 'admin-login-inline-error';
+        inlineErr.style.cssText = 'margin-top:12px;padding:10px 14px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.4);border-radius:8px;color:#fca5a5;font-size:13.5px;line-height:1.5;text-align:center;word-break:break-word;';
+        const form = document.getElementById('admin-login-form');
+        if (form) form.appendChild(inlineErr);
+      }
+      inlineErr.textContent = loginErrorMsg;
+    } else {
+      const inlineErr = document.getElementById('admin-login-inline-error');
+      if (inlineErr) inlineErr.textContent = '';
+    }
 
     if (sessionToken) {
       try { localStorage.removeItem('cf_bf_fails'); } catch {}
