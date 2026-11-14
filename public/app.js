@@ -1,7 +1,9 @@
-// Clear any legacy client-side deletion blocklist so authoritative D1 scores are fully displayed
+// Clear any legacy client-side deletion blocklist and business card data so authoritative data is displayed and forms start reset
 try {
   localStorage.removeItem('cf_deleted_scores');
   localStorage.removeItem('cf_scores_reset');
+  localStorage.removeItem('cf_bizcard_data');
+  sessionStorage.removeItem('cf_bizcard_data');
 } catch (_) {}
 
 /**
@@ -12999,15 +13001,19 @@ function checkIncomingCardVerification() {
 function renderFutureBusinessCard(mount) {
   const savedBizData = (() => {
     try {
-      return JSON.parse(localStorage.getItem('cf_bizcard_data') || '{}');
+      // ONLY read in-memory active session card if explicitly set during current session
+      if (window.STATE && window.STATE.bizcardData) {
+        return window.STATE.bizcardData;
+      }
+      return {};
     } catch (_) { return {}; }
   })();
 
-  const studentName = STATE.studentName || savedBizData.name || '';
-  // Determine initial selected career: either existing student targetCareer or Commercial Airline Pilot
-  const initialCareer = (STATE.targetCareer && CAREER_CREDENTIALS_MAP[STATE.targetCareer]) 
-    ? STATE.targetCareer 
-    : 'Commercial Airline Pilot';
+  const studentName = (STATE.studentName && STATE.studentName !== 'Explorer') ? STATE.studentName : (savedBizData.name || '');
+  // Determine initial selected career: only if specifically chosen in this session, otherwise empty
+  const initialCareer = (savedBizData.career && CAREER_CREDENTIALS_MAP[savedBizData.career]) 
+    ? savedBizData.career 
+    : (savedBizData.career || '');
 
   // Group careers by category
   const categories = {};
@@ -13024,7 +13030,7 @@ function renderFutureBusinessCard(mount) {
   for (const [catName, list] of Object.entries(categories)) {
     careerOptionsHtml += `<optgroup label="── ${escapeHtml(catName)} ──">`;
     list.forEach(c => {
-      const isSel = '';
+      const isSel = (savedBizData.career === c.title) ? 'selected' : '';
       careerOptionsHtml += `<option value="${escapeHtml(c.title)}" ${isSel}>${c.icon} ${escapeHtml(c.title)}</option>`;
     });
     careerOptionsHtml += `</optgroup>`;
@@ -13111,6 +13117,9 @@ function renderFutureBusinessCard(mount) {
           <button class="btn btn-primary" id="btn-render-biz" type="button">
             <span>✨</span> <span>Update Business Card</span>
           </button>
+          <button class="btn btn-secondary" id="btn-reset-biz" type="button" title="Reset all business card fields to blank">
+            <span>🔄</span> <span>Reset</span>
+          </button>
           <button class="btn btn-secondary" id="btn-download-biz" type="button" title="Download card image as PNG">
             <span>📥</span> <span>Download Card</span>
           </button>
@@ -13126,8 +13135,8 @@ function renderFutureBusinessCard(mount) {
           <div class="biz-card-top">
             <div style="flex:1;min-width:0;">
               <div class="biz-card-badge">CLASS OF 2040 · EXECUTIVE CREDENTIAL</div>
-              <h3 class="biz-card-name" id="bc-name">${escapeHtml(STATE.studentName || 'Explorer')}</h3>
-              <div class="biz-card-title" id="bc-title">${escapeHtml(initialCareer)}</div>
+              <h3 class="biz-card-name" id="bc-name">${escapeHtml(studentName || 'YOUR FULL NAME')}</h3>
+              <div class="biz-card-title" id="bc-title">${initialCareer ? escapeHtml(initialCareer) : '<span>✨</span> <span>Select Your Dream Career</span>'}</div>
               <div class="biz-card-contact" id="bc-email-row" style="display:none;">
                 <span class="biz-card-contact-icon">✉️</span>
                 <span id="bc-email"></span>
@@ -13142,7 +13151,7 @@ function renderFutureBusinessCard(mount) {
             </div>
           </div>
           <div class="biz-card-bottom">
-            <div class="biz-card-creds" id="bc-creds">Loading honors...</div>
+            <div class="biz-card-creds" id="bc-creds">${savedBizData.creds ? escapeHtml(savedBizData.creds) : '🎓 Select Your Honors / Degrees'}</div>
             <div class="biz-card-school">
               <span>🏛️</span>
               <span>Kanakia International School Mira Road</span>
@@ -13182,7 +13191,7 @@ function renderFutureBusinessCard(mount) {
     return digits;
   };
 
-  // Prepopulate email and phone from saved business card data
+  // Prepopulate email and phone from in-session saved business card data if available
   if (emailInput && !emailInput.value && savedBizData.email) {
     emailInput.value = savedBizData.email;
   }
@@ -13197,7 +13206,10 @@ function renderFutureBusinessCard(mount) {
     if (!credsSelect) return;
     if (!careerName || careerName === '') {
       credsSelect.innerHTML = '<option value="" disabled selected>-- Select Credentials / Honors (Mandatory) --</option>';
-      if (credsCustomInput) credsCustomInput.style.display = 'none';
+      if (credsCustomInput) {
+        credsCustomInput.style.display = 'none';
+        credsCustomInput.value = '';
+      }
       return;
     }
     const credsList = CAREER_CREDENTIALS_MAP[careerName] || [
@@ -13222,9 +13234,9 @@ function renderFutureBusinessCard(mount) {
 
   // Helper to update the card preview live
   const updateCard = (animatePulse = false) => {
-    const rawName = (nameInput?.value || studentName || '').trim();
-    const name = capitalizeName(rawName);
-    if (nameInput && rawName) nameInput.value = name;
+    const rawName = (nameInput?.value || '').trim();
+    const name = rawName ? capitalizeName(rawName) : '';
+    if (nameInput && rawName && nameInput.value !== name) nameInput.value = name;
 
     let career = careerSelect?.value || '';
     if (career === '__custom__') {
@@ -13285,10 +13297,7 @@ function renderFutureBusinessCard(mount) {
       ? window.location.origin
       : 'https://careerwithenglish.pages.dev';
     const pathname = window.location.pathname || '/';
-    // Compact parameters: v=1, s=Name, t=Title, e=Email, p=Phone
-    // Keeps QR code data under 100 chars -> Version 3 QR code with large, chunky modules
-    // Scans in <0.1 second on any smartphone camera!
-    let verifyUrl = `${baseOrigin}/?v=1&s=${encodeURIComponent(name)}&t=${encodeURIComponent(career)}`;
+    let verifyUrl = `${baseOrigin}/?v=1&s=${encodeURIComponent(name || 'Student')}&t=${encodeURIComponent(career || 'Class of 2040')}`;
     if (email) {
       verifyUrl += `&e=${encodeURIComponent(email)}`;
     }
@@ -13296,22 +13305,30 @@ function renderFutureBusinessCard(mount) {
       verifyUrl += `&p=${encodeURIComponent(phone)}`;
     }
 
-    // Persist active business card configuration in session & localStorage for instant PDF Booklet sync
+    // Persist active business card configuration ONLY in memory in window.STATE for PDF sync
+    // Explicitly purge from localStorage & sessionStorage so page reload completely resets the card
     try {
-      const bizData = {
-        name: name || '',
-        career: career || '',
-        creds: creds || '',
-        email: email || '',
-        phone: phone || '',
-        verifyUrl: verifyUrl || '',
-        ts: Date.now()
-      };
-      localStorage.setItem('cf_bizcard_data', JSON.stringify(bizData));
-      if (window.STATE) {
-        window.STATE.bizcardData = bizData;
-        if (career) window.STATE.targetCareer = career;
+      if (name || career || creds || email || phone) {
+        const bizData = {
+          name: name || '',
+          career: career || '',
+          creds: creds || '',
+          email: email || '',
+          phone: phone || '',
+          verifyUrl: verifyUrl || '',
+          ts: Date.now()
+        };
+        if (window.STATE) {
+          window.STATE.bizcardData = bizData;
+          if (career) window.STATE.targetCareer = career;
+        }
+      } else {
+        if (window.STATE) {
+          window.STATE.bizcardData = null;
+        }
       }
+      localStorage.removeItem('cf_bizcard_data');
+      sessionStorage.removeItem('cf_bizcard_data');
     } catch (_) {}
 
     // Render crisp scan-ready vector QR code
@@ -13336,7 +13353,7 @@ function renderFutureBusinessCard(mount) {
     return { name, career, creds, email, phone, verifyUrl };
   };
 
-  // 1. Initial population with saved career/credentials if previously saved
+  // 1. Initial population with saved career/credentials if previously saved in this active session
   if (savedBizData.career) {
     if (CAREER_CREDENTIALS_MAP[savedBizData.career]) {
       if (careerSelect) careerSelect.value = savedBizData.career;
@@ -13356,6 +13373,7 @@ function renderFutureBusinessCard(mount) {
       }
     }
   } else {
+    if (careerSelect) careerSelect.value = '';
     populateCredentialsForCareer('');
   }
   updateCard(false);
@@ -13544,6 +13562,53 @@ function renderFutureBusinessCard(mount) {
   $('#btn-render-biz')?.addEventListener('click', () => {
     if (!validateBizCardInputs()) return;
     updateCard(true);
+  });
+
+  // Wire Reset button click -> clears all fields, resets STATE, and updates card preview
+  $('#btn-reset-biz')?.addEventListener('click', () => {
+    if (nameInput) {
+      nameInput.value = '';
+      nameInput.style.borderColor = '';
+    }
+    if (careerSelect) {
+      careerSelect.value = '';
+      careerSelect.style.borderColor = '';
+    }
+    if (careerCustomContainer) careerCustomContainer.style.display = 'none';
+    if (careerCustomInput) {
+      careerCustomInput.value = '';
+      careerCustomInput.style.borderColor = '';
+    }
+    populateCredentialsForCareer('');
+    if (credsSelect) {
+      credsSelect.value = '';
+      credsSelect.style.borderColor = '';
+    }
+    if (credsCustomInput) {
+      credsCustomInput.value = '';
+      credsCustomInput.style.display = 'none';
+      credsCustomInput.style.borderColor = '';
+    }
+    if (emailInput) {
+      emailInput.value = '';
+      emailInput.style.borderColor = '';
+    }
+    if (phoneInput) {
+      phoneInput.value = '';
+      phoneInput.style.borderColor = '';
+    }
+
+    try {
+      localStorage.removeItem('cf_bizcard_data');
+      sessionStorage.removeItem('cf_bizcard_data');
+    } catch (_) {}
+    if (window.STATE) {
+      window.STATE.bizcardData = null;
+      window.STATE.targetCareer = '';
+    }
+
+    updateCard(false);
+    showToast('Business Card Reset! 🔄');
   });
 
   // 7. Wire Copy Share Link button
@@ -16602,29 +16667,37 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ─── 13. APP BOOTSTRAP INITIALIZER ───────────────────────────────────────────
+window.addEventListener('beforeunload', () => {
+  try {
+    localStorage.removeItem('cf_bizcard_data');
+    sessionStorage.removeItem('cf_bizcard_data');
+    localStorage.removeItem('cf_student_name');
+    localStorage.removeItem('ecf_student_name');
+    localStorage.removeItem('ecf_bizcard_name');
+  } catch (_) {}
+});
+
 document.addEventListener('DOMContentLoaded', async () => {
-  // Purge any previously cached student/user name so all name inputs are empty on page refresh
+  // Purge any previously cached student/user name & business card data so all forms start reset on page refresh
   try {
     localStorage.removeItem('cf_student_name');
     localStorage.removeItem('ecf_student_name');
     localStorage.removeItem('ecf_bizcard_name');
+    localStorage.removeItem('cf_bizcard_data');
     sessionStorage.removeItem('cf_student_name');
     sessionStorage.removeItem('ecf_student_name');
-    const existingBiz = localStorage.getItem('cf_bizcard_data');
-    if (existingBiz) {
-      try {
-        const parsed = JSON.parse(existingBiz);
-        if (parsed && parsed.name) {
-          delete parsed.name;
-          localStorage.setItem('cf_bizcard_data', JSON.stringify(parsed));
-        }
-      } catch (_) {}
-    }
+    sessionStorage.removeItem('cf_bizcard_data');
   } catch (_) {}
   STATE.studentName = '';
-  document.querySelectorAll('#speak-student-name, #speech-lab-student-name, #anchor-name-input, #fb-name, #issue-user-name, #tutorial-student-name-input, #biz-name').forEach(inp => {
+  STATE.bizcardData = null;
+  STATE.targetCareer = '';
+  document.querySelectorAll('#speak-student-name, #speech-lab-student-name, #anchor-name-input, #fb-name, #issue-user-name, #tutorial-student-name-input, #biz-name, #biz-career-custom, #biz-creds-custom, #biz-email, #biz-phone').forEach(inp => {
     if (inp) inp.value = '';
   });
+  const initBcCareerSel = document.getElementById('biz-career-select');
+  if (initBcCareerSel) initBcCareerSel.value = '';
+  const initBcCredsSel = document.getElementById('biz-creds-select');
+  if (initBcCredsSel) initBcCredsSel.value = '';
   // Service Worker Registration for PWA caching & offline resilience
   if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
     window.addEventListener('load', () => {

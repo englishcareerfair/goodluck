@@ -58,10 +58,10 @@ async def run_verification():
         scripts = await page.evaluate("""() => {
             return Array.from(document.querySelectorAll('script[src], link[rel="stylesheet"]')).map(el => el.src || el.href);
         }""")
-        v289_count = sum(1 for s in scripts if 'v=28.9' in s)
-        assert v289_count >= 5, f"Expected cache-busting v=28.9 assets, got {v289_count}"
-        print(f"  [PASS] Assets loaded with cache-busting v=28.9 ({v289_count} tags confirmed)")
-        results.append(("Asset Cache Versioning (v28.9)", "PASS"))
+        v290_count = sum(1 for s in scripts if 'v=29.0' in s)
+        assert v290_count >= 5, f"Expected cache-busting v=29.0 assets, got {v290_count}"
+        print(f"  [PASS] Assets loaded with cache-busting v=29.0 ({v290_count} tags confirmed)")
+        results.append(("Asset Cache Versioning (v29.0)", "PASS"))
 
         # ─── 2. Password Manager Anti-Autofill Attributes ───
         print("\n[CHECK 2] Verifying Password Manager Anti-Autofill attributes...")
@@ -168,8 +168,73 @@ async def run_verification():
         assert email_val_test['isInvalidBorder'], "Invalid email did not trigger red border error"
         assert email_val_test['isValidBorder'], "Valid email was not accepted"
         assert email_val_test['bcEmail'] == 'aditi@kanakia.edu', f"Card preview did not show email: {email_val_test['bcEmail']}"
-        print("  [PASS] Business Card phone formatted as 5-5 (XXXXX XXXXX), non-digits rejected, and email strictly validated!")
-        results.append(("Business Card Phone & Email Validation", "PASS"))
+
+        # Test Reset Form button clears all fields
+        reset_test = await page.evaluate("""() => {
+            const btnReset = document.getElementById('btn-reset-biz');
+            if (!btnReset) return { found: false };
+            btnReset.click();
+            return {
+                found: true,
+                name: document.getElementById('biz-name')?.value,
+                career: document.getElementById('biz-career-select')?.value,
+                creds: document.getElementById('biz-creds-select')?.value,
+                email: document.getElementById('biz-email')?.value,
+                phone: document.getElementById('biz-phone')?.value,
+                bcName: document.getElementById('bc-name')?.textContent?.trim(),
+                bcTitle: document.getElementById('bc-title')?.textContent?.trim()
+            };
+        }""")
+        assert reset_test['found'], "btn-reset-biz button not found"
+        assert reset_test['name'] == '', f"Expected empty name after reset, got '{reset_test['name']}'"
+        assert reset_test['career'] == '', f"Expected empty career after reset, got '{reset_test['career']}'"
+        assert reset_test['creds'] == '', f"Expected empty creds after reset, got '{reset_test['creds']}'"
+        assert reset_test['email'] == '', f"Expected empty email after reset, got '{reset_test['email']}'"
+        assert reset_test['phone'] == '', f"Expected empty phone after reset, got '{reset_test['phone']}'"
+        assert reset_test['bcName'] == 'YOUR FULL NAME', f"Expected bcName 'YOUR FULL NAME', got '{reset_test['bcName']}'"
+        assert 'Select Your Dream Career' in reset_test['bcTitle'], f"Expected default title prompt, got '{reset_test['bcTitle']}'"
+        print("  [PASS] Business Card Reset button successfully clears all inputs and restores default card preview!")
+
+        # Test reload resets business card even if user typed in fields prior to reload
+        await page.evaluate("""() => {
+            const nameInp = document.getElementById('biz-name');
+            const carSel = document.getElementById('biz-career-select');
+            if (nameInp) nameInp.value = 'Quantum Specialist';
+            if (carSel) carSel.value = 'Quantum Computing & Cryptography Architect';
+        }""")
+        await page.reload()
+        await page.evaluate("""() => {
+            const l = document.getElementById('site-loader');
+            if (l) l.remove();
+            document.body.classList.remove('loading-lock');
+        }""")
+        await page.wait_for_selector('.site-header', state="attached", timeout=10000)
+        reload_reset_test = await page.evaluate("""() => {
+            if (typeof switchTab === 'function') switchTab('roadmap');
+            if (typeof renderPlanTool === 'function') renderPlanTool('bizcard');
+            return {
+                name: document.getElementById('biz-name')?.value,
+                career: document.getElementById('biz-career-select')?.value,
+                creds: document.getElementById('biz-creds-select')?.value,
+                email: document.getElementById('biz-email')?.value,
+                phone: document.getElementById('biz-phone')?.value,
+                bcName: document.getElementById('bc-name')?.textContent?.trim(),
+                bcTitle: document.getElementById('bc-title')?.textContent?.trim(),
+                localData: localStorage.getItem('cf_bizcard_data')
+            };
+        }""")
+        assert reload_reset_test['name'] == '', f"Expected empty name after reload, got '{reload_reset_test['name']}'"
+        assert reload_reset_test['career'] == '', f"Expected unselected career after reload, got '{reload_reset_test['career']}'"
+        assert reload_reset_test['creds'] == '', f"Expected unselected creds after reload, got '{reload_reset_test['creds']}'"
+        assert reload_reset_test['email'] == '', f"Expected empty email after reload, got '{reload_reset_test['email']}'"
+        assert reload_reset_test['phone'] == '', f"Expected empty phone after reload, got '{reload_reset_test['phone']}'"
+        assert reload_reset_test['bcName'] == 'YOUR FULL NAME', f"Expected bcName 'YOUR FULL NAME' after reload, got '{reload_reset_test['bcName']}'"
+        assert 'Select Your Dream Career' in reload_reset_test['bcTitle'], f"Expected default title prompt after reload, got '{reload_reset_test['bcTitle']}'"
+        assert reload_reset_test['localData'] is None, f"Expected cf_bizcard_data to be purged, got '{reload_reset_test['localData']}'"
+        print("  [PASS] Business card form completely reset on page reload!")
+
+        print("  [PASS] Business Card phone formatted as 5-5 (XXXXX XXXXX), non-digits rejected, email validated, and clean reload reset verified!")
+        results.append(("Business Card Phone, Email & Reload Reset", "PASS"))
 
         # ─── 4. PDF Generation Layout & Overlap Audit ───
         print("\n[CHECK 4] Verifying PDF Generation, layout coordinates & zero overlap...")
