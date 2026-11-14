@@ -80,12 +80,58 @@ const KNOWN_VPN_ASNS = new Set([
   8560,   // IONOS
   398324, // Censys / Scanner Cloud
   204957, // BrightData / Hola Networks
-  62240   // Clouvider
+  62240,  // Clouvider
+  205016, // HERN Labs AB (datacenter/hosting)
+  174,    // Cogent Communications (transit/datacenter)
+  1299,   // Telia Company AB (transit)
+  3257,   // GTT Communications (transit/datacenter)
+  6939,   // Hurricane Electric (tunnel broker/datacenter)
+  13335,  // Cloudflare (WARP VPN / proxy)
+  32934,  // Facebook/Meta (not residential)
+  15169,  // Google (non-consumer)
+  2906,   // Netflix (non-residential)
+  20940,  // Akamai Technologies (CDN/datacenter)
+  22822,  // Limelight Networks
+  54113,  // Fastly
+  209242, // Cloudflare Spectrum / WARP
+  34665,  // Digital Network JSC (proxy egress)
+  35913,  // DediPath (hosting)
+  40676,  // Psychz Networks (datacenter)
+  25820,  // IT7 Networks (datacenter)
+  7489,   // Hostus (datacenter)
+  26347,  // DreamHost (hosting)
+  32613,  // Iweb Technologies (datacenter)
+  36236,  // NetActuate (hosting)
+  53755,  // Enzu Inc (datacenter)
+  200019, // Cherry Servers (datacenter)
+  210558, // Pacific Internet Exchange (datacenter)
+  138915, // Kaopu Cloud HK (datacenter)
+  135377, // UCLOUD (datacenter)
+  58466,  // CHINANET Yunnan (datacenter)
+  3214,   // xTom GmbH (datacenter)
+  34927,  // iFog GmbH (datacenter)
+  210320, // Greencloud (datacenter)
+  206264, // Amarutu Technology Ltd (datacenter)
+  43350,  // NForce Entertainment (datacenter/hosting)
+  35017,  // Swisscolocation (datacenter)
+  51852,  // Private Layer Inc (VPN)
+  57169,  // HZ Hosting (datacenter)
+  61317,  // Digital Realty / Interxion
+  199524, // G-Core Labs (datacenter)
+  47447,  // 23M GmbH (datacenter)
+  9009,   // M247 Europe SRL
+  198047, // Ihor Hosting (datacenter)
+  60781,  // LeaseWeb
+  147049  // HOSTKEY (datacenter)
 ]);
 
 const RESIDENTIAL_ISP_ALLOWLIST = /\b(jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
 
 const VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton\s*(vpn|ag)|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs)\b/i;
+
+// Catch-all datacenter/hosting org detector — matches orgs that look like hosting providers
+// even if they're not in the explicit lists above (e.g. "HERN Labs AB", "Psychz Networks", etc.)
+const DATACENTER_ORG_REGEX = /\b(labs?\s+ab|hosting|datacenter|data\s*center|colocation|colo\b|dedicated|server\s*farm|cloud\s*(host|services?|solutions?)|vps|bare\s*metal|managed\s*server|internet\s*exchange|ix\b|transit|peering|fiber\s*net|network\s*solutions?|cyber\s*hub|tech\s*solutions?|web\s*services?|server\s*solutions?|cloud\s*computing|it\s*infrastructure|noc\b|telecom\s*services?)\b/i;
 
 function isPrivateOrDevIp(ip) {
   const s = String(ip || '').trim().toLowerCase();
@@ -163,6 +209,31 @@ function detectEdgeVpn(req, clientIp) {
       return {
         isVpn: true,
         reason: `VPN / Anonymizer Network (${asOrg})`,
+        asn,
+        asOrg,
+        country,
+        city,
+        region
+      };
+    }
+    // Catch-all: any non-residential org that looks like a datacenter/hosting provider
+    if (asOrg && DATACENTER_ORG_REGEX.test(asOrg)) {
+      return {
+        isVpn: true,
+        reason: `Datacenter / Hosting Network (${asOrg})`,
+        asn,
+        asOrg,
+        country,
+        city,
+        region
+      };
+    }
+    // Final catch-all: non-residential, non-allowlisted ASN with asn > 0
+    // Treat any non-home-ISP connection from outside India as likely datacenter/VPN
+    if (asn > 0 && country !== 'IN' && asOrg && !RESIDENTIAL_ISP_ALLOWLIST.test(asOrg)) {
+      return {
+        isVpn: true,
+        reason: `Non-Residential Network (AS${asn} · ${asOrg} · ${country})`,
         asn,
         asOrg,
         country,
