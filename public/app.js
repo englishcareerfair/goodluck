@@ -13007,7 +13007,7 @@ function renderFutureBusinessCard(mount) {
     } catch (_) { return {}; }
   })();
 
-  const studentName = STATE.studentName || '';
+  const studentName = STATE.studentName || savedBizData.name || '';
   // Determine initial selected career: either existing student targetCareer or Commercial Airline Pilot
   const initialCareer = (STATE.targetCareer && CAREER_CREDENTIALS_MAP[STATE.targetCareer]) 
     ? STATE.targetCareer 
@@ -13094,7 +13094,7 @@ function renderFutureBusinessCard(mount) {
             <span style="font-size:11.5px;color:var(--text-dim);font-weight:normal;padding:1px 6px;background:rgba(255,255,255,0.06);border-radius:4px;">Optional</span>
           </label>
           <div id="biz-email-container" style="display:block;">
-            <input type="email" id="biz-email" placeholder="e.g. student@kanakia.edu or executive@global.org">
+            <input type="email" id="biz-email" placeholder="e.g. student@kanakia.edu or executive@global.org" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
             <div style="font-size:11px;color:var(--text-dim);margin-top:4px;">🔒 Optional: If provided, dynamically included on your 2040 card &amp; QR verification code.</div>
           </div>
         </div>
@@ -13106,8 +13106,8 @@ function renderFutureBusinessCard(mount) {
             <span style="font-size:11.5px;color:var(--text-dim);font-weight:normal;padding:1px 6px;background:rgba(255,255,255,0.06);border-radius:4px;">Optional</span>
           </label>
           <div id="biz-phone-container" style="display:block;">
-            <input type="tel" id="biz-phone" placeholder="e.g. +91 98765 43210 or executive@direct.line">
-            <div style="font-size:11px;color:var(--text-dim);margin-top:4px;">🔒 Optional: If provided, dynamically included on your 2040 card &amp; QR verification code.</div>
+            <input type="tel" id="biz-phone" placeholder="e.g. 98765 43210 (10 digits)" inputmode="numeric" pattern="[0-9]{5} [0-9]{5}" maxlength="11" autocomplete="off" spellcheck="false">
+            <div style="font-size:11px;color:var(--text-dim);margin-top:4px;">🔒 Optional: Strictly 10 digits formatted as XXXXX XXXXX on your card and QR badge.</div>
           </div>
         </div>
 
@@ -13426,6 +13426,17 @@ function renderFutureBusinessCard(mount) {
   });
 
   // Strict Phone Auto-formatting: only numbers allowed, max 10, formatted as 5-5 with a space (XXXXX XXXXX)
+  phoneInput?.addEventListener('keydown', (e) => {
+    // Allow control and navigation keys
+    if (['Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key) || e.ctrlKey || e.metaKey) {
+      return;
+    }
+    // Disallow non-numeric characters
+    if (!/^\d$/.test(e.key)) {
+      e.preventDefault();
+    }
+  });
+
   phoneInput?.addEventListener('input', () => {
     const rawVal = phoneInput.value;
     const formatted = formatPhoneNumber(rawVal);
@@ -17849,7 +17860,7 @@ window.initDynamicApiPools = function() {
       return `
         <div class="api-key-row" data-index="${i}">
           <span class="api-key-label-pill ${pillClass}">${label}</span>
-          <input type="text" name="gemini_api_token_${i}" id="gemini-key-${i}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" data-bitwarden-watching="false" style="-webkit-text-security:disc;text-security:disc;" class="api-key-input gemini-key-field" data-index="${i}" value="${escapeHtml(key)}" placeholder="${i === 0 ? 'AIzaSy... (Main Gemini Key)' : 'AIzaSy... (Backup Key ' + i + ')'}">
+          <input type="text" name="gemini_cfg_key_${i}" id="gemini-key-${i}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" data-dashlane-ignore="true" data-bitwarden-watching="false" data-google-password-manager="false" readonly onfocus="this.removeAttribute('readonly');" style="-webkit-text-security:disc;text-security:disc;" class="api-key-input gemini-key-field" data-index="${i}" value="${escapeHtml(key)}" placeholder="${i === 0 ? 'AIzaSy... (Main Gemini Key)' : 'AIzaSy... (Backup Key ' + i + ')'}">
           ${removeBtn}
         </div>
       `;
@@ -17991,7 +18002,7 @@ window.initDynamicApiPools = function() {
       return `
         <div class="api-key-row" data-index="${i}">
           <span class="api-key-label-pill ${pillClass}">${label}</span>
-          <input type="text" name="eleven_api_token_${i}" id="eleven-key-${i}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" data-bitwarden-watching="false" style="-webkit-text-security:disc;text-security:disc;" class="api-key-input eleven-key-field" data-index="${i}" value="${escapeHtml(key)}" placeholder="${i === 0 ? 'xi-... (Main ElevenLabs Key)' : 'xi-... (Backup Key ' + i + ')'}">
+          <input type="text" name="eleven_cfg_key_${i}" id="eleven-key-${i}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" data-dashlane-ignore="true" data-bitwarden-watching="false" data-google-password-manager="false" readonly onfocus="this.removeAttribute('readonly');" style="-webkit-text-security:disc;text-security:disc;" class="api-key-input eleven-key-field" data-index="${i}" value="${escapeHtml(key)}" placeholder="${i === 0 ? 'xi-... (Main ElevenLabs Key)' : 'xi-... (Backup Key ' + i + ')'}">
           ${removeBtn}
         </div>
       `;

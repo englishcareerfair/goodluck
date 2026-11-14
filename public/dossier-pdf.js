@@ -865,8 +865,8 @@
     ctx.restore();
 
     // 4. Pinned Career Blueprint & Top University Gateway
-    const pathY = 676;
-    const pathH = 432;
+    const pathY = 684;
+    const pathH = 420;
     drawCard(ctx, 80, pathY, metaW, pathH, 18, C);
 
     // Left Column: Career Blueprint, Degrees & Exams Required
@@ -1212,9 +1212,14 @@
     drawRoundRect(ctx, qrBoxX, qrBoxY, qrBoxW, qrBoxH, 14, true, false);
     ctx.restore();
 
-    // Verification URL
-    const targetOrigin = (window.location && window.location.origin && !window.location.origin.startsWith('file')) ? window.location.origin : 'https://careerwithenglish.pages.dev';
-    const verifyUrl = bcVerifyUrl || `${targetOrigin}/?verify=2040&id=${encodeURIComponent(docId)}&student=${encodeURIComponent(bcStudentName)}&title=${encodeURIComponent(bcCareerTitle)}&class=${encodeURIComponent(className)}`;
+    // Verification URL: Dynamically generated with current credentials (<100 chars -> instant camera scan)
+    const isLocalhost = (typeof window !== 'undefined' && (window.location?.hostname === 'localhost' || window.location?.hostname === '127.0.0.1'));
+    const targetOrigin = (typeof window !== 'undefined' && window.location?.origin && !isLocalhost && window.location.origin !== 'null' && !window.location.origin.startsWith('file'))
+      ? window.location.origin
+      : 'https://careerwithenglish.pages.dev';
+    let verifyUrl = `${targetOrigin}/?v=1&s=${encodeURIComponent(bcStudentName)}&t=${encodeURIComponent(bcCareerTitle)}`;
+    if (bcEmail) verifyUrl += `&e=${encodeURIComponent(bcEmail)}`;
+    if (bcPhone) verifyUrl += `&p=${encodeURIComponent(bcPhone)}`;
     const qrMatrix = getDynamicQrMatrix(verifyUrl);
 
     // Render Crisp High-Contrast QR Code inside white card
@@ -1266,7 +1271,8 @@
     }
 
     // Card Divider Line matching .biz-card-bottom in CSS
-    const divLineY = bcCardY + 196 + Math.min(60, contactOffY);
+    // Must always clear the 170x170 QR box (which ends at bcCardY + 202)
+    const divLineY = Math.max(bcCardY + 218, bcCardY + 196 + contactOffY);
     ctx.save();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
     ctx.lineWidth = 1;
@@ -1277,29 +1283,14 @@
     ctx.restore();
 
     // Bottom Credentials & School matching .biz-card-creds & .biz-card-school
+    const fittedBcHonors = fitTextToWidth(ctx, `🎓  ${bcHonors}`, bcCardW - 72, '600', 15, 11, '"JetBrains Mono", monospace');
     ctx.font = '600 15px "JetBrains Mono", monospace';
     ctx.fillStyle = '#cbd5e1';
-    ctx.fillText(`🎓  ${bcHonors}`, bcLeftX, divLineY + 48);
+    ctx.fillText(fittedBcHonors, bcLeftX, divLineY + 48);
 
     ctx.font = '600 14px "Plus Jakarta Sans", sans-serif';
     ctx.fillStyle = '#94a3b8';
     ctx.fillText('🏛️  Kanakia International School Mira Road', bcLeftX, divLineY + 84);
-
-    // 11. Statutory Single-Page Footer
-    ctx.strokeStyle = C.innerBorder;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(80, 2210);
-    ctx.lineTo(CW - 80, 2210);
-    ctx.stroke();
-
-    ctx.font = '600 12px "Space Grotesk", sans-serif';
-    ctx.fillStyle = C.textDim;
-    ctx.textAlign = 'left';
-    ctx.fillText('Official Student Career Intelligence Booklet · Career Fair 2026 · Kanakia International School', 80, 2236);
-    ctx.textAlign = 'right';
-    ctx.fillText('Page 1 of 1 · Executive Printable Career Booklet', CW - 80, 2236);
-    ctx.textAlign = 'left';
 
 
     // Add Single Master Page to PDF (Detachable Student Ambassador Business Card is at the very last with zero text below it)
