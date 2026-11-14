@@ -17075,6 +17075,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   signalSiteLoaded();
 
   // ─── BACKGROUND MULTI-SYSTEM GLOBAL SYNCHRONIZER & VISITOR TELEMETRY ───
+  let _lastUserInteractionMs = Date.now();
+  if (typeof window !== 'undefined') {
+    const markActive = () => { _lastUserInteractionMs = Date.now(); };
+    ['mousemove', 'keydown', 'touchstart', 'scroll', 'click'].forEach(evt => {
+      window.addEventListener(evt, markActive, { passive: true, capture: true });
+    });
+  }
+
   // Start visitor heartbeat (skipped/self-excluded when admin authenticated)
   setTimeout(() => {
     if (typeof window.sendVisitorHeartbeat === 'function') {
@@ -17084,6 +17092,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   setInterval(() => {
     if (document.hidden || STATE.isSiteBlocked) return;
+    if (Date.now() - _lastUserInteractionMs > 3 * 60 * 1000) return;
     if (typeof window.sendVisitorHeartbeat === 'function') {
       window.sendVisitorHeartbeat('interval');
     }
@@ -17811,9 +17820,21 @@ let _cachedAdminVisitorsPayload = null;
 let _adminVisitorsPollTimer = null;
 let _adminVisitorsRenderInFlight = false;
 
-function formatRelativeVisitorTime(ts) {
-  if (!ts) return '—';
+function formatRelativeVisitorTime(ts, isBanned = false) {
+  if (!ts || Number(ts) <= 0) return isBanned ? 'Banned' : '—';
   const diffSec = Math.max(0, Math.floor((Date.now() - Number(ts)) / 1000));
+  if (isBanned) {
+    if (diffSec < 60) return 'Banned';
+    const mins = Math.floor(diffSec / 60);
+    if (mins < 60) return `Banned ${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `Banned ${hrs}h ago`;
+    try {
+      return `Banned ${new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+    } catch {
+      return 'Banned';
+    }
+  }
   if (diffSec < 10) return 'Just now';
   if (diffSec < 60) return `${diffSec}s ago`;
   const mins = Math.floor(diffSec / 60);
@@ -17870,9 +17891,11 @@ function renderAdminVisitorsRows(payload) {
   tbody.innerHTML = filtered.map(v => {
     const safeIp = escapeHtml(v.ip || '');
     const locParts = [v.city, v.region, v.country].filter(Boolean).join(', ');
-    const safeLoc = escapeHtml(locParts || 'Direct / Local Network');
-    const safeIsp = escapeHtml(v.isp ? (v.asn ? `AS${v.asn} · ${v.isp}` : v.isp) : (v.asn ? `AS${v.asn}` : 'Unknown ISP'));
-    const safeDevice = escapeHtml(v.device || 'Browser');
+    const defaultLoc = v.is_banned ? (v.is_vpn ? 'VPN / Proxy Origin' : 'Firewall Blocked') : 'Direct / Local Network';
+    const defaultIsp = v.is_banned ? (v.is_vpn ? 'VPN Network' : 'Firewall Banned IP') : 'Unknown ISP';
+    const safeLoc = escapeHtml(locParts || defaultLoc);
+    const safeIsp = escapeHtml(v.isp ? (v.asn ? `AS${v.asn} · ${v.isp}` : v.isp) : (v.asn ? `AS${v.asn}` : defaultIsp));
+    const safeDevice = escapeHtml(v.device || (v.is_banned ? 'Blocked Client' : 'Browser'));
     const safeTab = escapeHtml(v.active_tab || v.current_path || 'overview');
     const safeReason = escapeHtml(v.vpn_reason || '');
     const hits = Number(v.hits || 1);
@@ -17902,7 +17925,7 @@ function renderAdminVisitorsRows(payload) {
           <div style="color:var(--text-muted);">${safeDevice}</div>
           <div style="font-size:10.5px;color:var(--text-dim);">Tab: <span style="font-family:var(--font-mono);">${safeTab}</span> · ${hits} hit${hits === 1 ? '' : 's'}</div>
         </td>
-        <td style="padding:8px 10px;color:var(--text-dim);white-space:nowrap;">${escapeHtml(formatRelativeVisitorTime(v.last_seen))}</td>
+        <td style="padding:8px 10px;color:var(--text-dim);white-space:nowrap;">${escapeHtml(formatRelativeVisitorTime(v.last_seen, v.is_banned))}</td>
         <td style="padding:8px 10px;">${statusHtml}</td>
         <td style="padding:8px 10px;text-align:center;white-space:nowrap;">
           <div style="display:inline-flex;align-items:center;gap:6px;justify-content:center;">${primaryBtn}${removeBtn}</div>

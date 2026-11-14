@@ -491,6 +491,20 @@ async function persistEdgeVpnBan(db, clientIp, vpnInfo, request, pathname) {
       .bind('brute_force_bans', JSON.stringify(bfBans))
       .run();
 
+    try {
+      let banTimestamps = {};
+      const btRow = await db.prepare("SELECT v FROM kv WHERE k = 'banned_ip_timestamps'").first();
+      if (btRow?.v) {
+        try { banTimestamps = JSON.parse(btRow.v); } catch {}
+      }
+      if (!banTimestamps[clientIp]) {
+        banTimestamps[clientIp] = now;
+        await db.prepare(`INSERT INTO kv (k, v) VALUES ('banned_ip_timestamps', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`)
+          .bind(JSON.stringify(banTimestamps))
+          .run();
+      }
+    } catch {}
+
     await db.prepare(
       `INSERT INTO live_visitors (ip, country, city, region, asn, isp, device, current_path, active_tab, hits, is_vpn, vpn_reason, is_banned, is_admin, first_seen, last_seen)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'blocked', 1, 1, ?, 1, 0, ?, ?)

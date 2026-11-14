@@ -331,6 +331,7 @@ async function revokeAdminSessionsForIp(db, ip) {
 async function blockIpAcrossSite(db, ip, vpnReason = '') {
   const cleanIp = String(ip || '').trim();
   if (!cleanIp) return { banned: [], adminBlocked: [] };
+  const now = Date.now();
   const [banned, adminBlocked] = await Promise.all([getBannedIps(db), getAdminBlockedIps(db)]);
   if (!banned.includes(cleanIp)) banned.push(cleanIp);
   if (!adminBlocked.includes(cleanIp)) adminBlocked.push(cleanIp);
@@ -339,6 +340,13 @@ async function blockIpAcrossSite(db, ip, vpnReason = '') {
   await removeFromVpnAllowlist(db, cleanIp);
   await removeIpFromAdminDevices(db, cleanIp);
   await revokeAdminSessionsForIp(db, cleanIp);
+
+  if (!GLOBAL_CACHE.banned_ip_timestamps || typeof GLOBAL_CACHE.banned_ip_timestamps !== 'object') {
+    GLOBAL_CACHE.banned_ip_timestamps = {};
+  }
+  if (!GLOBAL_CACHE.banned_ip_timestamps[cleanIp]) {
+    GLOBAL_CACHE.banned_ip_timestamps[cleanIp] = now;
+  }
 
   if (!GLOBAL_CACHE.live_visitors || typeof GLOBAL_CACHE.live_visitors !== 'object') {
     GLOBAL_CACHE.live_visitors = {};
@@ -349,6 +357,25 @@ async function blockIpAcrossSite(db, ip, vpnReason = '') {
       GLOBAL_CACHE.live_visitors[cleanIp].is_vpn = 1;
       GLOBAL_CACHE.live_visitors[cleanIp].vpn_reason = vpnReason;
     }
+  } else {
+    GLOBAL_CACHE.live_visitors[cleanIp] = {
+      ip: cleanIp,
+      country: '',
+      city: vpnReason ? 'Protected Origin' : 'Blocked Client',
+      region: '',
+      asn: 0,
+      isp: vpnReason ? 'VPN / Proxy Network' : 'Firewall Banned IP',
+      device: 'Blocked Client',
+      current_path: '/',
+      active_tab: 'blocked',
+      hits: 1,
+      is_vpn: vpnReason ? 1 : 0,
+      vpn_reason: vpnReason || 'Blocked by Admin / Firewall',
+      is_banned: 1,
+      is_admin: 0,
+      first_seen: now,
+      last_seen: now
+    };
   }
 
   if (db) {
@@ -356,13 +383,41 @@ async function blockIpAcrossSite(db, ip, vpnReason = '') {
     await kvSet(db, 'banned_ips', JSON.stringify(banned));
     await kvSet(db, 'admin_blocked_ips', JSON.stringify(adminBlocked));
     try {
-      await db.prepare(
+      let banTimestamps = {};
+      const raw = await kvGet(db, 'banned_ip_timestamps', '{}');
+      if (raw) {
+        try { banTimestamps = JSON.parse(raw); } catch {}
+      }
+      if (!banTimestamps[cleanIp]) {
+        banTimestamps[cleanIp] = now;
+        await kvSet(db, 'banned_ip_timestamps', JSON.stringify(banTimestamps));
+      }
+    } catch {}
+
+    try {
+      const updateRes = await db.prepare(
         `UPDATE live_visitors
          SET is_banned = 1,
              is_vpn = CASE WHEN ? != '' THEN 1 ELSE is_vpn END,
              vpn_reason = CASE WHEN ? != '' THEN ? ELSE vpn_reason END
          WHERE ip = ?`
       ).bind(vpnReason, vpnReason, vpnReason, cleanIp).run();
+      const rowsChanged = Number(updateRes?.meta?.changes || 0);
+      if (rowsChanged === 0) {
+        await db.prepare(
+          `INSERT INTO live_visitors (ip, country, city, region, asn, isp, device, current_path, active_tab, hits, is_vpn, vpn_reason, is_banned, is_admin, first_seen, last_seen)
+           VALUES (?, '', ?, '', 0, ?, 'Blocked Client', '/', 'blocked', 1, ?, ?, 1, 0, ?, ?)
+           ON CONFLICT(ip) DO UPDATE SET is_banned = 1`
+        ).bind(
+          cleanIp,
+          vpnReason ? 'Protected Origin' : 'Blocked Client',
+          vpnReason ? 'VPN / Proxy Network' : 'Firewall Banned IP',
+          vpnReason ? 1 : 0,
+          vpnReason || 'Blocked by Admin / Firewall',
+          now,
+          now
+        ).run();
+      }
     } catch {}
   }
   return { banned, adminBlocked };
@@ -919,7 +974,7 @@ function detectVpnOrProxy(req, clientIp, clientSignals = null) {
 
 async function recordLiveVisitor(req, db, opts = {}) {
   const clientIp = getClientIp(req);
-  if (!clientIp) return;
+  if (!clientIp || isPrivateOrDevIp(clientIp)) return;
   if (opts.clearDismissed) {
     await removeDismissedVisitorIp(db, clientIp);
   }
@@ -1043,6 +1098,19 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
     getDismissedVisitorIps(db)
   ]);
 
+  let banTimestamps = {};
+  if (db) {
+    try {
+      const raw = await kvGet(db, 'banned_ip_timestamps', '{}');
+      if (raw) {
+        try { banTimestamps = JSON.parse(raw); } catch {}
+      }
+    } catch {}
+  } else if (GLOBAL_CACHE.banned_ip_timestamps && typeof GLOBAL_CACHE.banned_ip_timestamps === 'object') {
+    banTimestamps = GLOBAL_CACHE.banned_ip_timestamps;
+  }
+  if (!banTimestamps || typeof banTimestamps !== 'object') banTimestamps = {};
+
   const blockedSet = new Set([...bannedIps, ...adminBlockedIps]);
   const dismissedSet = new Set(dismissedIps);
   const byIp = new Map();
@@ -1052,6 +1120,7 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
     if (!clean) return true;
     if (callerIp && clean === callerIp) return true;
     if (dismissedSet.has(clean)) return true;
+    if (isPrivateOrDevIp(clean)) return true;
     return false;
   };
 
@@ -1085,13 +1154,14 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
     if (shouldExclude(bIp) || byIp.has(bIp)) continue;
     const bf = bfBans[bIp] || null;
     const isVpnFlag = Boolean(bf?.vpn || /\b(vpn|tor|proxy|anonymiz|split-tunnel)/i.test(String(bf?.reason || '')));
+    const banTime = Number(bf?.banned_at || banTimestamps[bIp] || GLOBAL_CACHE.live_visitors?.[bIp]?.last_seen || 0);
     byIp.set(bIp, {
       ip: bIp,
       country: '',
-      city: '',
+      city: isVpnFlag ? 'Protected Origin' : 'Blocked Client',
       region: '',
       asn: 0,
-      isp: '',
+      isp: isVpnFlag ? 'VPN / Proxy Network' : 'Firewall Banned IP',
       device: bf?.device || 'Blocked Client',
       current_path: '/',
       active_tab: 'blocked',
@@ -1100,8 +1170,8 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
       vpn_reason: bf?.reason || 'Blocked by Admin / Firewall',
       is_banned: 1,
       is_admin: 0,
-      first_seen: bf?.banned_at || now,
-      last_seen: bf?.banned_at || now
+      first_seen: banTime > 0 ? banTime : 0,
+      last_seen: banTime > 0 ? banTime : 0
     });
   }
 
@@ -1113,8 +1183,9 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
     const isBanned = blockedSet.has(cleanIp) || Number(v.is_banned || 0) === 1;
     const vpnReason = String(v.vpn_reason || (isBanned ? bf?.reason : '') || '').trim();
     const isVpn = Number(v.is_vpn || 0) === 1 || Boolean(bf?.vpn) || /\b(vpn|tor|proxy|anonymiz|split-tunnel)/i.test(vpnReason);
-    const lastSeen = Number(v.last_seen || now);
-    const isOnline = !isBanned && (now - lastSeen) <= VISITOR_ONLINE_WINDOW_MS;
+    const rawLastSeen = Number(v.last_seen || 0);
+    const lastSeen = (rawLastSeen > 0 && !isNaN(rawLastSeen)) ? rawLastSeen : (Number(v.first_seen || 0) || 0);
+    const isOnline = !isBanned && lastSeen > 0 && (now - lastSeen) <= VISITOR_ONLINE_WINDOW_MS;
     visitors.push({
       ip: cleanIp,
       country: v.country || '',
@@ -1130,13 +1201,14 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
       vpn_reason: vpnReason,
       is_banned: isBanned,
       is_online: isOnline,
-      first_seen: Number(v.first_seen || lastSeen),
+      first_seen: Number(v.first_seen || lastSeen || 0),
       last_seen: lastSeen
     });
   }
 
   visitors.sort((a, b) => {
     if (a.is_online !== b.is_online) return a.is_online ? -1 : 1;
+    if (a.is_banned !== b.is_banned) return a.is_banned ? 1 : -1;
     return (b.last_seen || 0) - (a.last_seen || 0);
   });
 
