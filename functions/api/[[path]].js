@@ -1,3 +1,4 @@
+const ADMIN_OWN_IPS = ['103.216.69.72', '157.119.203.139', '192.159.101.125'];
 /**
  * Career Fair: Every Career Speaks English — Cloudflare Pages Functions
  * Unified Single-File Backend Router for all /api/* routes
@@ -664,6 +665,9 @@ async function checkRequestFlood(req, db, path, method) {
     }
   }
 
+  if (ADMIN_OWN_IPS.includes(clientIp)) {
+    return { banned: false };
+  }
   // Admin devices and allowlisted IPs are exempt from flood / DDoS bans
   try {
     const [adminDevices, allowlist] = await Promise.all([getAdminDevices(db), getVpnAllowlist(db)]);
@@ -1863,7 +1867,7 @@ const API_KNOWN_VPN_ASNS = new Set([
   62371, 199218, 208172, 206774, 208534, 202422
 ]);
 
-const API_RESIDENTIAL_ISP_ALLOWLIST = /\b(jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
+const API_RESIDENTIAL_ISP_ALLOWLIST = /\b(fast\s*4|fast\s*4\s*technologies|jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
 const API_VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs|realcloud|melbikomas|equinix|gcore|packethost|psychz|dedipath|ovpn|airvpn|torguard|hidemyass|astrill|ivacy|fastvpn|shinjiru|cinipac|blazing\s*seo|iproyal|stormproxies|smartproxy|webshare)\b/i;
 const API_DATACENTER_ORG_REGEX = /\b(labs?\s+ab|hosting|datacenter|data\s*center|colocation|colo\b|dedicated|server\s*farm|cloud\s*(host|services?|solutions?)|vps|bare\s*metal|managed\s*server|internet\s*exchange|ix\b|transit|peering|fiber\s*net|network\s*solutions?|cyber\s*hub|tech\s*solutions?|web\s*services?|server\s*solutions?|cloud\s*computing|it\s*infrastructure|noc\b|telecom\s*services?|ctrls|yotta|webwerks|netmagic|e2e\s*networks|rackbank|pi\s*datacenters)\b/i;
 
@@ -1999,7 +2003,7 @@ function detectVpnOrProxy(req, clientIp, clientSignals = null) {
   const threatScore = Number(cf.threatScore || cf.threat_score || (req && req.headers ? req.headers.get('cf-threat-score') : 0) || 0);
   const base = { isVpn: false, reason: '', asn, asOrg, country, city, region };
 
-  if (!clientIp || isPrivateOrDevIp(clientIp)) {
+  if (!clientIp || isPrivateOrDevIp(clientIp) || ADMIN_OWN_IPS.includes(clientIp)) {
     return base;
   }
 
@@ -2350,7 +2354,12 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
 
     const cP = cleanIp.split('.');
     const cSlash24 = cP.length === 4 ? `${cP[0]}.${cP[1]}.${cP[2]}` : '';
-    if (EXPLICIT_DDOS_BANNED_IPS.has(cleanIp)) {
+    if (ADMIN_OWN_IPS.includes(cleanIp)) {
+      isBanned = false;
+      isVpn = false;
+      vpnReason = '';
+      blockedSet.delete(cleanIp);
+    } else if (EXPLICIT_DDOS_BANNED_IPS.has(cleanIp)) {
       evalVpnReason = 'Explicit Multi-IP DDoS Attacker IP';
     } else if (GLOBAL_VPN_SERVER_IPS.has(cleanIp) || (cSlash24 && GLOBAL_VPN_SERVER_PREFIXES.has(cSlash24))) {
       evalVpnReason = 'Worldwide Commercial VPN Node Detected';
@@ -3363,7 +3372,7 @@ export async function onRequest(ctx) {
 
   // ── Site-Wide IP Ban, Instant VPN Shield & Anti-Brute-Force Enforcement ──
   const clientIp = getClientIp(request);
-  let requestIsAdminSession = false;
+  let requestIsAdminSession = clientIp ? ADMIN_OWN_IPS.includes(clientIp) : false;
   if (clientIp) {
     const ipP_req = clientIp.split('.');
     const slash24_req = ipP_req.length === 4 ? `${ipP_req[0]}.${ipP_req[1]}.${ipP_req[2]}` : '';

@@ -1,3 +1,4 @@
+const ADMIN_OWN_IPS = ['103.216.69.72', '157.119.203.139', '192.159.101.125'];
 /**
  * Cloudflare Pages Edge Middleware
  * High-Performance Anti-DDoS, Edge Rate Limiter & Zero-Usage Shield
@@ -1167,7 +1168,7 @@ const KNOWN_VPN_ASNS = new Set([
   202422  // Feral Hosting / Proton partner
 ]);
 
-const RESIDENTIAL_ISP_ALLOWLIST = /\b(jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
+const RESIDENTIAL_ISP_ALLOWLIST = /\b(fast\s*4|fast\s*4\s*technologies|jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
 
 const VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs|realcloud|melbikomas|equinix|gcore|packethost|psychz|dedipath|ovpn|airvpn|torguard|hidemyass|astrill|ivacy|fastvpn|shinjiru|cinipac|blazing\s*seo|iproyal|stormproxies|smartproxy|webshare)\b/i;
 
@@ -1216,7 +1217,7 @@ function detectEdgeVpn(req, clientIp) {
   const region = String(cf.region || req.headers.get('cf-region') || '').trim();
   const threatScore = Number(cf.threatScore || cf.threat_score || req.headers.get('cf-threat-score') || 0);
 
-  if (!clientIp || isPrivateOrDevIp(clientIp)) {
+  if (!clientIp || isPrivateOrDevIp(clientIp) || ADMIN_OWN_IPS.includes(clientIp)) {
     return { isVpn: false, reason: '', asn, asOrg, country, city, region };
   }
 
@@ -1457,7 +1458,7 @@ async function getEdgeSecurityCache(db, force = false) {
       HAS_CLEANED_BANS_IN_D1 = true;
       try {
         // Selectively remove only the admin's known IPs from the ban lists
-        const ADMIN_OWN_IPS = ['157.119.203.139', '192.159.101.125'];
+        const ADMIN_OWN_IPS = ['103.216.69.72', '157.119.203.139', '192.159.101.125'];
         const rawBanned = await db.prepare("SELECT v FROM kv WHERE k='banned_ips'").first('v');
         const rawBf     = await db.prepare("SELECT v FROM kv WHERE k='brute_force_bans'").first('v');
         let bannedArr = [];
@@ -1642,13 +1643,17 @@ export async function onRequest(context) {
     const db = resolveMiddlewareD1(env);
     if (FORCE_RECHECK_COOLDOWN.size > 2000) FORCE_RECHECK_COOLDOWN.clear();
     let secState = await getEdgeSecurityCache(db);
-    const isAdminDevice = Boolean(secState.adminDevicesSet && secState.adminDevicesSet.has(clientIp));
-    const isAllowlisted = Boolean(secState.allowlistSet && secState.allowlistSet.has(clientIp)) || isAdminDevice;
+    const isAdminIp = ADMIN_OWN_IPS.includes(clientIp);
+    const isAdminDevice = isAdminIp || Boolean(secState.adminDevicesSet && secState.adminDevicesSet.has(clientIp));
+    const isAllowlisted = isAdminIp || Boolean(secState.allowlistSet && secState.allowlistSet.has(clientIp)) || isAdminDevice;
 
     if (isAllowlisted) {
       AUTO_BANNED_IPS.delete(clientIp);
       VPN_BANNED_IPS.delete(clientIp);
       IP_RATE_LIMITS.delete(clientIp);
+      const { net: kNet, sub: kSub } = getSubnetKeys(clientIp);
+      if (kNet) BANNED_SUBNETS.delete(kNet);
+      if (kSub) BANNED_SUBNETS.delete(kSub);
     }
 
     // Periodic cleanup of expired auto-bans
