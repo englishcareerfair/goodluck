@@ -1,4 +1,4 @@
-const ADMIN_OWN_IPS = ['103.216.69.72', '157.119.203.139', '192.159.101.125'];
+const ADMIN_OWN_IPS = [];
 /**
  * Career Fair: Every Career Speaks English — Cloudflare Pages Functions
  * Unified Single-File Backend Router for all /api/* routes

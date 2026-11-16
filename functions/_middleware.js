@@ -1,4 +1,4 @@
-const ADMIN_OWN_IPS = ['103.216.69.72', '157.119.203.139', '192.159.101.125'];
+const ADMIN_OWN_IPS = [];
 /**
  * Cloudflare Pages Edge Middleware
  * High-Performance Anti-DDoS, Edge Rate Limiter & Zero-Usage Shield
@@ -472,7 +472,7 @@ async function getEdgeSecurityCache(db, force = false) {
       HAS_CLEANED_BANS_IN_D1 = true;
       try {
         // Selectively remove only the admin's known IPs from the ban lists
-        const ADMIN_OWN_IPS = ['103.216.69.72', '157.119.203.139', '192.159.101.125'];
+        const ADMIN_OWN_IPS = [];
         const rawBanned = await db.prepare("SELECT v FROM kv WHERE k='banned_ips'").first('v');
         const rawBf     = await db.prepare("SELECT v FROM kv WHERE k='brute_force_bans'").first('v');
         let bannedArr = [];
