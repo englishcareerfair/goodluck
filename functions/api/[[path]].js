@@ -5077,6 +5077,164 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
         }
       }
 
+      let importedBannedIps = 0;
+      let importedAdminDevices = 0;
+      let importedVisitors = 0;
+
+      // Import Banned IPs into D1 and memory cache
+      const rawBannedIps = Array.isArray(payload.banned_ips) ? payload.banned_ips : [];
+      if (rawBannedIps.length > 0) {
+        for (const rawIp of rawBannedIps) {
+          const cleanIp = (typeof rawIp === 'string' ? rawIp : String(rawIp?.ip || '')).trim();
+          if (!cleanIp || cleanIp === 'Local / Unknown') continue;
+          try {
+            await blockIpAcrossSite(db, cleanIp);
+            importedBannedIps++;
+          } catch (bErr) {
+            console.error('Import banned IP error:', bErr);
+          }
+        }
+      }
+
+      // Import Admin Devices / Sessions into D1 and memory cache
+      const rawAdminDevices = Array.isArray(payload.admin_devices)
+        ? payload.admin_devices
+        : (Array.isArray(payload.admin_access) ? payload.admin_access : []);
+      if (rawAdminDevices.length > 0) {
+        try {
+          let devices = await getAdminDevices(db);
+          for (const d of rawAdminDevices) {
+            const cleanIp = String(d?.ip || d || '').trim();
+            if (!cleanIp || cleanIp === 'Local / Unknown') continue;
+            const idx = devices.findIndex(x => x && x.ip === cleanIp);
+            const lastSeen = normalizeTsMs(d.last_seen || d.first_seen || Date.now());
+            const firstSeen = normalizeTsMs(d.first_seen || lastSeen);
+            const devLabel = String(d.device || 'Admin Session').trim();
+            const hits = Number(d.hits || 1);
+            if (idx >= 0) {
+              if (lastSeen > (devices[idx].last_seen || 0)) {
+                devices[idx].last_seen = lastSeen;
+                if (devLabel) devices[idx].device = devLabel;
+              }
+              devices[idx].hits = Math.max(devices[idx].hits || 1, hits);
+            } else {
+              devices.push({
+                ip: cleanIp,
+                device: devLabel,
+                first_seen: firstSeen,
+                last_seen: lastSeen,
+                hits
+              });
+              importedAdminDevices++;
+            }
+          }
+          devices.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
+          if (devices.length > 100) devices = devices.slice(0, 100);
+          GLOBAL_CACHE.admin_devices = devices;
+          if (db) {
+            try { await kvSet(db, 'admin_devices', JSON.stringify(devices)); } catch {}
+          }
+        } catch (adErr) {
+          console.error('Import admin devices error:', adErr);
+        }
+      }
+
+      // Import Visitor Records into live_visitors D1 table and memory cache
+      const rawVisitors = Array.isArray(payload.visitors) ? payload.visitors : [];
+      if (rawVisitors.length > 0) {
+        if (!GLOBAL_CACHE.live_visitors || typeof GLOBAL_CACHE.live_visitors !== 'object') {
+          GLOBAL_CACHE.live_visitors = {};
+        }
+        for (const v of rawVisitors) {
+          const cleanIp = String(v?.ip || '').trim();
+          if (!cleanIp) continue;
+          const firstSeen = normalizeTsMs(v.first_seen || v.last_seen || Date.now());
+          const lastSeen = normalizeTsMs(v.last_seen || firstSeen);
+          const isBanned = Number(v.is_banned || 0) === 1 ? 1 : 0;
+          const isAdmin = Number(v.is_admin || 0) === 1 ? 1 : 0;
+          const isVpn = Number(v.is_vpn || 0) === 1 ? 1 : 0;
+          const hits = Number(v.hits || 1);
+          const country = String(v.country || '').trim();
+          const city = String(v.city || '').trim();
+          const region = String(v.region || '').trim();
+          const asn = Number(v.asn || 0);
+          const isp = String(v.isp || '').trim();
+          const device = String(v.device || 'Visitor Session').trim();
+          const currentPath = String(v.current_path || '/').trim();
+          const activeTab = String(v.active_tab || 'overview').trim();
+          const vpnReason = String(v.vpn_reason || '').trim();
+
+          const memRow = {
+            ip: cleanIp,
+            country,
+            city,
+            region,
+            asn,
+            isp,
+            device,
+            current_path: currentPath,
+            active_tab: activeTab,
+            hits,
+            is_vpn: isVpn,
+            vpn_reason: vpnReason,
+            is_banned: isBanned,
+            is_admin: isAdmin,
+            first_seen: firstSeen,
+            last_seen: lastSeen
+          };
+
+          if (!GLOBAL_CACHE.live_visitors[cleanIp]) {
+            GLOBAL_CACHE.live_visitors[cleanIp] = memRow;
+            importedVisitors++;
+          } else {
+            const cur = GLOBAL_CACHE.live_visitors[cleanIp];
+            cur.hits = Math.max(cur.hits || 1, hits);
+            cur.last_seen = Math.max(cur.last_seen || 0, lastSeen);
+            if (isBanned) cur.is_banned = 1;
+            if (isAdmin) cur.is_admin = 1;
+            if (isVpn) cur.is_vpn = 1;
+            if (device && !cur.device) cur.device = device;
+          }
+
+          if (db) {
+            try {
+              await db.prepare(`
+                INSERT INTO live_visitors (ip, country, city, region, asn, isp, device, current_path, active_tab, hits, is_vpn, vpn_reason, is_banned, is_admin, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(ip) DO UPDATE SET
+                  country = CASE WHEN excluded.country != '' THEN excluded.country ELSE live_visitors.country END,
+                  city = CASE WHEN excluded.city != '' THEN excluded.city ELSE live_visitors.city END,
+                  region = CASE WHEN excluded.region != '' THEN excluded.region ELSE live_visitors.region END,
+                  asn = CASE WHEN excluded.asn > 0 THEN excluded.asn ELSE live_visitors.asn END,
+                  isp = CASE WHEN excluded.isp != '' THEN excluded.isp ELSE live_visitors.isp END,
+                  device = CASE WHEN excluded.device != '' THEN excluded.device ELSE live_visitors.device END,
+                  hits = MAX(live_visitors.hits, excluded.hits),
+                  is_vpn = MAX(live_visitors.is_vpn, excluded.is_vpn),
+                  vpn_reason = CASE WHEN excluded.vpn_reason != '' THEN excluded.vpn_reason ELSE live_visitors.vpn_reason END,
+                  is_banned = MAX(live_visitors.is_banned, excluded.is_banned),
+                  is_admin = MAX(live_visitors.is_admin, excluded.is_admin),
+                  last_seen = MAX(live_visitors.last_seen, excluded.last_seen)
+              `).bind(
+                cleanIp, country, city, region, asn, isp, device,
+                currentPath, activeTab, hits, isVpn, vpnReason,
+                isBanned, isAdmin, firstSeen, lastSeen
+              ).run();
+            } catch (vDbErr) {
+              console.error('Visitor insert error in import:', vDbErr);
+            }
+          }
+        }
+      }
+
+      const msgParts = [
+        `Imported ${importedScores} scores (${skippedScores} duplicates skipped)`,
+        `${importedFeedback} reflections (${skippedFeedback} duplicates skipped)`,
+        `${importedTitles} titles`
+      ];
+      if (importedBannedIps > 0) msgParts.push(`${importedBannedIps} banned IPs`);
+      if (importedAdminDevices > 0) msgParts.push(`${importedAdminDevices} admin devices`);
+      if (importedVisitors > 0) msgParts.push(`${importedVisitors} visitors`);
+
       return json({
         success: true,
         importedScores,
@@ -5085,7 +5243,10 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
         skippedFeedback,
         importedTitles,
         importedBadges,
-        message: `Imported ${importedScores} scores (${skippedScores} duplicates skipped), ${importedFeedback} reflections (${skippedFeedback} duplicates skipped), ${importedTitles} titles.`
+        importedBannedIps,
+        importedAdminDevices,
+        importedVisitors,
+        message: msgParts.join(', ') + '.'
       });
     } catch (e) {
       console.error('Import error:', e);
@@ -6094,6 +6255,27 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       };
     });
 
+    let bannedIps = [];
+    let adminBlockedIps = [];
+    let adminDevices = [];
+    let visitorList = [];
+
+    try {
+      const [banned, blocked, devices, vPayload] = await Promise.all([
+        getBannedIps(db),
+        getAdminBlockedIps(db),
+        getAdminDevices(db),
+        getVisitorsForAdminDashboard(db, null)
+      ]);
+      bannedIps = Array.isArray(banned) ? banned : [];
+      adminBlockedIps = Array.isArray(blocked) ? blocked : [];
+      adminDevices = Array.isArray(devices) ? devices : [];
+      visitorList = Array.isArray(vPayload?.visitors) ? vPayload.visitors : [];
+    } catch (secErr) {
+      console.error('D1 Security records export error:', secErr);
+    }
+    const combinedBannedIps = Array.from(new Set([...bannedIps, ...adminBlockedIps, ...EXPLICIT_DDOS_BANNED_IPS])).filter(Boolean);
+
     if (format === 'csv') {
       const headers = [
         'Record_Type', 'ID', 'Name', 'Title', 'Badge', 'Role', 'Class_Info',
@@ -6155,6 +6337,38 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
           csvCell(`${s.pack} Level ${s.level} (Accuracy ${s.acc}%)`), Number(s.acc ?? 0), tsNum, csvCell(formatCsvIso(tsNum))
         ].join(','));
       }
+      // 5. Export Banned IPs
+      for (const bIp of combinedBannedIps) {
+        if (!bIp) continue;
+        csvLines.push([
+          'Banned_IP', csvCell('ban_' + encodeURIComponent(bIp)), csvCell(bIp), '', csvCell('Banned'),
+          csvCell('Banned'), '', '', '', '', '', '', '', '',
+          0, '', '', csvCell('Banned User / Threat Shield'), 1, nowMs, csvCell(nowIso)
+        ].join(','));
+      }
+      // 6. Export Admin Devices & Access
+      for (const d of adminDevices) {
+        if (!d || !d.ip) continue;
+        const tsNum = normalizeTsMs(d.last_seen || d.first_seen || nowMs);
+        csvLines.push([
+          'Admin_Access', csvCell('admin_' + encodeURIComponent(d.ip)), csvCell(d.ip), '', csvCell('Admin'),
+          csvCell('Admin'), '', '', '', '', '', '', '', '',
+          0, '', '', csvCell(d.device || 'Admin Session'), Number(d.hits || 1), tsNum, csvCell(formatCsvIso(tsNum))
+        ].join(','));
+      }
+      // 7. Export Visitors
+      for (const v of visitorList) {
+        if (!v || !v.ip) continue;
+        const tsNum = normalizeTsMs(v.last_seen || v.first_seen || nowMs);
+        const loc = [v.country, v.city, v.region].filter(Boolean).join(', ');
+        const roleLabel = v.is_admin ? 'Admin' : (v.is_banned ? 'Banned' : 'Visitor');
+        const badgeLabel = v.is_vpn ? 'VPN' : (v.is_banned ? 'Banned' : '');
+        csvLines.push([
+          'Visitor', csvCell('visitor_' + encodeURIComponent(v.ip)), csvCell(v.ip), '', csvCell(badgeLabel),
+          csvCell(roleLabel), csvCell(loc), '', '', '', '', '', '', '',
+          0, '', '', csvCell(v.device || v.vpn_reason || 'Visitor Session'), Number(v.hits || 1), tsNum, csvCell(formatCsvIso(tsNum))
+        ].join(','));
+      }
       const csv = csvLines.join('\n') + '\n';
       return new Response(csv, {
         headers: {
@@ -6175,6 +6389,9 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       total_issues: (typeof issueRows !== 'undefined' ? issueRows.length : 0),
       total_titles: Object.keys(titlesMap || {}).length,
       total_badges: (badgesStore.global?.length || 0) + Object.keys(badgesStore.by_user || {}).length,
+      total_banned_ips: combinedBannedIps.length,
+      total_admin_devices: adminDevices.length,
+      total_visitors: visitorList.length,
       user_titles: titlesMap,
       titles: titlesMap,
       user_badges: badgesStore,
@@ -6182,7 +6399,11 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
       pinned_feedbacks: pinnedList,
       feedback: enrichedFeedback,
       scores: enrichedScores,
-      issues: (typeof issueRows !== 'undefined' ? issueRows : [])
+      issues: (typeof issueRows !== 'undefined' ? issueRows : []),
+      banned_ips: combinedBannedIps,
+      admin_devices: adminDevices,
+      admin_access: adminDevices,
+      visitors: visitorList
     });
   }
 

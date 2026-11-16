@@ -18949,10 +18949,17 @@ window.initD1ExportButtons = function() {
       ...data,
       total_titles: Object.keys(mergedTitles).length,
       total_badges: (mergedBadges.global?.length || 0) + Object.keys(mergedBadges.by_user || {}).length,
+      total_banned_ips: Array.isArray(data.banned_ips) ? data.banned_ips.length : 0,
+      total_admin_devices: Array.isArray(data.admin_devices) ? data.admin_devices.length : 0,
+      total_visitors: Array.isArray(data.visitors) ? data.visitors.length : 0,
       user_titles: mergedTitles,
       titles: mergedTitles,
       user_badges: mergedBadges,
       badges: mergedBadges,
+      banned_ips: Array.isArray(data.banned_ips) ? data.banned_ips : [],
+      admin_devices: Array.isArray(data.admin_devices) ? data.admin_devices : [],
+      admin_access: Array.isArray(data.admin_devices) ? data.admin_devices : [],
+      visitors: Array.isArray(data.visitors) ? data.visitors : [],
       feedback: feedbackList,
       scores: scoresList
     };
@@ -18980,7 +18987,7 @@ window.initD1ExportButtons = function() {
         if (!payload) return;
         const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
         triggerBlobDownload(blob, `careerfair_global_data_${Date.now()}.json`);
-        showToast('Exported complete JSON archive (with titles & badges)');
+        showToast('Exported complete JSON archive (with titles, badges & IP records)');
       } catch (e) {
         console.error('JSON export error:', e);
         showToast('JSON export failed: ' + e.message);
@@ -19061,9 +19068,43 @@ window.initD1ExportButtons = function() {
             exportCsvCellClient(`${s.pack || 'Everyday'} Level ${s.level || 1} (Accuracy ${s.acc ?? 0}%)`), Number(s.acc ?? 0), tsNum, exportCsvCellClient(iso)
           ].join(','));
         }
+        // 5. Banned IPs
+        for (const bIp of (payload.banned_ips || [])) {
+          if (!bIp) continue;
+          rows.push([
+            'Banned_IP', exportCsvCellClient('ban_' + encodeURIComponent(bIp)), exportCsvCellClient(bIp), '', exportCsvCellClient('Banned'),
+            exportCsvCellClient('Banned'), '', '', '', '', '', '', '', '',
+            0, '', '', exportCsvCellClient('Banned User / Threat Shield'), 1, nowMs, exportCsvCellClient(nowIso)
+          ].join(','));
+        }
+        // 6. Admin Devices & Access
+        for (const d of (payload.admin_devices || [])) {
+          if (!d || !d.ip) continue;
+          const tsNum = Number(d.last_seen || d.first_seen || nowMs) || nowMs;
+          const iso = !isNaN(new Date(tsNum).getTime()) ? new Date(tsNum).toISOString() : nowIso;
+          rows.push([
+            'Admin_Access', exportCsvCellClient('admin_' + encodeURIComponent(d.ip)), exportCsvCellClient(d.ip), '', exportCsvCellClient('Admin'),
+            exportCsvCellClient('Admin'), '', '', '', '', '', '', '', '',
+            0, '', '', exportCsvCellClient(d.device || 'Admin Session'), Number(d.hits || 1), tsNum, exportCsvCellClient(iso)
+          ].join(','));
+        }
+        // 7. Visitors
+        for (const v of (payload.visitors || [])) {
+          if (!v || !v.ip) continue;
+          const tsNum = Number(v.last_seen || v.first_seen || nowMs) || nowMs;
+          const iso = !isNaN(new Date(tsNum).getTime()) ? new Date(tsNum).toISOString() : nowIso;
+          const loc = [v.country, v.city, v.region].filter(Boolean).join(', ');
+          const roleLabel = v.is_admin ? 'Admin' : (v.is_banned ? 'Banned' : 'Visitor');
+          const badgeLabel = v.is_vpn ? 'VPN' : (v.is_banned ? 'Banned' : '');
+          rows.push([
+            'Visitor', exportCsvCellClient('visitor_' + encodeURIComponent(v.ip)), exportCsvCellClient(v.ip), '', exportCsvCellClient(badgeLabel),
+            exportCsvCellClient(roleLabel), exportCsvCellClient(loc), '', '', '', '', '', '', '',
+            0, '', '', exportCsvCellClient(v.device || v.vpn_reason || 'Visitor Session'), Number(v.hits || 1), tsNum, exportCsvCellClient(iso)
+          ].join(','));
+        }
         const blob = new Blob([rows.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' });
         triggerBlobDownload(blob, `careerfair_global_data_${Date.now()}.csv`);
-        showToast('Exported complete CSV spreadsheet (with titles & badges)');
+        showToast('Exported complete CSV spreadsheet (with titles, badges & IP records)');
       } catch (e) {
         console.error('CSV export error:', e);
         showToast('CSV export failed: ' + e.message);
@@ -19082,6 +19123,9 @@ function parseExhibitionImportData(rawText, fileName = '') {
     titles: {},
     user_badges: { global: [], by_user: {} },
     pinned_feedbacks: [],
+    banned_ips: [],
+    admin_devices: [],
+    visitors: [],
     detectedFormat: 'unknown'
   };
   const text = (rawText || '').replace(/^\uFEFF/, '').trim();
@@ -19262,6 +19306,44 @@ function parseExhibitionImportData(rawText, fileName = '') {
             is_pinned: isPinned
           });
         });
+
+        // Parse Banned IPs from JSON
+        if (Array.isArray(parsed.banned_ips)) {
+          const rawB = parsed.banned_ips.map(x => typeof x === 'string' ? x.trim() : String(x?.ip || '').trim()).filter(Boolean);
+          result.banned_ips = [...new Set(rawB)];
+        }
+        // Parse Admin Devices / Access from JSON
+        if (Array.isArray(parsed.admin_devices || parsed.admin_access)) {
+          const list = parsed.admin_devices || parsed.admin_access;
+          result.admin_devices = list.map(d => ({
+            ip: String(d.ip || d || '').trim(),
+            device: d.device || 'Admin Session',
+            hits: Number(d.hits || 1),
+            first_seen: Number(d.first_seen || d.last_seen || Date.now()),
+            last_seen: Number(d.last_seen || Date.now())
+          })).filter(d => d.ip);
+        }
+        // Parse Visitors from JSON
+        if (Array.isArray(parsed.visitors)) {
+          result.visitors = parsed.visitors.map(v => ({
+            ip: String(v.ip || '').trim(),
+            country: String(v.country || '').trim(),
+            city: String(v.city || '').trim(),
+            region: String(v.region || '').trim(),
+            asn: Number(v.asn || 0),
+            isp: String(v.isp || '').trim(),
+            device: String(v.device || 'Visitor Session').trim(),
+            current_path: String(v.current_path || '/').trim(),
+            active_tab: String(v.active_tab || 'overview').trim(),
+            hits: Number(v.hits || 1),
+            is_vpn: Number(v.is_vpn || 0),
+            vpn_reason: String(v.vpn_reason || '').trim(),
+            is_banned: Number(v.is_banned || 0),
+            is_admin: Number(v.is_admin || 0),
+            first_seen: Number(v.first_seen || v.last_seen || Date.now()),
+            last_seen: Number(v.last_seen || Date.now())
+          })).filter(v => v.ip);
+        }
         result.detectedFormat = 'Connected JSON Archive';
       }
       return result;
@@ -19387,6 +19469,45 @@ function parseExhibitionImportData(rawText, fileName = '') {
           is_pinned: isPinned,
           ts: tsInfo.ts
         });
+      } else if (type.includes('banned_ip') || type === 'banned_ip' || type === 'banned') {
+        const cleanIp = String(name || id.replace(/^ban_/, '') || '').trim();
+        if (cleanIp && !result.banned_ips.includes(cleanIp)) {
+          result.banned_ips.push(cleanIp);
+        }
+      } else if (type.includes('admin_access') || type.includes('admin_device') || type === 'admin') {
+        const cleanIp = String(name || id.replace(/^admin_/, '') || '').trim();
+        if (cleanIp) {
+          result.admin_devices.push({
+            ip: cleanIp,
+            device: detail || 'Admin Session',
+            hits: metric || 1,
+            first_seen: tsInfo.ts,
+            last_seen: tsInfo.ts
+          });
+        }
+      } else if (type.includes('visitor')) {
+        const cleanIp = String(name || id.replace(/^visitor_/, '') || '').trim();
+        if (cleanIp) {
+          const locParts = (colVal(cols, 'class_info') || '').split(',').map(s => s.trim());
+          const country = locParts[0] || '';
+          const city = locParts[1] || '';
+          const isVpn = (colVal(cols, 'badge') || '').toLowerCase().includes('vpn') ? 1 : 0;
+          const roleVal = (colVal(cols, 'role') || '').toLowerCase();
+          const isAdmin = roleVal.includes('admin') ? 1 : 0;
+          const isBanned = roleVal.includes('banned') ? 1 : 0;
+          result.visitors.push({
+            ip: cleanIp,
+            country,
+            city,
+            device: detail || 'Visitor Session',
+            hits: metric || 1,
+            is_vpn: isVpn,
+            is_admin: isAdmin,
+            is_banned: isBanned,
+            first_seen: tsInfo.ts,
+            last_seen: tsInfo.ts
+          });
+        }
       }
     }
     return result;
@@ -19505,16 +19626,28 @@ function initAdminImportControls() {
       currentParsedData = parsed;
       const titleCount = Object.keys(parsed.titles || {}).length;
       const badgeCount = (parsed.user_badges?.global?.length || 0) + Object.keys(parsed.user_badges?.by_user || {}).length;
+      const bannedCount = (parsed.banned_ips || []).length;
+      const adminCount = (parsed.admin_devices || []).length;
+      const visitorCount = (parsed.visitors || []).length;
 
-      if (!parsed.scores.length && !parsed.feedback.length && !titleCount && !badgeCount) {
-        showToast('⚠️ No valid leaderboard scores, feedback, or badges found in file.');
+      if (!parsed.scores.length && !parsed.feedback.length && !titleCount && !badgeCount && !bannedCount && !adminCount && !visitorCount) {
+        showToast('⚠️ No valid leaderboard scores, feedback, badges, or IP records found in file.');
         if (previewBox) previewBox.style.display = 'none';
         return;
       }
 
       if (filenameEl) filenameEl.textContent = `📄 ${file.name} (${parsed.detectedFormat})`;
       if (summaryEl) {
-        summaryEl.textContent = `Ready to import: ${parsed.scores.length} Scores, ${parsed.feedback.length} Reviews${titleCount ? `, ${titleCount} Titles` : ''}${badgeCount ? `, ${badgeCount} Badges` : ''}`;
+        const summaryParts = [
+          parsed.scores.length ? `${parsed.scores.length} Scores` : '',
+          parsed.feedback.length ? `${parsed.feedback.length} Reviews` : '',
+          titleCount ? `${titleCount} Titles` : '',
+          badgeCount ? `${badgeCount} Badges` : '',
+          bannedCount ? `${bannedCount} Banned IPs` : '',
+          adminCount ? `${adminCount} Admin Devices` : '',
+          visitorCount ? `${visitorCount} Visitors` : ''
+        ].filter(Boolean);
+        summaryEl.textContent = `Ready to import: ${summaryParts.join(', ')}`;
       }
       if (previewBox) previewBox.style.display = 'block';
     };
@@ -19551,7 +19684,11 @@ function initAdminImportControls() {
           user_titles: titles,
           user_badges: userBadges,
           badges: userBadges,
-          pinned_feedbacks: pinnedFeedbacks
+          pinned_feedbacks: pinnedFeedbacks,
+          banned_ips: currentParsedData.banned_ips || [],
+          admin_devices: currentParsedData.admin_devices || [],
+          admin_access: currentParsedData.admin_devices || [],
+          visitors: currentParsedData.visitors || []
         })
       });
       if (!res.ok) {
@@ -19601,13 +19738,25 @@ function initAdminImportControls() {
       if (typeof loadLeaderboard === 'function') await loadLeaderboard();
       if (typeof loadFeedbackWall === 'function') await loadFeedbackWall();
       if (typeof renderAdminModeration === 'function') await renderAdminModeration();
+      if (typeof window.renderAdminVisitors === 'function') await window.renderAdminVisitors();
 
       const impS = Number(importResult.importedScores ?? scores.length);
       const skipS = Number(importResult.skippedScores ?? 0);
       const impF = Number(importResult.importedFeedback ?? feedback.length);
       const skipF = Number(importResult.skippedFeedback ?? 0);
       const impT = Number(importResult.importedTitles ?? Object.keys(titles).length);
-      showToast(`Imported ${impS} scores (${skipS} duplicates skipped), ${impF} reviews (${skipF} duplicates skipped)${impT ? `, ${impT} titles` : ''}`);
+      const impB = Number(importResult.importedBannedIps ?? (currentParsedData.banned_ips || []).length);
+      const impA = Number(importResult.importedAdminDevices ?? (currentParsedData.admin_devices || []).length);
+      const impV = Number(importResult.importedVisitors ?? (currentParsedData.visitors || []).length);
+      const msgParts = [
+        `${impS} scores (${skipS} duplicates skipped)`,
+        `${impF} reviews (${skipF} duplicates skipped)`
+      ];
+      if (impT) msgParts.push(`${impT} titles`);
+      if (impB) msgParts.push(`${impB} banned IPs`);
+      if (impA) msgParts.push(`${impA} admin devices`);
+      if (impV) msgParts.push(`${impV} visitors`);
+      showToast(`Import complete: ${msgParts.join(', ')}.`);
       if (previewBox) previewBox.style.display = 'none';
       fileInput.value = '';
       currentParsedData = null;
