@@ -428,9 +428,9 @@ async function blockIpAcrossSite(db, ip, vpnReason = '') {
 
 // DDoS & Rate Limit Config: Dual-layer (1-second burst & 60-second sustained)
 const BF_BURST_WINDOW_MS = 1000;           // 1-second burst inspection window
-const BF_BURST_MAX_REQS = 5;               // Maximum 5 requests in 1 second
+const BF_BURST_MAX_REQS = 30;              // Maximum 30 requests in 1 second
 const BF_FLOOD_WINDOW_MS = 60 * 1000;      // 60-second sliding inspection window
-const BF_FLOOD_MAX_REQS = 150;             // Maximum 150 requests in 60 seconds
+const BF_FLOOD_MAX_REQS = 300;             // Maximum 300 requests in 60 seconds
 
 // Anti-Brute-Force Config: Ban if excessive incorrect password attempts in 1 second
 const BF_AUTH_BURST_WINDOW_MS = 1000;      // 1-second sliding inspection window for failed auth
@@ -632,37 +632,8 @@ async function checkRequestFlood(req, db, path, method) {
   if (!clientIp) return { banned: false };
 
   const now = Date.now();
-  const ipP_fl = clientIp.split('.');
-  const slash24_fl = ipP_fl.length === 4 ? `${ipP_fl[0]}.${ipP_fl[1]}.${ipP_fl[2]}` : '';
-  if (EXPLICIT_DDOS_BANNED_IPS.has(clientIp) || GLOBAL_VPN_SERVER_IPS.has(clientIp) || (slash24_fl && GLOBAL_VPN_SERVER_PREFIXES.has(slash24_fl))) {
-    return { banned: true, ip: clientIp, reason: 'Worldwide VPN Node Blocked' };
-  }
-
-  const { net: netKey, sub: subnetKey } = getSubnetKeys(clientIp);
-  const clientFp = getClientFingerprint(req);
-  const BAN_DUR = 2 * 60 * 60 * 1000;
-
-  // Check in-memory banned subnets & fingerprints first
-  if (subnetKey && API_BANNED_SUBNETS.has(subnetKey)) {
-    if (now < API_BANNED_SUBNETS.get(subnetKey)) {
-      return { banned: true, ip: clientIp, reason: 'Subnet DDoS Attack Blocked' };
-    } else {
-      API_BANNED_SUBNETS.delete(subnetKey);
-    }
-  }
-  if (netKey && API_BANNED_SUBNETS.has(netKey)) {
-    if (now < API_BANNED_SUBNETS.get(netKey)) {
-      return { banned: true, ip: clientIp, reason: 'Network Range Multi-IP DDoS Blocked' };
-    } else {
-      API_BANNED_SUBNETS.delete(netKey);
-    }
-  }
-  if (clientFp && API_BANNED_FINGERPRINTS.has(clientFp)) {
-    if (now < API_BANNED_FINGERPRINTS.get(clientFp)) {
-      return { banned: true, ip: clientIp, reason: 'Multi-IP Rotating Proxy Attack Blocked' };
-    } else {
-      API_BANNED_FINGERPRINTS.delete(clientFp);
-    }
+  if (EXPLICIT_DDOS_BANNED_IPS.has(clientIp)) {
+    return { banned: true, ip: clientIp, reason: 'Explicit DDoS Attack IP Banned' };
   }
 
   if (ADMIN_OWN_IPS.includes(clientIp)) {
@@ -675,57 +646,6 @@ async function checkRequestFlood(req, db, path, method) {
       return { banned: false };
     }
   } catch {}
-
-  // Multi-IP Client Fingerprint Hopping Check (detects rotating proxies/botnet)
-  if (clientFp) {
-    let rotEntry = API_CLIENT_ROTATION_TRACKER.get(clientFp);
-    if (!rotEntry || now - rotEntry.firstSeen > 10000) {
-      rotEntry = { ips: new Set([clientIp]), firstSeen: now, reqCount: 1 };
-      API_CLIENT_ROTATION_TRACKER.set(clientFp, rotEntry);
-    } else {
-      rotEntry.ips.add(clientIp);
-      rotEntry.reqCount++;
-    }
-
-    if (rotEntry.ips.size >= 3) {
-      API_BANNED_FINGERPRINTS.set(clientFp, now + BAN_DUR);
-      if (subnetKey) API_BANNED_SUBNETS.set(subnetKey, now + BAN_DUR);
-      for (const hopIp of rotEntry.ips) {
-        if (db) try { await blockIpAcrossSite(db, hopIp); } catch {}
-      }
-      return { banned: true, ip: clientIp, reason: `Multi-IP Rotating Proxy Attack Blocked (${rotEntry.ips.size} IPs in 10s)` };
-    }
-  }
-
-  // Multi-IP Network Cluster & Subnet DDoS Tracking (IPv6 /48 & /64, IPv4 /16 & /24)
-  const trackApiCluster = async (clusterKey, isWide) => {
-    if (!clusterKey) return null;
-    let tracker = API_SUBNET_RATE_LIMITS.get(clusterKey);
-    if (!tracker || now > tracker.resetAt) {
-      tracker = { count: 1, resetAt: now + 1000, uniqueIps: new Set([clientIp]) };
-      API_SUBNET_RATE_LIMITS.set(clusterKey, tracker);
-    } else {
-      tracker.count++;
-      tracker.uniqueIps.add(clientIp);
-    }
-
-    const maxBurst = API_UNDER_DDOS_MODE ? (isWide ? 4 : 5) : (isWide ? 10 : 12);
-    if ((tracker.uniqueIps.size >= 2 && tracker.count >= 3) || tracker.count > maxBurst) {
-      API_BANNED_SUBNETS.set(clusterKey, now + BAN_DUR);
-      if (subnetKey) API_BANNED_SUBNETS.set(subnetKey, now + BAN_DUR);
-      if (netKey) API_BANNED_SUBNETS.set(netKey, now + BAN_DUR);
-      for (const sIp of tracker.uniqueIps) {
-        if (db) try { await blockIpAcrossSite(db, sIp); } catch {}
-      }
-      return { banned: true, ip: clientIp, reason: `Multi-IP Cluster DDoS Attack Blocked (${tracker.uniqueIps.size} IPs in network, ${tracker.count} req/s)` };
-    }
-    return null;
-  };
-
-  const netDrop = await trackApiCluster(netKey, true);
-  if (netDrop) return netDrop;
-  const subDrop = await trackApiCluster(subnetKey, false);
-  if (subDrop) return subDrop;
 
   const isSensitiveOrWrite = !isRead
     || path.startsWith('/admin')
@@ -743,8 +663,8 @@ async function checkRequestFlood(req, db, path, method) {
     }
   }
 
-  const effectiveBurstMax = isVerifiedAdminRead ? 20 : (API_UNDER_DDOS_MODE ? 4 : BF_BURST_MAX_REQS);
-  const effectiveFloodMax = isVerifiedAdminRead ? 120 : (API_UNDER_DDOS_MODE ? 60 : BF_FLOOD_MAX_REQS);
+  const effectiveBurstMax = isVerifiedAdminRead ? 50 : BF_BURST_MAX_REQS;
+  const effectiveFloodMax = isVerifiedAdminRead ? 300 : BF_FLOOD_MAX_REQS;
 
   const tracker = GLOBAL_CACHE.brute_force_tracker || (await getBruteForceTracker(db));
   const entry = tracker[clientIp] || { auth_fails: [], req_times: [] };
@@ -759,8 +679,6 @@ async function checkRequestFlood(req, db, path, method) {
     const reason = isVerifiedAdminRead
       ? `DDoS Burst Attack: Exceeded ${effectiveBurstMax} admin read requests in 1 second (${burstCount} requests/sec)`
       : `DDoS Burst Attack: Exceeded ${effectiveBurstMax} requests in 1 second (${burstCount} requests/sec)`;
-    if (subnetKey) API_BANNED_SUBNETS.set(subnetKey, now + BAN_DUR);
-    if (clientFp) API_BANNED_FINGERPRINTS.set(clientFp, now + BAN_DUR);
     if (db) try { await blockIpAcrossSite(db, clientIp); } catch {}
     if (db) try { await recordBruteForceBan(db, clientIp, reason, burstCount, req.headers.get('user-agent') || ''); } catch {}
     if (db) try { await saveBruteForceTracker(db, tracker); } catch {}
@@ -770,8 +688,6 @@ async function checkRequestFlood(req, db, path, method) {
   const count = entry.req_times.length;
   if (count > effectiveFloodMax) {
     const reason = `DDoS Protection: Exceeded ${effectiveFloodMax} requests in 60 seconds (${count} requests)`;
-    if (subnetKey) API_BANNED_SUBNETS.set(subnetKey, now + BAN_DUR);
-    if (clientFp) API_BANNED_FINGERPRINTS.set(clientFp, now + BAN_DUR);
     if (db) try { await blockIpAcrossSite(db, clientIp); } catch {}
     if (db) try { await recordBruteForceBan(db, clientIp, reason, count, req.headers.get('user-agent') || ''); } catch {}
     if (db) try { await saveBruteForceTracker(db, tracker); } catch {}
@@ -831,964 +747,13 @@ const VISITOR_WRITE_THROTTLE = new Map(); // ip -> { ts, tab, path, isVpn, isBan
 
 // ── Multi-IP Subnet & Device Rotation Protection (In-Memory) ──
 const API_SUBNET_RATE_LIMITS = new Map(); // subnetKey -> { count, resetAt, burstCount, burstResetAt, uniqueIps: Set }
-const API_BANNED_SUBNETS = new Map();     // subnetKey -> banExpiresAt (timestamp)
-const API_CLIENT_ROTATION_TRACKER = new Map(); // clientFp -> { ips: Set, firstSeen, reqCount }
-const API_BANNED_FINGERPRINTS = new Map();     // clientFp -> banExpiresAt (timestamp)
+
 
 let API_GLOBAL_DYNAMIC_COUNT = 0;
 let API_GLOBAL_DYNAMIC_RESET_AT = 0;
 let API_GLOBAL_UNIQUE_IPS = new Set();
 let API_UNDER_DDOS_MODE = false;
 let API_UNDER_DDOS_UNTIL = 0;
-
-const GLOBAL_VPN_SERVER_PREFIXES = new Set([
-  '103.106.58',
-  '103.108.229',
-  '103.108.231',
-  '103.120.66',
-  '103.125.235',
-  '103.14.26',
-  '103.214.20',
-  '103.216.220',
-  '103.216.221',
-  '103.219.169',
-  '103.75.11',
-  '103.88.234',
-  '104.254.95',
-  '109.111.197',
-  '109.204.35',
-  '109.236.81',
-  '116.90.74',
-  '130.195.216',
-  '130.195.217',
-  '130.195.223',
-  '130.195.240',
-  '130.195.241',
-  '130.195.242',
-  '130.195.243',
-  '130.195.245',
-  '130.195.250',
-  '134.82.69',
-  '134.82.74',
-  '134.82.75',
-  '135.136.15',
-  '135.136.16',
-  '135.136.17',
-  '135.136.18',
-  '135.136.24',
-  '135.136.25',
-  '135.136.62',
-  '138.199.21',
-  '138.199.22',
-  '138.199.34',
-  '138.199.35',
-  '138.199.50',
-  '138.199.53',
-  '138.199.55',
-  '138.199.6',
-  '138.199.60',
-  '138.199.7',
-  '144.48.39',
-  '146.70.113',
-  '146.70.120',
-  '146.70.129',
-  '146.70.136',
-  '146.70.14',
-  '146.70.142',
-  '146.70.147',
-  '146.70.156',
-  '146.70.161',
-  '146.70.170',
-  '146.70.174',
-  '146.70.181',
-  '146.70.182',
-  '146.70.198',
-  '146.70.202',
-  '146.70.204',
-  '146.70.221',
-  '146.70.226',
-  '146.70.231',
-  '146.70.29',
-  '146.70.48',
-  '146.70.58',
-  '146.70.8',
-  '146.70.84',
-  '146.70.98',
-  '149.102.224',
-  '149.102.226',
-  '149.102.235',
-  '149.102.239',
-  '149.102.244',
-  '149.102.245',
-  '149.102.251',
-  '149.102.254',
-  '149.22.80',
-  '149.22.81',
-  '149.22.82',
-  '149.22.85',
-  '149.22.91',
-  '149.22.94',
-  '149.22.95',
-  '149.34.251',
-  '149.36.48',
-  '149.40.48',
-  '149.40.58',
-  '149.40.62',
-  '149.50.211',
-  '149.50.216',
-  '149.50.217',
-  '149.88.102',
-  '149.88.103',
-  '149.88.110',
-  '149.88.17',
-  '149.88.18',
-  '149.88.20',
-  '149.88.21',
-  '149.88.23',
-  '149.88.25',
-  '149.88.27',
-  '149.88.30',
-  '151.243.141',
-  '152.233.3',
-  '154.47.16',
-  '154.47.17',
-  '154.47.19',
-  '156.146.45',
-  '156.146.50',
-  '156.146.51',
-  '156.146.54',
-  '156.146.55',
-  '163.5.171',
-  '169.150.196',
-  '169.150.226',
-  '172.240.229',
-  '175.110.114',
-  '178.218.167',
-  '178.249.212',
-  '178.249.214',
-  '180.149.229',
-  '185.100.233',
-  '185.107.44',
-  '185.107.94',
-  '185.111.109',
-  '185.130.187',
-  '185.132.132',
-  '185.156.46',
-  '185.159.156',
-  '185.159.157',
-  '185.159.158',
-  '185.163.44',
-  '185.165.240',
-  '185.165.242',
-  '185.177.125',
-  '185.177.126',
-  '185.180.222',
-  '185.183.33',
-  '185.183.34',
-  '185.184.195',
-  '185.212.111',
-  '185.229.25',
-  '185.245.85',
-  '185.246.211',
-  '185.247.68',
-  '185.28.254',
-  '185.76.11',
-  '185.90.60',
-  '188.214.106',
-  '188.214.122',
-  '188.214.125',
-  '188.214.152',
-  '188.214.158',
-  '188.215.235',
-  '188.240.57',
-  '190.2.147',
-  '190.2.151',
-  '190.2.153',
-  '192.144.20',
-  '192.144.21',
-  '192.159.101',
-  '193.187.151',
-  '193.29.107',
-  '193.37.254',
-  '193.9.36',
-  '193.9.37',
-  '193.9.38',
-  '193.9.39',
-  '194.126.177',
-  '194.180.33',
-  '194.180.34',
-  '194.34.132',
-  '195.158.248',
-  '195.177.92',
-  '195.181.162',
-  '195.181.163',
-  '195.80.150',
-  '195.86.23',
-  '195.86.38',
-  '195.86.6',
-  '196.197.28',
-  '196.240.54',
-  '196.245.151',
-  '198.44.139',
-  '2.58.241',
-  '205.147.31',
-  '212.102.44',
-  '212.102.51',
-  '212.8.249',
-  '213.139.10',
-  '213.244.113',
-  '217.113.171',
-  '217.138.10',
-  '217.138.11',
-  '217.138.193',
-  '217.138.198',
-  '217.138.216',
-  '217.138.89',
-  '217.23.3',
-  '217.79.104',
-  '31.171.153',
-  '37.0.12',
-  '37.120.234',
-  '37.19.199',
-  '37.19.200',
-  '37.19.201',
-  '37.19.205',
-  '37.19.221',
-  '37.191.127',
-  '37.46.115',
-  '45.128.133',
-  '45.128.134',
-  '45.138.86',
-  '45.139.48',
-  '45.14.71',
-  '45.146.222',
-  '45.151.45',
-  '45.82.64',
-  '45.83.124',
-  '45.83.125',
-  '45.83.126',
-  '45.83.127',
-  '45.83.136',
-  '45.83.137',
-  '45.83.138',
-  '45.83.139',
-  '45.83.144',
-  '45.83.145',
-  '45.83.146',
-  '45.92.33',
-  '5.253.204',
-  '51.179.177',
-  '62.169.136',
-  '66.205.84',
-  '66.234.153',
-  '66.234.154',
-  '66.234.155',
-  '66.234.156',
-  '66.234.157',
-  '72.14.148',
-  '72.251.222',
-  '74.118.126',
-  '74.63.204',
-  '79.110.55',
-  '79.127.131',
-  '79.127.144',
-  '79.127.145',
-  '79.127.147',
-  '79.127.149',
-  '79.127.160',
-  '79.127.176',
-  '79.127.180',
-  '79.127.182',
-  '79.127.183',
-  '79.127.185',
-  '79.127.186',
-  '79.127.254',
-  '79.135.104',
-  '79.135.105',
-  '84.17.63',
-  '84.20.16',
-  '84.20.27',
-  '84.233.167',
-  '84.233.251',
-  '84.252.113',
-  '85.132.252',
-  '85.203.39',
-  '85.204.78',
-  '86.106.121',
-  '87.249.134',
-  '87.249.139',
-  '88.211.225',
-  '89.105.214',
-  '89.187.164',
-  '89.187.170',
-  '89.187.171',
-  '89.187.177',
-  '89.187.179',
-  '89.187.180',
-  '89.222.98',
-  '89.238.155',
-  '89.238.156',
-  '89.238.174',
-  '89.249.72',
-  '89.38.97',
-  '89.39.104',
-  '89.39.106',
-  '89.39.107',
-  '89.45.224',
-  '89.47.234',
-  '91.132.139',
-  '91.90.123',
-  '93.113.202',
-  '93.190.138',
-  '93.190.141',
-  '93.190.142',
-  '94.190.195',
-  '95.153.31',
-  '95.173.205',
-  '95.173.217',
-  '95.177.96'
-]);
-
-const GLOBAL_VPN_SERVER_IPS = new Set([
-  '103.106.58.163',
-  '103.108.229.18',
-  '103.108.231.162',
-  '103.108.231.242',
-  '103.120.66.226',
-  '103.125.235.18',
-  '103.125.235.20',
-  '103.14.26.127',
-  '103.214.20.210',
-  '103.214.20.98',
-  '103.216.220.98',
-  '103.216.221.66',
-  '103.216.221.70',
-  '103.216.221.74',
-  '103.219.169.99',
-  '103.75.11.18',
-  '103.88.234.147',
-  '104.254.95.98',
-  '109.111.197.130',
-  '109.111.197.2',
-  '109.204.35.226',
-  '109.204.35.233',
-  '109.236.81.160',
-  '109.236.81.166',
-  '116.90.74.178',
-  '130.195.216.66',
-  '130.195.217.2',
-  '130.195.223.2',
-  '130.195.240.2',
-  '130.195.241.2',
-  '130.195.242.2',
-  '130.195.243.2',
-  '130.195.245.3',
-  '130.195.250.66',
-  '134.82.69.2',
-  '134.82.69.6',
-  '134.82.74.104',
-  '134.82.74.16',
-  '134.82.74.200',
-  '134.82.74.224',
-  '134.82.74.56',
-  '134.82.74.72',
-  '134.82.74.8',
-  '134.82.75.112',
-  '134.82.75.136',
-  '134.82.75.16',
-  '134.82.75.160',
-  '134.82.75.32',
-  '134.82.75.40',
-  '134.82.75.8',
-  '135.136.15.130',
-  '135.136.15.2',
-  '135.136.16.2',
-  '135.136.17.2',
-  '135.136.18.2',
-  '135.136.24.130',
-  '135.136.24.2',
-  '135.136.25.130',
-  '135.136.25.2',
-  '135.136.62.2',
-  '138.199.21.193',
-  '138.199.21.206',
-  '138.199.22.102',
-  '138.199.22.103',
-  '138.199.34.193',
-  '138.199.35.97',
-  '138.199.50.103',
-  '138.199.50.104',
-  '138.199.50.105',
-  '138.199.50.106',
-  '138.199.50.107',
-  '138.199.50.97',
-  '138.199.50.98',
-  '138.199.53.225',
-  '138.199.53.236',
-  '138.199.53.237',
-  '138.199.53.242',
-  '138.199.53.247',
-  '138.199.55.33',
-  '138.199.6.181',
-  '138.199.60.85',
-  '138.199.60.87',
-  '138.199.7.129',
-  '138.199.7.159',
-  '138.199.7.234',
-  '138.199.7.250',
-  '138.199.7.251',
-  '144.48.39.226',
-  '146.70.113.114',
-  '146.70.120.146',
-  '146.70.129.18',
-  '146.70.136.35',
-  '146.70.14.19',
-  '146.70.14.42',
-  '146.70.142.18',
-  '146.70.142.82',
-  '146.70.147.114',
-  '146.70.156.2',
-  '146.70.161.178',
-  '146.70.170.18',
-  '146.70.174.66',
-  '146.70.181.34',
-  '146.70.182.34',
-  '146.70.198.50',
-  '146.70.202.178',
-  '146.70.202.82',
-  '146.70.204.162',
-  '146.70.221.130',
-  '146.70.226.226',
-  '146.70.231.2',
-  '146.70.29.194',
-  '146.70.48.2',
-  '146.70.58.130',
-  '146.70.8.2',
-  '146.70.84.2',
-  '146.70.98.162',
-  '146.70.98.194',
-  '146.70.98.98',
-  '149.102.224.161',
-  '149.102.224.48',
-  '149.102.226.193',
-  '149.102.235.33',
-  '149.102.239.225',
-  '149.102.239.33',
-  '149.102.239.34',
-  '149.102.244.97',
-  '149.102.245.129',
-  '149.102.251.97',
-  '149.102.254.78',
-  '149.22.80.1',
-  '149.22.81.1',
-  '149.22.82.88',
-  '149.22.85.193',
-  '149.22.85.222',
-  '149.22.91.161',
-  '149.22.94.28',
-  '149.22.95.193',
-  '149.34.251.136',
-  '149.36.48.153',
-  '149.40.48.106',
-  '149.40.48.65',
-  '149.40.58.146',
-  '149.40.62.21',
-  '149.50.211.144',
-  '149.50.216.225',
-  '149.50.217.161',
-  '149.88.102.110',
-  '149.88.102.46',
-  '149.88.103.163',
-  '149.88.110.33',
-  '149.88.17.129',
-  '149.88.18.193',
-  '149.88.20.129',
-  '149.88.21.122',
-  '149.88.23.102',
-  '149.88.23.117',
-  '149.88.25.129',
-  '149.88.27.219',
-  '149.88.27.233',
-  '149.88.27.236',
-  '149.88.30.88',
-  '151.243.141.157',
-  '151.243.141.161',
-  '152.233.3.193',
-  '154.47.16.81',
-  '154.47.17.158',
-  '154.47.19.213',
-  '156.146.45.139',
-  '156.146.50.5',
-  '156.146.51.129',
-  '156.146.51.78',
-  '156.146.54.81',
-  '156.146.54.97',
-  '156.146.55.225',
-  '163.5.171.2',
-  '169.150.196.100',
-  '169.150.196.71',
-  '169.150.196.83',
-  '169.150.196.96',
-  '169.150.196.97',
-  '169.150.226.161',
-  '169.150.226.172',
-  '172.240.229.103',
-  '175.110.114.43',
-  '178.218.167.210',
-  '178.249.212.161',
-  '178.249.212.162',
-  '178.249.212.163',
-  '178.249.214.65',
-  '180.149.229.130',
-  '185.100.233.84',
-  '185.107.44.200',
-  '185.107.94.181',
-  '185.111.109.1',
-  '185.130.187.2',
-  '185.132.132.113',
-  '185.132.132.26',
-  '185.156.46.33',
-  '185.159.156.119',
-  '185.159.156.122',
-  '185.159.156.124',
-  '185.159.156.125',
-  '185.159.156.126',
-  '185.159.156.127',
-  '185.159.156.128',
-  '185.159.156.129',
-  '185.159.156.130',
-  '185.159.156.133',
-  '185.159.156.134',
-  '185.159.156.135',
-  '185.159.156.144',
-  '185.159.156.146',
-  '185.159.156.147',
-  '185.159.156.148',
-  '185.159.156.159',
-  '185.159.156.162',
-  '185.159.156.179',
-  '185.159.156.183',
-  '185.159.156.185',
-  '185.159.156.29',
-  '185.159.156.43',
-  '185.159.156.49',
-  '185.159.156.56',
-  '185.159.156.58',
-  '185.159.156.81',
-  '185.159.156.82',
-  '185.159.156.83',
-  '185.159.156.84',
-  '185.159.156.85',
-  '185.159.156.86',
-  '185.159.156.87',
-  '185.159.156.88',
-  '185.159.156.89',
-  '185.159.156.90',
-  '185.159.156.93',
-  '185.159.156.95',
-  '185.159.156.97',
-  '185.159.156.98',
-  '185.159.157.176',
-  '185.159.157.23',
-  '185.159.158.1',
-  '185.159.158.123',
-  '185.159.158.138',
-  '185.159.158.149',
-  '185.159.158.165',
-  '185.159.158.167',
-  '185.159.158.168',
-  '185.159.158.177',
-  '185.159.158.180',
-  '185.159.158.181',
-  '185.159.158.182',
-  '185.159.158.183',
-  '185.159.158.187',
-  '185.159.158.191',
-  '185.159.158.194',
-  '185.159.158.195',
-  '185.159.158.200',
-  '185.159.158.202',
-  '185.159.158.204',
-  '185.159.158.208',
-  '185.159.158.209',
-  '185.159.158.21',
-  '185.159.158.214',
-  '185.159.158.215',
-  '185.159.158.216',
-  '185.159.158.219',
-  '185.159.158.22',
-  '185.159.158.220',
-  '185.159.158.221',
-  '185.159.158.223',
-  '185.159.158.224',
-  '185.159.158.225',
-  '185.159.158.232',
-  '185.159.158.233',
-  '185.159.158.234',
-  '185.159.158.237',
-  '185.159.158.24',
-  '185.159.158.240',
-  '185.159.158.245',
-  '185.159.158.28',
-  '185.159.158.43',
-  '185.159.158.55',
-  '185.159.158.74',
-  '185.159.158.75',
-  '185.163.44.137',
-  '185.165.240.80',
-  '185.165.242.20',
-  '185.177.125.172',
-  '185.177.125.196',
-  '185.177.126.132',
-  '185.177.126.14',
-  '185.180.222.89',
-  '185.183.33.217',
-  '185.183.34.149',
-  '185.183.34.165',
-  '185.183.34.27',
-  '185.184.195.59',
-  '185.212.111.98',
-  '185.229.25.116',
-  '185.245.85.130',
-  '185.246.211.193',
-  '185.247.68.50',
-  '185.28.254.2',
-  '185.76.11.17',
-  '185.76.11.27',
-  '185.90.60.210',
-  '188.214.106.178',
-  '188.214.122.82',
-  '188.214.125.162',
-  '188.214.152.226',
-  '188.214.158.34',
-  '188.215.235.82',
-  '188.240.57.226',
-  '190.2.147.7',
-  '190.2.151.139',
-  '190.2.153.215',
-  '192.144.20.2',
-  '192.144.21.2',
-  '192.159.101.226',
-  '193.187.151.98',
-  '193.29.107.162',
-  '193.37.254.66',
-  '193.9.36.1',
-  '193.9.37.1',
-  '193.9.38.1',
-  '193.9.39.1',
-  '194.126.177.14',
-  '194.126.177.6',
-  '194.126.177.9',
-  '194.180.33.3',
-  '194.180.33.8',
-  '194.180.34.11',
-  '194.180.34.7',
-  '194.34.132.55',
-  '195.158.248.226',
-  '195.177.92.58',
-  '195.181.162.163',
-  '195.181.163.1',
-  '195.80.150.226',
-  '195.86.23.81',
-  '195.86.38.33',
-  '195.86.6.249',
-  '196.197.28.130',
-  '196.240.54.114',
-  '196.245.151.210',
-  '198.44.139.83',
-  '2.58.241.66',
-  '205.147.31.1',
-  '212.102.44.166',
-  '212.102.51.241',
-  '212.8.249.21',
-  '213.139.10.129',
-  '213.244.113.194',
-  '217.113.171.2',
-  '217.138.10.130',
-  '217.138.11.2',
-  '217.138.193.98',
-  '217.138.198.246',
-  '217.138.216.130',
-  '217.138.216.162',
-  '217.138.89.2',
-  '217.23.3.76',
-  '217.79.104.1',
-  '217.79.104.3',
-  '31.171.153.98',
-  '37.0.12.226',
-  '37.120.234.194',
-  '37.19.199.129',
-  '37.19.199.144',
-  '37.19.199.149',
-  '37.19.199.155',
-  '37.19.200.1',
-  '37.19.200.17',
-  '37.19.200.22',
-  '37.19.201.129',
-  '37.19.201.130',
-  '37.19.205.223',
-  '37.19.221.193',
-  '37.191.127.2',
-  '37.46.115.5',
-  '45.128.133.226',
-  '45.128.134.194',
-  '45.128.134.199',
-  '45.138.86.194',
-  '45.139.48.242',
-  '45.14.71.5',
-  '45.14.71.6',
-  '45.14.71.7',
-  '45.146.222.226',
-  '45.151.45.4',
-  '45.82.64.25',
-  '45.83.124.1',
-  '45.83.125.1',
-  '45.83.126.1',
-  '45.83.127.1',
-  '45.83.136.1',
-  '45.83.137.1',
-  '45.83.138.1',
-  '45.83.139.1',
-  '45.83.144.1',
-  '45.83.145.1',
-  '45.83.146.1',
-  '45.92.33.162',
-  '5.253.204.162',
-  '51.179.177.2',
-  '62.169.136.104',
-  '62.169.136.105',
-  '62.169.136.106',
-  '62.169.136.108',
-  '62.169.136.109',
-  '62.169.136.110',
-  '62.169.136.111',
-  '62.169.136.112',
-  '62.169.136.113',
-  '62.169.136.116',
-  '62.169.136.117',
-  '62.169.136.12',
-  '62.169.136.124',
-  '62.169.136.13',
-  '62.169.136.141',
-  '62.169.136.150',
-  '62.169.136.153',
-  '62.169.136.165',
-  '62.169.136.187',
-  '62.169.136.197',
-  '62.169.136.208',
-  '62.169.136.209',
-  '62.169.136.210',
-  '62.169.136.211',
-  '62.169.136.212',
-  '62.169.136.213',
-  '62.169.136.218',
-  '62.169.136.219',
-  '62.169.136.227',
-  '62.169.136.232',
-  '62.169.136.238',
-  '62.169.136.239',
-  '62.169.136.241',
-  '62.169.136.243',
-  '62.169.136.245',
-  '62.169.136.252',
-  '62.169.136.253',
-  '62.169.136.27',
-  '62.169.136.56',
-  '62.169.136.57',
-  '62.169.136.60',
-  '62.169.136.65',
-  '62.169.136.7',
-  '62.169.136.8',
-  '62.169.136.80',
-  '62.169.136.81',
-  '62.169.136.82',
-  '62.169.136.85',
-  '62.169.136.9',
-  '62.169.136.93',
-  '62.169.136.94',
-  '62.169.136.95',
-  '66.205.84.242',
-  '66.234.153.130',
-  '66.234.153.2',
-  '66.234.154.130',
-  '66.234.154.2',
-  '66.234.155.130',
-  '66.234.155.2',
-  '66.234.156.130',
-  '66.234.156.2',
-  '66.234.157.2',
-  '72.14.148.2',
-  '72.251.222.1',
-  '74.118.126.104',
-  '74.118.126.108',
-  '74.118.126.112',
-  '74.118.126.116',
-  '74.118.126.132',
-  '74.118.126.136',
-  '74.118.126.144',
-  '74.118.126.152',
-  '74.118.126.156',
-  '74.118.126.16',
-  '74.118.126.172',
-  '74.118.126.180',
-  '74.118.126.184',
-  '74.118.126.188',
-  '74.118.126.2',
-  '74.118.126.200',
-  '74.118.126.204',
-  '74.118.126.208',
-  '74.118.126.212',
-  '74.118.126.216',
-  '74.118.126.220',
-  '74.118.126.224',
-  '74.118.126.228',
-  '74.118.126.236',
-  '74.118.126.24',
-  '74.118.126.240',
-  '74.118.126.28',
-  '74.118.126.32',
-  '74.118.126.36',
-  '74.118.126.4',
-  '74.118.126.48',
-  '74.118.126.56',
-  '74.118.126.60',
-  '74.118.126.64',
-  '74.118.126.68',
-  '74.118.126.72',
-  '74.118.126.8',
-  '74.118.126.96',
-  '74.63.204.210',
-  '79.110.55.2',
-  '79.127.131.222',
-  '79.127.144.130',
-  '79.127.144.158',
-  '79.127.144.159',
-  '79.127.145.65',
-  '79.127.147.3',
-  '79.127.149.65',
-  '79.127.160.187',
-  '79.127.160.216',
-  '79.127.176.29',
-  '79.127.180.1',
-  '79.127.182.65',
-  '79.127.183.234',
-  '79.127.185.251',
-  '79.127.186.193',
-  '79.127.186.222',
-  '79.127.254.119',
-  '79.135.104.100',
-  '79.135.104.104',
-  '79.135.104.108',
-  '79.135.104.110',
-  '79.135.104.112',
-  '79.135.104.20',
-  '79.135.104.21',
-  '79.135.104.28',
-  '79.135.104.35',
-  '79.135.104.40',
-  '79.135.104.41',
-  '79.135.104.43',
-  '79.135.104.45',
-  '79.135.104.49',
-  '79.135.104.50',
-  '79.135.104.60',
-  '79.135.104.69',
-  '79.135.104.85',
-  '79.135.104.92',
-  '79.135.104.93',
-  '79.135.104.94',
-  '79.135.105.1',
-  '79.135.105.104',
-  '79.135.105.12',
-  '79.135.105.132',
-  '79.135.105.148',
-  '79.135.105.16',
-  '79.135.105.160',
-  '79.135.105.168',
-  '79.135.105.184',
-  '79.135.105.188',
-  '79.135.105.192',
-  '79.135.105.196',
-  '79.135.105.20',
-  '79.135.105.200',
-  '79.135.105.204',
-  '79.135.105.208',
-  '79.135.105.212',
-  '79.135.105.24',
-  '79.135.105.4',
-  '79.135.105.40',
-  '79.135.105.48',
-  '79.135.105.52',
-  '79.135.105.56',
-  '79.135.105.60',
-  '79.135.105.68',
-  '79.135.105.72',
-  '79.135.105.76',
-  '79.135.105.80',
-  '79.135.105.84',
-  '79.135.105.88',
-  '79.135.105.96',
-  '84.17.63.17',
-  '84.20.16.29',
-  '84.20.27.34',
-  '84.20.27.35',
-  '84.20.27.38',
-  '84.20.27.39',
-  '84.20.27.44',
-  '84.20.27.46',
-  '84.20.27.47',
-  '84.233.167.225',
-  '84.233.251.34',
-  '84.252.113.9',
-  '85.132.252.34',
-  '85.203.39.226',
-  '85.204.78.39',
-  '86.106.121.3',
-  '87.249.134.138',
-  '87.249.139.170',
-  '88.211.225.188',
-  '89.105.214.199',
-  '89.187.164.241',
-  '89.187.170.135',
-  '89.187.170.159',
-  '89.187.171.248',
-  '89.187.177.71',
-  '89.187.179.55',
-  '89.187.180.1',
-  '89.187.180.14',
-  '89.187.180.54',
-  '89.222.98.35',
-  '89.238.155.130',
-  '89.238.155.2',
-  '89.238.156.194',
-  '89.238.156.242',
-  '89.238.174.130',
-  '89.238.174.2',
-  '89.249.72.2',
-  '89.38.97.138',
-  '89.39.104.165',
-  '89.39.106.82',
-  '89.39.107.109',
-  '89.39.107.185',
-  '89.39.107.188',
-  '89.45.224.2',
-  '89.47.234.146',
-  '89.47.234.226',
-  '89.47.234.242',
-  '91.132.139.2',
-  '91.90.123.50',
-  '93.113.202.39',
-  '93.190.138.166',
-  '93.190.141.58',
-  '93.190.142.102',
-  '94.190.195.24',
-  '95.153.31.114',
-  '95.173.205.129',
-  '95.173.205.159',
-  '95.173.205.163',
-  '95.173.217.224',
-  '95.177.96.177'
-]);
 
 const EXPLICIT_DDOS_BANNED_IPS = new Set([
   '2606:4700:310c::ac42:2ca2',
@@ -1869,7 +834,7 @@ const API_KNOWN_VPN_ASNS = new Set([
 
 const API_RESIDENTIAL_ISP_ALLOWLIST = /\b(fast\s*4|fast\s*4\s*technologies|jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
 const API_VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs|realcloud|melbikomas|equinix|gcore|packethost|psychz|dedipath|ovpn|airvpn|torguard|hidemyass|astrill|ivacy|fastvpn|shinjiru|cinipac|blazing\s*seo|iproyal|stormproxies|smartproxy|webshare)\b/i;
-const API_DATACENTER_ORG_REGEX = /\b(labs?\s+ab|hosting|datacenter|data\s*center|colocation|colo\b|dedicated|server\s*farm|cloud\s*(host|services?|solutions?)|vps|bare\s*metal|managed\s*server|internet\s*exchange|ix\b|transit|peering|fiber\s*net|network\s*solutions?|cyber\s*hub|tech\s*solutions?|web\s*services?|server\s*solutions?|cloud\s*computing|it\s*infrastructure|noc\b|telecom\s*services?|ctrls|yotta|webwerks|netmagic|e2e\s*networks|rackbank|pi\s*datacenters)\b/i;
+const API_DATACENTER_ORG_REGEX = /\b(labs?\s+ab|colocation|dedicated\s*servers?|server\s*farm|bare\s*metal|managed\s*server|cloud\s*(host|solutions?)|vps|ctrls|yotta|webwerks|netmagic|e2e\s*networks|rackbank|pi\s*datacenters)\b/i;
 
 const TIMEZONE_COUNTRY_HINTS = {
   'asia/kolkata': 'IN',
@@ -2011,28 +976,10 @@ function detectVpnOrProxy(req, clientIp, clientSignals = null) {
     return { ...base, isVpn: true, reason: 'Explicit DDoS Attack IP Banned' };
   }
 
-  // Worldwide VPN Server Fleet (Exit Nodes across 149+ countries)
-  if (GLOBAL_VPN_SERVER_IPS.has(clientIp)) {
-    return { ...base, isVpn: true, reason: 'Worldwide VPN Exit Node Detected' };
-  }
-  const ipP = clientIp.split('.');
-  if (ipP.length === 4 && GLOBAL_VPN_SERVER_PREFIXES.has(`${ipP[0]}.${ipP[1]}.${ipP[2]}`)) {
-    return { ...base, isVpn: true, reason: 'Worldwide VPN Server Subnet Detected' };
-  }
 
-  // Anycast / Datacenter Egress IP check (client browser can never have a Cloudflare/datacenter Anycast IP)
-  if (/^(172\.(6[4-9]|7[0-1])\.|104\.(1[6-9]|2[0-7])\.|162\.15[89]\.|2606:4700:)/i.test(clientIp)) {
-    return { ...base, isVpn: true, reason: `Cloudflare / Anycast Proxy Egress IP (${clientIp})` };
-  }
 
-  // 1. Chained proxy check (multiple IPs in X-Forwarded-For)
+  // 1. Explicit proxy / VPN headers
   if (req && req.headers) {
-    const xff = String(req.headers.get('x-forwarded-for') || '');
-    if (xff.includes(',')) {
-      return { ...base, isVpn: true, reason: 'Chained Proxy Headers (X-Forwarded-For)' };
-    }
-
-    // 2. Explicit proxy / VPN headers
     const via = String(req.headers.get('via') || '');
     if (
       req.headers.has('x-tor') ||
@@ -2040,24 +987,21 @@ function detectVpnOrProxy(req, clientIp, clientSignals = null) {
       req.headers.has('x-proxy-id') ||
       req.headers.has('x-anonymizer') ||
       req.headers.has('forwarded-for-proxy') ||
-      req.headers.has('proxy-connection') ||
-      req.headers.has('x-real-ip') ||
-      req.headers.has('forwarded') ||
-      /\b(tor|vpn|proxy|squid|privoxy|hola|urban|psiphon|warp|varnish)\b/i.test(via)
+      /\b(tor|vpn|webproxy|squid|privoxy|hola|psiphon)\b/i.test(via)
     ) {
       return { ...base, isVpn: true, reason: 'VPN / Proxy Header Detected' };
     }
   }
 
-  // 3. Cloudflare threat score / Tor / Anonymous proxy country flags
-  if (threatScore > 5) {
-    return { ...base, isVpn: true, reason: `Cloudflare Threat Flag (Score: ${threatScore})` };
+  // 2. Cloudflare threat score / Tor flags
+  if (threatScore > 50) {
+    return { ...base, isVpn: true, reason: `Cloudflare High Threat Flag (Score: ${threatScore})` };
   }
-  if (country === 'T1' || country === 'XX' || country === 'A1' || country === 'A2') {
+  if (country === 'T1' || country === 'A1' || country === 'A2') {
     return { ...base, isVpn: true, reason: `Tor / Anonymous Proxy Country Code (${country})` };
   }
 
-  // 4. Known VPN & Datacenter ASN check
+  // 3. Known VPN & Datacenter ASN check
   const isResidential = Boolean(asOrg && API_RESIDENTIAL_ISP_ALLOWLIST.test(asOrg));
   if (!isResidential) {
     if (asn && API_KNOWN_VPN_ASNS.has(asn)) {
@@ -2079,22 +1023,6 @@ function detectVpnOrProxy(req, clientIp, clientSignals = null) {
         ...base,
         isVpn: true,
         reason: `Datacenter / Hosting Network (${asOrg})`
-      };
-    }
-    // Any non-residential foreign connection
-    if (country && country !== 'IN' && !API_RESIDENTIAL_ISP_ALLOWLIST.test(asOrg)) {
-      return {
-        ...base,
-        isVpn: true,
-        reason: `Non-Residential Foreign Network (${country}${asn ? ' · AS' + asn : ''}${asOrg ? ' · ' + asOrg : ''})`
-      };
-    }
-    // Any Indian datacenter/cloud network
-    if (country === 'IN' && asOrg && API_DATACENTER_ORG_REGEX.test(asOrg)) {
-      return {
-        ...base,
-        isVpn: true,
-        reason: `Indian Datacenter / Cloud Proxy (${asOrg})`
       };
     }
   }
@@ -2217,7 +1145,7 @@ async function recordLiveVisitor(req, db, opts = {}) {
 
 async function banVpnVisitor(req, db, ip, vpnInfo, opts = {}) {
   const cleanIp = String(ip || '').trim();
-  if (!cleanIp || isPrivateOrDevIp(cleanIp)) return false;
+  if (!cleanIp || isPrivateOrDevIp(cleanIp) || ADMIN_OWN_IPS.includes(cleanIp)) return false;
   const allowlist = await getVpnAllowlistIps(db);
   if (allowlist.includes(cleanIp)) return false;
 
@@ -2352,8 +1280,6 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
     const vCountry = String(v.country || '').toUpperCase();
     let evalVpnReason = '';
 
-    const cP = cleanIp.split('.');
-    const cSlash24 = cP.length === 4 ? `${cP[0]}.${cP[1]}.${cP[2]}` : '';
     if (ADMIN_OWN_IPS.includes(cleanIp)) {
       isBanned = false;
       isVpn = false;
@@ -2361,19 +1287,13 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
       blockedSet.delete(cleanIp);
     } else if (EXPLICIT_DDOS_BANNED_IPS.has(cleanIp)) {
       evalVpnReason = 'Explicit Multi-IP DDoS Attacker IP';
-    } else if (GLOBAL_VPN_SERVER_IPS.has(cleanIp) || (cSlash24 && GLOBAL_VPN_SERVER_PREFIXES.has(cSlash24))) {
-      evalVpnReason = 'Worldwide Commercial VPN Node Detected';
-    } else if (/^(172\.(6[4-9]|7[0-1])\.|104\.(1[6-9]|2[0-7])\.|162\.15[89]\.|2606:4700:)/i.test(cleanIp)) {
-      evalVpnReason = `Cloudflare / Anycast Proxy Egress IP (${cleanIp})`;
     } else if (vAsn && API_KNOWN_VPN_ASNS.has(vAsn)) {
       evalVpnReason = `VPN / Proxy Network (AS${vAsn}${vIsp ? ' · ' + vIsp : ''})`;
     } else if (vIsp && API_VPN_ORG_REGEX.test(vIsp)) {
       evalVpnReason = `VPN / Anonymizer Network (${vIsp})`;
     } else if (vIsp && API_DATACENTER_ORG_REGEX.test(vIsp)) {
       evalVpnReason = `Datacenter / Hosting Network (${vIsp})`;
-    } else if (vCountry && vCountry !== 'IN' && !API_RESIDENTIAL_ISP_ALLOWLIST.test(vIsp)) {
-      evalVpnReason = `Foreign Non-Residential Network (${vCountry}${vIsp ? ' · ' + vIsp : ''}${vAsn ? ' · AS' + vAsn : ''})`;
-    } else if (['T1', 'XX', 'A1', 'A2'].includes(vCountry)) {
+    } else if (['T1', 'A1', 'A2'].includes(vCountry)) {
       evalVpnReason = `Tor / Anonymous Proxy / Satellite Network (${vCountry})`;
     }
 
@@ -3374,9 +2294,7 @@ export async function onRequest(ctx) {
   const clientIp = getClientIp(request);
   let requestIsAdminSession = clientIp ? ADMIN_OWN_IPS.includes(clientIp) : false;
   if (clientIp) {
-    const ipP_req = clientIp.split('.');
-    const slash24_req = ipP_req.length === 4 ? `${ipP_req[0]}.${ipP_req[1]}.${ipP_req[2]}` : '';
-    if (EXPLICIT_DDOS_BANNED_IPS.has(clientIp) || GLOBAL_VPN_SERVER_IPS.has(clientIp) || (slash24_req && GLOBAL_VPN_SERVER_PREFIXES.has(slash24_req))) {
+    if (EXPLICIT_DDOS_BANNED_IPS.has(clientIp)) {
       return new Response(null, {
         status: 403,
         statusText: 'Forbidden',
@@ -3384,75 +2302,15 @@ export async function onRequest(ctx) {
       });
     }
 
-    const { net: netKey, sub: subnetKey } = getSubnetKeys(clientIp);
-    const clientFp = getClientFingerprint(request);
-    const now = Date.now();
-
-    if (netKey && API_BANNED_SUBNETS.has(netKey)) {
-      if (now < API_BANNED_SUBNETS.get(netKey)) {
-        return new Response(null, {
-          status: 403,
-          statusText: 'Forbidden',
-          headers: { 'Connection': 'close', 'Cache-Control': 'no-store, no-cache, max-age=0' }
-        });
-      } else {
-        API_BANNED_SUBNETS.delete(netKey);
-      }
-    }
-
-    // Fast-drop if Subnet or Client Fingerprint was banned for DDoS
-    if (subnetKey && API_BANNED_SUBNETS.has(subnetKey)) {
-      if (now < API_BANNED_SUBNETS.get(subnetKey)) {
-        return new Response(null, {
-          status: 403,
-          statusText: 'Forbidden',
-          headers: {
-            'Connection': 'close',
-            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
-          }
-        });
-      } else {
-        API_BANNED_SUBNETS.delete(subnetKey);
-      }
-    }
-    if (clientFp && API_BANNED_FINGERPRINTS.has(clientFp)) {
-      if (now < API_BANNED_FINGERPRINTS.get(clientFp)) {
-        return new Response(null, {
-          status: 403,
-          statusText: 'Forbidden',
-          headers: {
-            'Connection': 'close',
-            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
-          }
-        });
-      } else {
-        API_BANNED_FINGERPRINTS.delete(clientFp);
-      }
-    }
-
-    // Global Velocity DDoS Surge Tracking
-    if (now > API_GLOBAL_DYNAMIC_RESET_AT) {
-      API_GLOBAL_DYNAMIC_COUNT = 1;
-      API_GLOBAL_DYNAMIC_RESET_AT = now + 1000;
-      API_GLOBAL_UNIQUE_IPS = new Set([clientIp]);
-    } else {
-      API_GLOBAL_DYNAMIC_COUNT++;
-      API_GLOBAL_UNIQUE_IPS.add(clientIp);
-    }
-
-    if (API_UNDER_DDOS_MODE && now > API_UNDER_DDOS_UNTIL) {
-      API_UNDER_DDOS_MODE = false;
-    }
-    if (API_GLOBAL_DYNAMIC_COUNT > 35 && API_GLOBAL_UNIQUE_IPS.size >= 4) {
-      API_UNDER_DDOS_MODE = true;
-      API_UNDER_DDOS_UNTIL = now + 180000; // 3 min emergency protection
+    if (ADMIN_OWN_IPS.includes(clientIp)) {
+      requestIsAdminSession = true;
     }
 
     const [bannedIps, adminBlockedIps] = await Promise.all([
       getBannedIps(db),
       getAdminBlockedIps(db)
     ]);
-    if (bannedIps.includes(clientIp) || adminBlockedIps.includes(clientIp)) {
+    if (!requestIsAdminSession && (bannedIps.includes(clientIp) || adminBlockedIps.includes(clientIp))) {
       return new Response(null, {
         status: 403,
         statusText: 'Forbidden',
