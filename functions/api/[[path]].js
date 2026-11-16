@@ -379,7 +379,7 @@ async function blockIpAcrossSite(db, ip, vpnReason = '') {
   }
 
   if (db) {
-    await ensureDbSchema(db);
+    try { await ensureDbSchema(db); } catch {}
     await kvSet(db, 'banned_ips', JSON.stringify(banned));
     await kvSet(db, 'admin_blocked_ips', JSON.stringify(adminBlocked));
     try {
@@ -627,14 +627,29 @@ async function checkRequestFlood(req, db, path, method) {
     return { banned: false };
   }
 
-  const isSensitiveOrWrite = !isRead
-    || path.startsWith('/admin')
-    || path.startsWith('/ai')
-    || path.startsWith('/tts');
-  if (!isSensitiveOrWrite) return { banned: false };
-
   const clientIp = getClientIp(req);
   if (!clientIp) return { banned: false };
+
+  const now = Date.now();
+  const subnetKey = getSubnetKey(clientIp);
+  const clientFp = getClientFingerprint(req);
+  const BAN_DUR = 2 * 60 * 60 * 1000;
+
+  // Check in-memory banned subnets & fingerprints first
+  if (subnetKey && API_BANNED_SUBNETS.has(subnetKey)) {
+    if (now < API_BANNED_SUBNETS.get(subnetKey)) {
+      return { banned: true, ip: clientIp, reason: 'Subnet DDoS Attack Blocked' };
+    } else {
+      API_BANNED_SUBNETS.delete(subnetKey);
+    }
+  }
+  if (clientFp && API_BANNED_FINGERPRINTS.has(clientFp)) {
+    if (now < API_BANNED_FINGERPRINTS.get(clientFp)) {
+      return { banned: true, ip: clientIp, reason: 'Multi-IP Rotating Proxy Attack Blocked' };
+    } else {
+      API_BANNED_FINGERPRINTS.delete(clientFp);
+    }
+  }
 
   // Admin devices and allowlisted IPs are exempt from flood / DDoS bans
   try {
@@ -643,6 +658,55 @@ async function checkRequestFlood(req, db, path, method) {
       return { banned: false };
     }
   } catch {}
+
+  // Multi-IP Client Fingerprint Hopping Check (detects rotating proxies/botnet)
+  if (clientFp) {
+    let rotEntry = API_CLIENT_ROTATION_TRACKER.get(clientFp);
+    if (!rotEntry || now - rotEntry.firstSeen > 10000) {
+      rotEntry = { ips: new Set([clientIp]), firstSeen: now, reqCount: 1 };
+      API_CLIENT_ROTATION_TRACKER.set(clientFp, rotEntry);
+    } else {
+      rotEntry.ips.add(clientIp);
+      rotEntry.reqCount++;
+    }
+
+    if (rotEntry.ips.size >= 3) {
+      API_BANNED_FINGERPRINTS.set(clientFp, now + BAN_DUR);
+      if (subnetKey) API_BANNED_SUBNETS.set(subnetKey, now + BAN_DUR);
+      for (const hopIp of rotEntry.ips) {
+        if (db) try { await blockIpAcrossSite(db, hopIp); } catch {}
+      }
+      return { banned: true, ip: clientIp, reason: `Multi-IP Rotating Proxy Attack Blocked (${rotEntry.ips.size} IPs in 10s)` };
+    }
+  }
+
+  // Subnet Multi-IP DDoS Burst Check (IPv6 /64 or IPv4 /24)
+  if (subnetKey) {
+    let subTracker = API_SUBNET_RATE_LIMITS.get(subnetKey);
+    if (!subTracker || now > subTracker.resetAt) {
+      subTracker = { count: 1, resetAt: now + 1000, uniqueIps: new Set([clientIp]) };
+      API_SUBNET_RATE_LIMITS.set(subnetKey, subTracker);
+    } else {
+      subTracker.count++;
+      subTracker.uniqueIps.add(clientIp);
+    }
+
+    const maxSubnetBurst = API_UNDER_DDOS_MODE ? 6 : 15;
+    if ((subTracker.uniqueIps.size >= 3 && subTracker.count >= 6) || subTracker.count > maxSubnetBurst) {
+      API_BANNED_SUBNETS.set(subnetKey, now + BAN_DUR);
+      if (clientFp) API_BANNED_FINGERPRINTS.set(clientFp, now + BAN_DUR);
+      for (const sIp of subTracker.uniqueIps) {
+        if (db) try { await blockIpAcrossSite(db, sIp); } catch {}
+      }
+      return { banned: true, ip: clientIp, reason: `Subnet Multi-IP DDoS Attack Blocked (${subTracker.uniqueIps.size} IPs in subnet, ${subTracker.count} req/s)` };
+    }
+  }
+
+  const isSensitiveOrWrite = !isRead
+    || path.startsWith('/admin')
+    || path.startsWith('/ai')
+    || path.startsWith('/tts');
+  if (!isSensitiveOrWrite) return { banned: false };
 
   let isVerifiedAdminRead = false;
   if (isRead && path.startsWith('/admin') && db) {
@@ -654,10 +718,9 @@ async function checkRequestFlood(req, db, path, method) {
     }
   }
 
-  const effectiveBurstMax = isVerifiedAdminRead ? 20 : BF_BURST_MAX_REQS;
-  const effectiveFloodMax = isVerifiedAdminRead ? 120 : BF_FLOOD_MAX_REQS;
+  const effectiveBurstMax = isVerifiedAdminRead ? 20 : (API_UNDER_DDOS_MODE ? 4 : BF_BURST_MAX_REQS);
+  const effectiveFloodMax = isVerifiedAdminRead ? 120 : (API_UNDER_DDOS_MODE ? 60 : BF_FLOOD_MAX_REQS);
 
-  const now = Date.now();
   const tracker = GLOBAL_CACHE.brute_force_tracker || (await getBruteForceTracker(db));
   const entry = tracker[clientIp] || { auth_fails: [], req_times: [] };
   entry.req_times = (Array.isArray(entry.req_times) ? entry.req_times : [])
@@ -671,23 +734,27 @@ async function checkRequestFlood(req, db, path, method) {
     const reason = isVerifiedAdminRead
       ? `DDoS Burst Attack: Exceeded ${effectiveBurstMax} admin read requests in 1 second (${burstCount} requests/sec)`
       : `DDoS Burst Attack: Exceeded ${effectiveBurstMax} requests in 1 second (${burstCount} requests/sec)`;
-    await blockIpAcrossSite(db, clientIp);
-    await recordBruteForceBan(db, clientIp, reason, burstCount, req.headers.get('user-agent') || '');
-    await saveBruteForceTracker(db, tracker);
+    if (subnetKey) API_BANNED_SUBNETS.set(subnetKey, now + BAN_DUR);
+    if (clientFp) API_BANNED_FINGERPRINTS.set(clientFp, now + BAN_DUR);
+    if (db) try { await blockIpAcrossSite(db, clientIp); } catch {}
+    if (db) try { await recordBruteForceBan(db, clientIp, reason, burstCount, req.headers.get('user-agent') || ''); } catch {}
+    if (db) try { await saveBruteForceTracker(db, tracker); } catch {}
     return { banned: true, ip: clientIp, reason };
   }
 
   const count = entry.req_times.length;
   if (count > effectiveFloodMax) {
     const reason = `DDoS Protection: Exceeded ${effectiveFloodMax} requests in 60 seconds (${count} requests)`;
-    await blockIpAcrossSite(db, clientIp);
-    await recordBruteForceBan(db, clientIp, reason, count, req.headers.get('user-agent') || '');
-    await saveBruteForceTracker(db, tracker);
+    if (subnetKey) API_BANNED_SUBNETS.set(subnetKey, now + BAN_DUR);
+    if (clientFp) API_BANNED_FINGERPRINTS.set(clientFp, now + BAN_DUR);
+    if (db) try { await blockIpAcrossSite(db, clientIp); } catch {}
+    if (db) try { await recordBruteForceBan(db, clientIp, reason, count, req.headers.get('user-agent') || ''); } catch {}
+    if (db) try { await saveBruteForceTracker(db, tracker); } catch {}
     return { banned: true, ip: clientIp, reason };
   }
 
   if (db && (count >= effectiveFloodMax - 5 || count % 15 === 0)) {
-    await saveBruteForceTracker(db, tracker);
+    try { await saveBruteForceTracker(db, tracker); } catch {}
   }
   return { banned: false };
 }
@@ -737,6 +804,49 @@ const VISITOR_RETENTION_MS = 24 * 60 * 60 * 1000;
 const VISITOR_ONLINE_WINDOW_MS = 90 * 1000;
 const VISITOR_WRITE_THROTTLE = new Map(); // ip -> { ts, tab, path, isVpn, isBanned }
 
+// ── Multi-IP Subnet & Device Rotation Protection (In-Memory) ──
+const API_SUBNET_RATE_LIMITS = new Map(); // subnetKey -> { count, resetAt, burstCount, burstResetAt, uniqueIps: Set }
+const API_BANNED_SUBNETS = new Map();     // subnetKey -> banExpiresAt (timestamp)
+const API_CLIENT_ROTATION_TRACKER = new Map(); // clientFp -> { ips: Set, firstSeen, reqCount }
+const API_BANNED_FINGERPRINTS = new Map();     // clientFp -> banExpiresAt (timestamp)
+
+let API_GLOBAL_DYNAMIC_COUNT = 0;
+let API_GLOBAL_DYNAMIC_RESET_AT = 0;
+let API_GLOBAL_UNIQUE_IPS = new Set();
+let API_UNDER_DDOS_MODE = false;
+let API_UNDER_DDOS_UNTIL = 0;
+
+function getSubnetKey(ip) {
+  if (!ip) return '';
+  const s = String(ip).trim();
+  if (s.includes(':')) {
+    // IPv6: first 4 segments (/64 subnet prefix)
+    const parts = s.split(':').filter(Boolean);
+    return 'v6:' + parts.slice(0, 4).join(':').toLowerCase();
+  }
+  // IPv4: first 3 octets (/24 subnet prefix)
+  const parts = s.split('.');
+  if (parts.length >= 3) {
+    return 'v4:' + parts.slice(0, 3).join('.');
+  }
+  return s;
+}
+
+function getClientFingerprint(req) {
+  if (!req || !req.headers) return '';
+  const customId = req.headers.get('x-visitor-id') || req.headers.get('x-client-id') || '';
+  const cookie = req.headers.get('cookie') || '';
+  let sessCookie = '';
+  const m = cookie.match(/\b(cf_visitor_id|cf_session_id|session_id)=([^;]+)/i);
+  if (m) sessCookie = m[2];
+  if (customId || sessCookie) return `id:${customId || sessCookie}`;
+  const ua = String(req.headers.get('user-agent') || '').slice(0, 80);
+  const lang = String(req.headers.get('accept-language') || '').slice(0, 20);
+  const ch = String(req.headers.get('sec-ch-ua') || '').slice(0, 40);
+  if (ua) return `fp:${ua}|${lang}|${ch}`;
+  return '';
+}
+
 const API_KNOWN_VPN_ASNS = new Set([
   9009, 60068, 212238, 136787, 209103, 211298, 39351, 198093, 397723,
   209854, 209446, 199610, 396356, 62041, 397423, 46562, 394711, 33438,
@@ -747,12 +857,14 @@ const API_KNOWN_VPN_ASNS = new Set([
   174, 1299, 3257, 6939, 13335, 32934, 15169, 2906, 20940, 22822, 54113,
   209242, 34665, 35913, 40676, 25820, 7489, 26347, 32613, 36236, 53755,
   200019, 210558, 138915, 135377, 58466, 3214, 34927, 210320, 206264,
-  43350, 35017, 51852, 57169, 61317, 199524, 47447, 198047, 147049, 206804
+  43350, 35017, 51852, 57169, 61317, 199524, 47447, 198047, 147049, 206804,
+  200052, 208447, 54888, 213230, 35540, 202685, 59253, 49392, 44558,
+  212531, 55286, 206499, 42831, 204655, 207083
 ]);
 
 const API_RESIDENTIAL_ISP_ALLOWLIST = /\b(jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
-const API_VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton\s*(vpn|ag)|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs)\b/i;
-const API_DATACENTER_ORG_REGEX = /\b(labs?\s+ab|hosting|datacenter|data\s*center|colocation|colo\b|dedicated|server\s*farm|cloud\s*(host|services?|solutions?)|vps|bare\s*metal|managed\s*server|internet\s*exchange|ix\b|transit|peering|fiber\s*net|network\s*solutions?|cyber\s*hub|tech\s*solutions?|web\s*services?|server\s*solutions?|cloud\s*computing|it\s*infrastructure|noc\b|telecom\s*services?)\b/i;
+const API_VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton\s*(vpn|ag)|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs|realcloud|melbikomas|equinix|gcore|packethost|psychz|dedipath|ovpn|airvpn|torguard|hidemyass|astrill|ivacy|fastvpn|shinjiru|cinipac|blazing\s*seo|iproyal|stormproxies|smartproxy|webshare)\b/i;
+const API_DATACENTER_ORG_REGEX = /\b(labs?\s+ab|hosting|datacenter|data\s*center|colocation|colo\b|dedicated|server\s*farm|cloud\s*(host|services?|solutions?)|vps|bare\s*metal|managed\s*server|internet\s*exchange|ix\b|transit|peering|fiber\s*net|network\s*solutions?|cyber\s*hub|tech\s*solutions?|web\s*services?|server\s*solutions?|cloud\s*computing|it\s*infrastructure|noc\b|telecom\s*services?|ctrls|yotta|webwerks|netmagic|e2e\s*networks|rackbank|pi\s*datacenters)\b/i;
 
 const TIMEZONE_COUNTRY_HINTS = {
   'asia/kolkata': 'IN',
@@ -877,34 +989,52 @@ async function removeDismissedVisitorIp(db, ip) {
 }
 
 function detectVpnOrProxy(req, clientIp, clientSignals = null) {
-  const cf = req.cf || {};
-  const asn = Number(cf.asn || 0);
-  const asOrg = String(cf.asOrganization || cf.as_organization || '').trim();
-  const country = String(cf.country || '').toUpperCase();
-  const city = String(cf.city || '').trim();
-  const region = String(cf.region || '').trim();
+  const cf = (req && req.cf) || {};
+  const asn = Number(cf.asn || (req && req.headers ? (req.headers.get('cf-as-number') || req.headers.get('x-asn')) : 0) || 0);
+  const asOrg = String(cf.asOrganization || cf.as_organization || (req && req.headers ? req.headers.get('cf-as-organization') : '') || '').trim();
+  const country = String(cf.country || (req && req.headers ? req.headers.get('cf-ipcountry') : '') || '').toUpperCase();
+  const city = String(cf.city || (req && req.headers ? req.headers.get('cf-ipcity') : '') || '').trim();
+  const region = String(cf.region || (req && req.headers ? req.headers.get('cf-region') : '') || '').trim();
+  const threatScore = Number(cf.threatScore || cf.threat_score || (req && req.headers ? req.headers.get('cf-threat-score') : 0) || 0);
   const base = { isVpn: false, reason: '', asn, asOrg, country, city, region };
 
   if (!clientIp || isPrivateOrDevIp(clientIp)) {
     return base;
   }
 
-  const via = String(req.headers.get('via') || '');
-  if (
-    req.headers.has('x-tor') ||
-    req.headers.has('x-vpn') ||
-    req.headers.has('x-proxy-id') ||
-    req.headers.has('x-anonymizer') ||
-    req.headers.has('forwarded-for-proxy') ||
-    /\b(tor|vpn|proxy|squid|privoxy|hola|urban|psiphon|warp)\b/i.test(via)
-  ) {
-    return { ...base, isVpn: true, reason: 'VPN / Proxy Header Detected' };
+  // 1. Chained proxy check (multiple IPs in X-Forwarded-For)
+  if (req && req.headers) {
+    const xff = String(req.headers.get('x-forwarded-for') || '');
+    if (xff.includes(',')) {
+      return { ...base, isVpn: true, reason: 'Chained Proxy Headers (X-Forwarded-For)' };
+    }
+
+    // 2. Explicit proxy / VPN headers
+    const via = String(req.headers.get('via') || '');
+    if (
+      req.headers.has('x-tor') ||
+      req.headers.has('x-vpn') ||
+      req.headers.has('x-proxy-id') ||
+      req.headers.has('x-anonymizer') ||
+      req.headers.has('forwarded-for-proxy') ||
+      req.headers.has('proxy-connection') ||
+      req.headers.has('x-real-ip') ||
+      req.headers.has('forwarded') ||
+      /\b(tor|vpn|proxy|squid|privoxy|hola|urban|psiphon|warp|varnish)\b/i.test(via)
+    ) {
+      return { ...base, isVpn: true, reason: 'VPN / Proxy Header Detected' };
+    }
   }
 
-  if (country === 'T1') {
-    return { ...base, isVpn: true, reason: 'Tor Exit Network (T1)' };
+  // 3. Cloudflare threat score / Tor / Anonymous proxy country flags
+  if (threatScore > 5) {
+    return { ...base, isVpn: true, reason: `Cloudflare Threat Flag (Score: ${threatScore})` };
+  }
+  if (country === 'T1' || country === 'XX' || country === 'A1' || country === 'A2') {
+    return { ...base, isVpn: true, reason: `Tor / Anonymous Proxy Country Code (${country})` };
   }
 
+  // 4. Known VPN & Datacenter ASN check
   const isResidential = Boolean(asOrg && API_RESIDENTIAL_ISP_ALLOWLIST.test(asOrg));
   if (!isResidential) {
     if (asn && API_KNOWN_VPN_ASNS.has(asn)) {
@@ -928,11 +1058,20 @@ function detectVpnOrProxy(req, clientIp, clientSignals = null) {
         reason: `Datacenter / Hosting Network (${asOrg})`
       };
     }
-    if (asn > 0 && country !== 'IN' && asOrg && !API_RESIDENTIAL_ISP_ALLOWLIST.test(asOrg)) {
+    // Any non-residential foreign connection
+    if (country && country !== 'IN' && !API_RESIDENTIAL_ISP_ALLOWLIST.test(asOrg)) {
       return {
         ...base,
         isVpn: true,
-        reason: `Non-Residential Network (AS${asn} · ${asOrg} · ${country})`
+        reason: `Non-Residential Foreign Network (${country}${asn ? ' · AS' + asn : ''}${asOrg ? ' · ' + asOrg : ''})`
+      };
+    }
+    // Any Indian datacenter/cloud network
+    if (country === 'IN' && asOrg && API_DATACENTER_ORG_REGEX.test(asOrg)) {
+      return {
+        ...base,
+        isVpn: true,
+        reason: `Indian Datacenter / Cloud Proxy (${asOrg})`
       };
     }
   }
@@ -1180,9 +1319,40 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
     const cleanIp = String(v.ip || '').trim();
     if (shouldExclude(cleanIp)) continue;
     const bf = bfBans[cleanIp] || null;
-    const isBanned = blockedSet.has(cleanIp) || Number(v.is_banned || 0) === 1;
-    const vpnReason = String(v.vpn_reason || (isBanned ? bf?.reason : '') || '').trim();
-    const isVpn = Number(v.is_vpn || 0) === 1 || Boolean(bf?.vpn) || /\b(vpn|tor|proxy|anonymiz|split-tunnel)/i.test(vpnReason);
+    let isBanned = blockedSet.has(cleanIp) || Number(v.is_banned || 0) === 1;
+    let vpnReason = String(v.vpn_reason || (isBanned ? bf?.reason : '') || '').trim();
+    let isVpn = Number(v.is_vpn || 0) === 1 || Boolean(bf?.vpn) || /\b(vpn|tor|proxy|anonymiz|split-tunnel)/i.test(vpnReason);
+
+    // Re-verify against live VPN / Datacenter / Foreign Non-Residential rules
+    const vAsn = Number(v.asn || 0);
+    const vIsp = String(v.isp || '').trim();
+    const vCountry = String(v.country || '').toUpperCase();
+    let evalVpnReason = '';
+
+    if (vAsn && API_KNOWN_VPN_ASNS.has(vAsn)) {
+      evalVpnReason = `VPN / Proxy Network (AS${vAsn}${vIsp ? ' · ' + vIsp : ''})`;
+    } else if (vIsp && API_VPN_ORG_REGEX.test(vIsp)) {
+      evalVpnReason = `VPN / Anonymizer Network (${vIsp})`;
+    } else if (vIsp && API_DATACENTER_ORG_REGEX.test(vIsp)) {
+      evalVpnReason = `Datacenter / Hosting Network (${vIsp})`;
+    } else if (vCountry && vCountry !== 'IN' && !API_RESIDENTIAL_ISP_ALLOWLIST.test(vIsp)) {
+      evalVpnReason = `Foreign Non-Residential Network (${vCountry}${vIsp ? ' · ' + vIsp : ''}${vAsn ? ' · AS' + vAsn : ''})`;
+    } else if (['T1', 'XX', 'A1', 'A2'].includes(vCountry)) {
+      evalVpnReason = `Tor / Anonymous Proxy / Satellite Network (${vCountry})`;
+    }
+
+    if (evalVpnReason) {
+      isVpn = true;
+      vpnReason = evalVpnReason;
+      isBanned = true;
+      blockedSet.add(cleanIp);
+      if (GLOBAL_CACHE.live_visitors && GLOBAL_CACHE.live_visitors[cleanIp]) {
+        GLOBAL_CACHE.live_visitors[cleanIp].is_banned = 1;
+        GLOBAL_CACHE.live_visitors[cleanIp].is_vpn = 1;
+        GLOBAL_CACHE.live_visitors[cleanIp].vpn_reason = evalVpnReason;
+      }
+    }
+
     const rawLastSeen = Number(v.last_seen || 0);
     const lastSeen = (rawLastSeen > 0 && !isNaN(rawLastSeen)) ? rawLastSeen : (Number(v.first_seen || 0) || 0);
     const isOnline = !isBanned && lastSeen > 0 && (now - lastSeen) <= VISITOR_ONLINE_WINDOW_MS;
@@ -2160,7 +2330,7 @@ export async function onRequest(ctx) {
 
   // Auto-expire 2-hour DDoS auto-bans & run one-time cleanup of prior reload burst false-positives
   if (db) {
-    await pruneExpiredDdosBans(db);
+    try { await pruneExpiredDdosBans(db); } catch {}
   }
 
 
@@ -2168,6 +2338,58 @@ export async function onRequest(ctx) {
   const clientIp = getClientIp(request);
   let requestIsAdminSession = false;
   if (clientIp) {
+    const subnetKey = getSubnetKey(clientIp);
+    const clientFp = getClientFingerprint(request);
+    const now = Date.now();
+
+    // Fast-drop if Subnet or Client Fingerprint was banned for DDoS
+    if (subnetKey && API_BANNED_SUBNETS.has(subnetKey)) {
+      if (now < API_BANNED_SUBNETS.get(subnetKey)) {
+        return new Response(null, {
+          status: 403,
+          statusText: 'Forbidden',
+          headers: {
+            'Connection': 'close',
+            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+          }
+        });
+      } else {
+        API_BANNED_SUBNETS.delete(subnetKey);
+      }
+    }
+    if (clientFp && API_BANNED_FINGERPRINTS.has(clientFp)) {
+      if (now < API_BANNED_FINGERPRINTS.get(clientFp)) {
+        return new Response(null, {
+          status: 403,
+          statusText: 'Forbidden',
+          headers: {
+            'Connection': 'close',
+            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+          }
+        });
+      } else {
+        API_BANNED_FINGERPRINTS.delete(clientFp);
+      }
+    }
+
+    // Global Velocity DDoS Surge Tracking
+    if (now > API_GLOBAL_DYNAMIC_RESET_AT) {
+      API_GLOBAL_DYNAMIC_COUNT = 1;
+      API_GLOBAL_DYNAMIC_RESET_AT = now + 1000;
+      API_GLOBAL_UNIQUE_IPS = new Set([clientIp]);
+    } else {
+      API_GLOBAL_DYNAMIC_COUNT++;
+      API_GLOBAL_UNIQUE_IPS.add(clientIp);
+    }
+
+    if (API_UNDER_DDOS_MODE && now > API_UNDER_DDOS_UNTIL) {
+      API_UNDER_DDOS_MODE = false;
+    }
+    if (API_GLOBAL_DYNAMIC_COUNT > 35 && API_GLOBAL_UNIQUE_IPS.size >= 4) {
+      API_UNDER_DDOS_MODE = true;
+      API_UNDER_DDOS_UNTIL = now + 180000; // 3 min emergency protection
+    }
+
     const [bannedIps, adminBlockedIps] = await Promise.all([
       getBannedIps(db),
       getAdminBlockedIps(db)

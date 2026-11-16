@@ -12,8 +12,49 @@
 // ── In-Memory Edge State (persists across requests on the same Cloudflare Edge isolate) ──
 const IP_RATE_LIMITS = new Map(); // ip -> { count, resetAt, burstCount, burstResetAt, apiBurstCount, apiBurstResetAt, bootCount, bootResetAt }
 const AUTO_BANNED_IPS = new Map(); // ip -> banExpiresAt (timestamp)
-
 const VPN_BANNED_IPS = new Map(); // ip -> { reason, bannedAt }
+
+// ── Multi-IP Subnet & Device Rotation Protection (Edge In-Memory) ──
+const SUBNET_RATE_LIMITS = new Map(); // subnetKey -> { count, resetAt, burstCount, burstResetAt, uniqueIps: Set }
+const BANNED_SUBNETS = new Map();     // subnetKey -> banExpiresAt (timestamp)
+const CLIENT_ROTATION_TRACKER = new Map(); // clientFp -> { ips: Set, firstSeen, reqCount }
+const BANNED_FINGERPRINTS = new Map();     // clientFp -> banExpiresAt (timestamp)
+
+let GLOBAL_DYNAMIC_COUNT = 0;
+let GLOBAL_DYNAMIC_RESET_AT = 0;
+let GLOBAL_UNIQUE_IPS = new Set();
+let UNDER_DDOS_MODE = false;
+let UNDER_DDOS_UNTIL = 0;
+
+function getSubnetKey(ip) {
+  if (!ip) return '';
+  const s = String(ip).trim();
+  if (s.includes(':')) {
+    // IPv6: first 4 segments (/64 subnet prefix)
+    const parts = s.split(':').filter(Boolean);
+    return 'v6:' + parts.slice(0, 4).join(':').toLowerCase();
+  }
+  // IPv4: first 3 octets (/24 subnet prefix)
+  const parts = s.split('.');
+  if (parts.length >= 3) {
+    return 'v4:' + parts.slice(0, 3).join('.');
+  }
+  return s;
+}
+
+function getClientFingerprint(req) {
+  const customId = req.headers.get('x-visitor-id') || req.headers.get('x-client-id') || '';
+  const cookie = req.headers.get('cookie') || '';
+  let sessCookie = '';
+  const m = cookie.match(/\b(cf_visitor_id|cf_session_id|session_id)=([^;]+)/i);
+  if (m) sessCookie = m[2];
+  if (customId || sessCookie) return `id:${customId || sessCookie}`;
+  const ua = String(req.headers.get('user-agent') || '').slice(0, 80);
+  const lang = String(req.headers.get('accept-language') || '').slice(0, 20);
+  const ch = String(req.headers.get('sec-ch-ua') || '').slice(0, 40);
+  if (ua) return `fp:${ua}|${lang}|${ch}`;
+  return '';
+}
 
 let CACHED_SECURITY_STATE = {
   blockedSet: new Set(),
@@ -123,16 +164,31 @@ const KNOWN_VPN_ASNS = new Set([
   198047, // Ihor Hosting (datacenter)
   60781,  // LeaseWeb
   147049, // HOSTKEY (datacenter)
-  206804  // EstNOC Global / Realcloud OU (datacenter/VPN)
+  206804, // EstNOC Global / Realcloud OU (datacenter/VPN)
+  200052, // Realcloud OU
+  208447, // OVPN
+  54888,  // Equinix / PacketHost
+  213230, // Hetzner Online
+  35540,  // OVH SAS
+  202685, // Hostinger
+  59253,  // Leaseweb Asia
+  49392,  // Datagroup
+  44558,  // Serverius
+  212531, // Quickpacket
+  55286,  // ServerMania
+  206499, // Melbikomas UAB
+  42831,  // UK Dedicated Servers
+  204655, // HostRoyale
+  207083  // Hostinger
 ]);
 
 const RESIDENTIAL_ISP_ALLOWLIST = /\b(jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
 
-const VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton\s*(vpn|ag)|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs)\b/i;
+const VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton\s*(vpn|ag)|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs|realcloud|melbikomas|equinix|gcore|packethost|psychz|dedipath|ovpn|airvpn|torguard|hidemyass|astrill|ivacy|fastvpn|shinjiru|cinipac|blazing\s*seo|iproyal|stormproxies|smartproxy|webshare)\b/i;
 
 // Catch-all datacenter/hosting org detector — matches orgs that look like hosting providers
 // even if they're not in the explicit lists above (e.g. "HERN Labs AB", "Psychz Networks", etc.)
-const DATACENTER_ORG_REGEX = /\b(labs?\s+ab|hosting|datacenter|data\s*center|colocation|colo\b|dedicated|server\s*farm|cloud\s*(host|services?|solutions?)|vps|bare\s*metal|managed\s*server|internet\s*exchange|ix\b|transit|peering|fiber\s*net|network\s*solutions?|cyber\s*hub|tech\s*solutions?|web\s*services?|server\s*solutions?|cloud\s*computing|it\s*infrastructure|noc\b|telecom\s*services?)\b/i;
+const DATACENTER_ORG_REGEX = /\b(labs?\s+ab|hosting|datacenter|data\s*center|colocation|colo\b|dedicated|server\s*farm|cloud\s*(host|services?|solutions?)|vps|bare\s*metal|managed\s*server|internet\s*exchange|ix\b|transit|peering|fiber\s*net|network\s*solutions?|cyber\s*hub|tech\s*solutions?|web\s*services?|server\s*solutions?|cloud\s*computing|it\s*infrastructure|noc\b|telecom\s*services?|ctrls|yotta|webwerks|netmagic|e2e\s*networks|rackbank|pi\s*datacenters)\b/i;
 
 function isPrivateOrDevIp(ip) {
   const s = String(ip || '').trim().toLowerCase();
@@ -168,16 +224,24 @@ function escapeHtmlEdge(str) {
 
 function detectEdgeVpn(req, clientIp) {
   const cf = req.cf || {};
-  const asn = Number(cf.asn || 0);
-  const asOrg = String(cf.asOrganization || cf.as_organization || '').trim();
-  const country = String(cf.country || '').toUpperCase();
-  const city = String(cf.city || '').trim();
-  const region = String(cf.region || '').trim();
+  const asn = Number(cf.asn || req.headers.get('cf-as-number') || req.headers.get('x-asn') || 0);
+  const asOrg = String(cf.asOrganization || cf.as_organization || req.headers.get('cf-as-organization') || '').trim();
+  const country = String(cf.country || req.headers.get('cf-ipcountry') || '').toUpperCase();
+  const city = String(cf.city || req.headers.get('cf-ipcity') || '').trim();
+  const region = String(cf.region || req.headers.get('cf-region') || '').trim();
+  const threatScore = Number(cf.threatScore || cf.threat_score || req.headers.get('cf-threat-score') || 0);
 
   if (!clientIp || isPrivateOrDevIp(clientIp)) {
     return { isVpn: false, reason: '', asn, asOrg, country, city, region };
   }
 
+  // 1. Chained proxy check (multiple IPs in X-Forwarded-For)
+  const xff = String(req.headers.get('x-forwarded-for') || '');
+  if (xff.includes(',')) {
+    return { isVpn: true, reason: 'Chained Proxy Headers (X-Forwarded-For)', asn, asOrg, country, city, region };
+  }
+
+  // 2. Explicit proxy / VPN headers
   const via = String(req.headers.get('via') || '');
   if (
     req.headers.has('x-tor') ||
@@ -185,15 +249,22 @@ function detectEdgeVpn(req, clientIp) {
     req.headers.has('x-proxy-id') ||
     req.headers.has('x-anonymizer') ||
     req.headers.has('forwarded-for-proxy') ||
-    /\b(tor|vpn|proxy|squid|privoxy|hola|urban|psiphon|warp)\b/i.test(via)
+    req.headers.has('proxy-connection') ||
+    req.headers.has('x-real-ip') ||
+    /\b(tor|vpn|proxy|squid|privoxy|hola|urban|psiphon|warp|varnish)\b/i.test(via)
   ) {
     return { isVpn: true, reason: 'VPN / Proxy Header Detected', asn, asOrg, country, city, region };
   }
 
-  if (country === 'T1') {
-    return { isVpn: true, reason: 'Tor Exit Network (T1)', asn, asOrg, country, city, region };
+  // 3. Cloudflare threat score / Tor / Anonymous proxy country flags
+  if (threatScore > 5) {
+    return { isVpn: true, reason: `Cloudflare Threat Flag (Score: ${threatScore})`, asn, asOrg, country, city, region };
+  }
+  if (country === 'T1' || country === 'XX' || country === 'A1' || country === 'A2') {
+    return { isVpn: true, reason: `Tor / Anonymous Proxy Country Code (${country})`, asn, asOrg, country, city, region };
   }
 
+  // 4. Known VPN & Datacenter ASN check
   if (!RESIDENTIAL_ISP_ALLOWLIST.test(asOrg)) {
     if (asn && KNOWN_VPN_ASNS.has(asn)) {
       return {
@@ -229,12 +300,23 @@ function detectEdgeVpn(req, clientIp) {
         region
       };
     }
-    // Final catch-all: non-residential, non-allowlisted ASN with asn > 0
-    // Treat any non-home-ISP connection from outside India as likely datacenter/VPN
-    if (asn > 0 && country !== 'IN' && asOrg && !RESIDENTIAL_ISP_ALLOWLIST.test(asOrg)) {
+    // Any non-residential foreign connection
+    if (country && country !== 'IN' && !RESIDENTIAL_ISP_ALLOWLIST.test(asOrg)) {
       return {
         isVpn: true,
-        reason: `Non-Residential Network (AS${asn} · ${asOrg} · ${country})`,
+        reason: `Non-Residential Foreign Network (${country}${asn ? ' · AS' + asn : ''}${asOrg ? ' · ' + asOrg : ''})`,
+        asn,
+        asOrg,
+        country,
+        city,
+        region
+      };
+    }
+    // Any Indian datacenter/cloud network
+    if (country === 'IN' && asOrg && DATACENTER_ORG_REGEX.test(asOrg)) {
+      return {
+        isVpn: true,
+        reason: `Indian Datacenter / Cloud Proxy (${asOrg})`,
         asn,
         asOrg,
         country,
@@ -577,9 +659,53 @@ export async function onRequest(context) {
     }
 
     // ─────────────────────────────────────────────────────────────
-    // 1. FAST-DROP: Check Temporary DDoS Auto-Ban in Memory
+    // 1. FAST-DROP: Check Temporary DDoS Auto-Bans in Memory
     // ─────────────────────────────────────────────────────────────
+    const subnetKey = getSubnetKey(clientIp);
+    const clientFp = getClientFingerprint(request);
+
     if (!isAllowlisted) {
+      // 1A. Check Subnet Banned (Multi-IP DDoS Attack Source)
+      if (subnetKey && BANNED_SUBNETS.has(subnetKey)) {
+        const subExp = BANNED_SUBNETS.get(subnetKey);
+        if (now < subExp) {
+          AUTO_BANNED_IPS.set(clientIp, subExp);
+          return new Response(null, {
+            status: 429,
+            statusText: "Too Many Requests - Subnet Multi-IP DDoS Blocked",
+            headers: {
+              "Connection": "close",
+              "Retry-After": "7200",
+              "Cache-Control": "no-store",
+              "X-DDoS-Protection": "Subnet-Banned"
+            }
+          });
+        } else {
+          BANNED_SUBNETS.delete(subnetKey);
+        }
+      }
+
+      // 1B. Check Client Fingerprint Banned (IP-Rotating Attacker)
+      if (clientFp && BANNED_FINGERPRINTS.has(clientFp)) {
+        const fpExp = BANNED_FINGERPRINTS.get(clientFp);
+        if (now < fpExp) {
+          AUTO_BANNED_IPS.set(clientIp, fpExp);
+          return new Response(null, {
+            status: 429,
+            statusText: "Too Many Requests - Multi-IP Rotating Attacker Blocked",
+            headers: {
+              "Connection": "close",
+              "Retry-After": "7200",
+              "Cache-Control": "no-store",
+              "X-DDoS-Protection": "Rotating-Attacker-Banned"
+            }
+          });
+        } else {
+          BANNED_FINGERPRINTS.delete(clientFp);
+        }
+      }
+
+      // 1C. Check Individual IP Auto-Ban
       const autoBanUntil = AUTO_BANNED_IPS.get(clientIp);
       if (autoBanUntil) {
         if (now < autoBanUntil) {
@@ -605,6 +731,8 @@ export async function onRequest(context) {
     const isScanner = !isAllowlisted && SUSPICIOUS_PATTERNS.some(pat => pat.test(lowerPath));
     if (isScanner) {
       AUTO_BANNED_IPS.set(clientIp, now + BAN_DURATION_MS);
+      if (subnetKey) BANNED_SUBNETS.set(subnetKey, now + BAN_DURATION_MS);
+      if (clientFp) BANNED_FINGERPRINTS.set(clientFp, now + BAN_DURATION_MS);
       return new Response(null, {
         status: 403,
         statusText: "Forbidden",
@@ -656,30 +784,115 @@ export async function onRequest(context) {
       if (vpnInfo.isVpn) {
         VPN_BANNED_IPS.set(clientIp, { reason: vpnInfo.reason, bannedAt: now });
         secState.blockedSet.add(clientIp);
+        if (subnetKey) BANNED_SUBNETS.set(subnetKey, now + BAN_DURATION_MS);
+        if (clientFp) BANNED_FINGERPRINTS.set(clientFp, now + BAN_DURATION_MS);
         const persistPromise = persistEdgeVpnBan(db, clientIp, vpnInfo, request, pathname);
         if (typeof context.waitUntil === 'function') {
           context.waitUntil(persistPromise);
         } else {
-          await persistPromise;
+          try { await persistPromise; } catch {}
         }
         return makeEdgeForbiddenResponse(
           lowerPath,
-          `Access Denied: VPN / Proxy / Tor usage is strictly prohibited on this site (${vpnInfo.reason}). Your IP (${clientIp}) has been banned immediately.`,
+          `Access Denied: VPN / Proxy / Datacenter usage is strictly prohibited on this site (${vpnInfo.reason}). Your IP (${clientIp}) and subnet have been banned immediately.`,
           { vpn_banned: true, vpn_reason: vpnInfo.reason }
         );
       }
     }
 
     // ─────────────────────────────────────────────────────────────
-    // 4. MULTI-TIERED DDoS RATE LIMITER (Instant Burst & 60s Window)
+    // 4. MULTI-TIERED DDoS RATE LIMITER (Subnet, Multi-IP & Individual Burst)
     // ─────────────────────────────────────────────────────────────
     // Admin devices and allowlisted IPs are completely exempt from DDoS rate limits
     if (!isStaticAsset && !isAllowlisted) {
+      // 4A. Global Velocity Tracking across all unauthenticated requests
+      if (now > GLOBAL_DYNAMIC_RESET_AT) {
+        GLOBAL_DYNAMIC_RESET_AT = now + 1000;
+        GLOBAL_DYNAMIC_COUNT = 1;
+        GLOBAL_UNIQUE_IPS = new Set([clientIp]);
+      } else {
+        GLOBAL_DYNAMIC_COUNT++;
+        GLOBAL_UNIQUE_IPS.add(clientIp);
+      }
+
+      // If >35 dynamic requests/sec from >=4 distinct IPs -> activate Under-DDoS Mode
+      if (GLOBAL_DYNAMIC_COUNT > 35 && GLOBAL_UNIQUE_IPS.size >= 4) {
+        UNDER_DDOS_MODE = true;
+        UNDER_DDOS_UNTIL = now + 15000;
+      } else if (now > UNDER_DDOS_UNTIL) {
+        UNDER_DDOS_MODE = false;
+      }
+
+      // 4B. Client Fingerprint Multi-IP Rotation Tracking
+      // Catches an attacker who rotates/hops across multiple IPs while maintaining same client state
+      if (clientFp) {
+        let rotTracker = CLIENT_ROTATION_TRACKER.get(clientFp);
+        if (!rotTracker || now - rotTracker.firstSeen > 10000) {
+          rotTracker = { ips: new Set([clientIp]), firstSeen: now, reqCount: 1 };
+          CLIENT_ROTATION_TRACKER.set(clientFp, rotTracker);
+        } else {
+          rotTracker.ips.add(clientIp);
+          rotTracker.reqCount++;
+        }
+
+        // If the same client fingerprint hops across >=3 distinct IPs in 10s:
+        if (rotTracker.ips.size >= 3) {
+          BANNED_FINGERPRINTS.set(clientFp, now + BAN_DURATION_MS);
+          for (const bIp of rotTracker.ips) {
+            AUTO_BANNED_IPS.set(bIp, now + BAN_DURATION_MS);
+          }
+          return new Response(null, {
+            status: 429,
+            statusText: "Too Many Requests - Multi-IP Rotating Attacker Banned",
+            headers: {
+              "Connection": "close",
+              "Retry-After": "7200",
+              "Cache-Control": "no-store",
+              "X-DDoS-Protection": "Multi-IP-Hopping-Banned"
+            }
+          });
+        }
+      }
+
+      // 4C. Subnet Multi-IP DDoS Tracking (IPv6 /64 and IPv4 /24)
+      if (subnetKey) {
+        let subTracker = SUBNET_RATE_LIMITS.get(subnetKey);
+        if (!subTracker || now > subTracker.resetAt) {
+          subTracker = { count: 1, resetAt: now + 1000, uniqueIps: new Set([clientIp]) };
+          SUBNET_RATE_LIMITS.set(subnetKey, subTracker);
+        } else {
+          subTracker.count++;
+          subTracker.uniqueIps.add(clientIp);
+        }
+
+        const maxSubnetBurst = UNDER_DDOS_MODE ? 6 : 15;
+        // If >=3 distinct IPs from the same subnet burst in 1 second, or subnet exceeds rate limit:
+        if ((subTracker.uniqueIps.size >= 3 && subTracker.count >= 6) || subTracker.count > maxSubnetBurst) {
+          BANNED_SUBNETS.set(subnetKey, now + BAN_DURATION_MS);
+          for (const sIp of subTracker.uniqueIps) {
+            AUTO_BANNED_IPS.set(sIp, now + BAN_DURATION_MS);
+          }
+          return new Response(null, {
+            status: 429,
+            statusText: "Too Many Requests - Subnet Multi-IP DDoS Attack Blocked",
+            headers: {
+              "Connection": "close",
+              "Retry-After": "7200",
+              "Cache-Control": "no-store",
+              "X-DDoS-Protection": "Subnet-Cluster-Banned"
+            }
+          });
+        }
+      }
+
+      // 4D. Individual Client IP Burst & Sustained Rate Limits
       const method = (request.method || 'GET').toUpperCase();
       const isApiRequest = lowerPath.startsWith('/api/');
       const BOOT_READ_PATHS = new Set(['/api/config', '/api/scores', '/api/feedback', '/api/admin/user-title']);
       const isBootRead = (method === 'GET' || method === 'HEAD') && BOOT_READ_PATHS.has(lowerPath);
-      const API_BURST_MAX_REQS = 50;
+      
+      const BURST_MAX = UNDER_DDOS_MODE ? 3 : BURST_MAX_REQS;
+      const API_BURST_MAX = UNDER_DDOS_MODE ? 4 : API_BURST_MAX_REQS;
       const BOOT_READ_MAX_PER_WINDOW = 300;
 
       let tracker = IP_RATE_LIMITS.get(clientIp);
@@ -709,6 +922,8 @@ export async function onRequest(context) {
 
       const makeDdosBanResponse = (message, statusText, extraHeader) => {
         AUTO_BANNED_IPS.set(clientIp, now + BAN_DURATION_MS);
+        if (subnetKey) BANNED_SUBNETS.set(subnetKey, now + BAN_DURATION_MS);
+        if (clientFp) BANNED_FINGERPRINTS.set(clientFp, now + BAN_DURATION_MS);
         const headers = {
           "Content-Type": "application/json",
           "Connection": "close",
@@ -722,26 +937,26 @@ export async function onRequest(context) {
         );
       };
 
-      // --- 4A. INSTANT 1-SECOND BURST CHECK ---
+      // --- 4E. INSTANT 1-SECOND BURST CHECK ---
       if (!isApiRequest) {
-        if (bumpWindow('burstCount', 'burstResetAt', BURST_WINDOW_MS) > BURST_MAX_REQS) {
+        if (bumpWindow('burstCount', 'burstResetAt', BURST_WINDOW_MS) > BURST_MAX) {
           return makeDdosBanResponse(
-            "DDoS Attack Blocked: Exceeded rate limit (>30 requests in 1 second). Your device IP has been banned temporarily.",
+            `DDoS Attack Blocked: Exceeded rate limit (>${BURST_MAX} requests in 1 second). Your device IP and subnet have been banned temporarily.`,
             "Too Many Requests - DDoS Burst Ban",
             "Burst-Triggered"
           );
         }
       } else if (!isBootRead) {
-        if (bumpWindow('apiBurstCount', 'apiBurstResetAt', BURST_WINDOW_MS) > API_BURST_MAX_REQS) {
+        if (bumpWindow('apiBurstCount', 'apiBurstResetAt', BURST_WINDOW_MS) > API_BURST_MAX) {
           return makeDdosBanResponse(
-            "DDoS Attack Blocked: Exceeded API burst limit. Your device IP has been banned immediately.",
+            `DDoS Attack Blocked: Exceeded API burst limit (>${API_BURST_MAX} requests in 1 second). Your device IP and subnet have been banned immediately.`,
             "Too Many Requests - DDoS Burst Ban",
             "Burst-Triggered"
           );
         }
       }
 
-      // --- 4B. SUSTAINED 60-SECOND WINDOW CHECK ---
+      // --- 4F. SUSTAINED 60-SECOND WINDOW CHECK ---
       if (isBootRead) {
         if (bumpWindow('bootCount', 'bootResetAt', RATE_WINDOW_MS) > BOOT_READ_MAX_PER_WINDOW) {
           return makeDdosBanResponse(
@@ -764,6 +979,16 @@ export async function onRequest(context) {
           if (now > entry.resetAt && now > entry.burstResetAt && now > (entry.apiBurstResetAt || 0) && now > (entry.bootResetAt || 0)) {
             IP_RATE_LIMITS.delete(ipKey);
           }
+        }
+      }
+      if (SUBNET_RATE_LIMITS.size > 1000) {
+        for (const [sKey, entry] of SUBNET_RATE_LIMITS.entries()) {
+          if (now > entry.resetAt) SUBNET_RATE_LIMITS.delete(sKey);
+        }
+      }
+      if (CLIENT_ROTATION_TRACKER.size > 1000) {
+        for (const [fpKey, entry] of CLIENT_ROTATION_TRACKER.entries()) {
+          if (now - entry.firstSeen > 15000) CLIENT_ROTATION_TRACKER.delete(fpKey);
         }
       }
     }
