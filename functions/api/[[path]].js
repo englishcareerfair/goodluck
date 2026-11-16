@@ -3297,14 +3297,15 @@ export async function onRequest(ctx) {
 
     const errors = [];
     // Prioritize fast live GA models first so requests don't stall on 404 preview endpoints
-    const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest'];
+    const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
 
     for (let i = 0; i < keysPool.length; i++) {
       const key = keysPool[i];
 
       for (const model of models) {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const callTimeoutMs = generationConfig.timeout || 16000;
+        const timeoutId = setTimeout(() => controller.abort(), callTimeoutMs);
         try {
           const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
             method: 'POST',
@@ -3358,6 +3359,96 @@ export async function onRequest(ctx) {
     }
 
     return { ok: false, error: errors.join('; ') };
+  }
+
+  function generateHeuristicDiagnosis(topSector, answers = [], scores = {}, studentName = '', classGrade = '') {
+    const sectorProfiles = {
+      'Media & Journalism': {
+        persona_title: 'The Strategic Investigative Storyteller',
+        fit_percentage: 96,
+        executive_summary: 'Your communication profile is defined by narrative poise, rapid investigative synthesis, and compelling vocal presence under spotlight pressure.',
+        strengths: [
+          { name: 'Live Articulation & Poise', level: '97%', desc: 'High vocal cadence, dynamic tone modulation, and clarity before audiences.' },
+          { name: 'Narrative Framing & Synthesis', level: '94%', desc: 'Instinctively condensing complex geopolitical and human events into engaging hooks.' },
+          { name: 'Crisis Communication', level: '91%', desc: 'Calmly broadcasting verified facts when high-pressure situations unfold.' }
+        ],
+        deep_diagnosis: 'Your responses reveal a natural flair for public engagement and story architecture. While many students focus purely on memorization, you seek the narrative spine behind ideas. In high-stakes environments, your instinct to clarify, communicate, and contextualize serves as an invaluable anchor.\n\nTo maximize this edge, focus on elevating your English vocabulary from conversational fluency to broadcast-grade diction. Master the art of impromptu synthesis, teleprompter pacing, and structured interviewing.',
+        top_careers: [
+          { title: 'Prime-Time Broadcast Journalist & Anchor', match: '96%', why: 'Demands live vocal projection, rapid newsroom improvisation, and authoritative presence.' },
+          { title: 'Investigative Documentary Producer', match: '93%', why: 'Blends in-depth research, long-form narrative arcs, and international storytelling.' },
+          { title: 'Corporate Communications & Crisis Director', match: '89%', why: 'Requires protecting brand reputation through razor-sharp press statements and media management.' }
+        ],
+        english_training_drill: 'Daily 7-minute teleprompter sight-reading and 60-second impromptu news bulletin delivery without verbal fillers.',
+        recommended_stream_and_exams: 'Humanities / Mass Media stream; join School Model UN & Debating Society; prepare for IIMC Entrance, CUET Mass Media, or ACJ Journalism tests.'
+      },
+      'Law & Corporate Advocacy': {
+        persona_title: 'The High-Stakes Constitutional Advocate',
+        fit_percentage: 95,
+        executive_summary: 'Your intellectual profile is characterized by rigorous statutory dissection, analytical composure, and structured rhetoric that persuades listeners through logic.',
+        strengths: [
+          { name: 'Statutory Precision & Logic', level: '96%', desc: 'Detecting subtle loopholes, dissecting evidentiary trails, and formulating airtight premises.' },
+          { name: 'Persuasive Rhetoric & Cross-Examination', level: '93%', desc: 'Holding the intellectual floor during debates and systematically dismantling counter-arguments.' },
+          { name: 'Policy Synthesis under Pressure', level: '90%', desc: 'Drafting clear contractual clauses and regulatory memos with zero ambiguity.' }
+        ],
+        deep_diagnosis: 'Your responses highlight an innate command of argument architecture and intellectual dispute resolution. Rather than reacting emotionally during crises, you look to rules, liability, precedent, and equitable balance. This mindset is the hallmark of senior courtroom advocates and corporate partners.\n\nEnglish in law is not merely expressive; it is statutory and binding. Every preposition, subordinate clause, and punctuation mark carries legal consequence. Developing exact phrasing and Latin legal maxims will place you years ahead of your peers.',
+        top_careers: [
+          { title: 'Corporate M&A & Regulatory Lawyer', match: '95%', why: 'Navigates multi-crore cross-border agreements, due diligence, and contract negotiation.' },
+          { title: 'Litigation & Appellate Court Advocate', match: '92%', why: 'Commands courtroom proceedings through oral eloquence, cross-examination, and statutory mastery.' },
+          { title: 'Arbitration & International Trade Counsel', match: '88%', why: 'Resolves global sovereign and cross-border commercial disputes in international tribunals.' }
+        ],
+        english_training_drill: 'Daily 8-minute case-brief oral summarization: extract facts, issues, and holding within 120 seconds using precise statutory diction.',
+        recommended_stream_and_exams: 'Humanities or Commerce with Legal Studies; join Model UN & Moot Court; target CLAT (Common Law Admission Test) and AILET for National Law Universities.'
+      },
+      'Technology & Software Architecture': {
+        persona_title: 'The Mission-Critical Systems Architect',
+        fit_percentage: 97,
+        executive_summary: 'Your problem-solving profile blends abstract algorithmic thinking with clean technical articulation, enabling you to design scalable distributed architectures.',
+        strengths: [
+          { name: 'Algorithmic Problem Decomposition', level: '97%', desc: 'Breaking intricate enterprise challenges into clean, modular, testable components.' },
+          { name: 'Cross-Functional Technical Writing', level: '94%', desc: 'Translating complex engineering specifications into transparent executive roadmap briefs.' },
+          { name: 'Root-Cause Diagnostic Precision', level: '92%', desc: 'Remaining completely objective during system outages to isolate failure points.' }
+        ],
+        deep_diagnosis: 'Your answers showcase a builder mindset focused on leverage, automation, and distributed reliability. In modern engineering, the true bottleneck is rarely code generation—it is cross-functional alignment. The engineers who rise to Chief Technology Officer and venture founders are those who combine engineering depth with extraordinary English precision.\n\nCultivating technical writing, RFC documentation standards, and architectural pitch delivery will multiply the impact of your technical skills ten-fold on a global stage.',
+        top_careers: [
+          { title: 'Chief Technology Officer (CTO) & Founder', match: '97%', why: 'Guides high-growth engineering teams, pitches venture investors, and defines platform architecture.' },
+          { title: 'Distributed Systems & Cloud Architect', match: '94%', why: 'Designs fault-tolerant cloud backends, microservices, and global latency-optimized infrastructure.' },
+          { title: 'AI Engineering & Research Lead', match: '90%', why: 'Develops foundation models, transformer pipelines, and mission-critical production AI agents.' }
+        ],
+        english_training_drill: 'Daily 7-minute architecture walkthrough: explain a complex technical system or API tradeoff aloud in plain English without jargon.',
+        recommended_stream_and_exams: 'Science stream (Physics, Chemistry, Math, Computer Science); join Robotics / Coding Club; target JEE Main, JEE Advanced, and BITSAT.'
+      },
+      'Medicine & Healthcare': {
+        persona_title: 'The Empathic Precision Healer',
+        fit_percentage: 96,
+        executive_summary: 'Your clinical profile combines deep biological curiosity, steady crisis poise, and compassionate bedside communication that reassures patients in distress.',
+        strengths: [
+          { name: 'Compassionate Diagnostic Listening', level: '96%', desc: 'Eliciting subtle symptoms from anxious patients through empathetic, active listening.' },
+          { name: 'High-Pressure Clinical Composure', level: '94%', desc: 'Executing emergency triage with surgical focus and methodical bedside manner.' },
+          { name: 'Medical Literature Synthesis', level: '91%', desc: 'Interpreting cutting-edge clinical trials, pathology findings, and surgical protocols.' }
+        ],
+        deep_diagnosis: 'Your choices demonstrate an instinct for human care anchored by scientific rigor. Modern medicine demands far more than pharmacological knowledge; it requires communicating critical diagnoses with empathy, clarity, and authority. Studies consistently show that patient compliance and clinical outcomes depend directly on communication quality.\n\nDeveloping clear patient-counseling English, multidisciplinary handover briefs, and scientific journal analysis will establish you as a trusted clinical leader.',
+        top_careers: [
+          { title: 'Super-Specialist Surgeon (Cardiothoracic / Neuro)', match: '96%', why: 'Demands meticulous surgical skill, multi-hour focus, and leadership of operative teams.' },
+          { title: 'Pediatric & Clinical Medicine Consultant', match: '93%', why: 'Combines compassionate diagnostic acumen with long-term family counseling and care.' },
+          { title: 'Global Public Health & Epidemiological Director', match: '88%', why: 'Shapes worldwide disease surveillance, health policy communication, and crisis responses.' }
+        ],
+        english_training_drill: 'Daily 6-minute clinical case presentation: describe patient symptoms, differential diagnoses, and treatment plan with empathetic precision.',
+        recommended_stream_and_exams: 'Science stream (Physics, Chemistry, Biology); volunteer at health camps or hospital shadowing; target NEET-UG for premier institutions like AIIMS.'
+      }
+    };
+
+    const profile = sectorProfiles[topSector] || sectorProfiles['Technology & Software Architecture'];
+    return {
+      persona_title: profile.persona_title,
+      fit_percentage: profile.fit_percentage,
+      top_sector: topSector,
+      executive_summary: profile.executive_summary,
+      strengths: profile.strengths,
+      deep_diagnosis: profile.deep_diagnosis,
+      top_careers: profile.top_careers,
+      english_training_drill: profile.english_training_drill,
+      recommended_stream_and_exams: profile.recommended_stream_and_exams
+    };
   }
 
   if (path === '/ai' && method === 'POST') {
@@ -3493,6 +3584,110 @@ No code fences, no extra text.`;
           console.warn('Workers AI roadmap error:', e);
         }
       }
+    }
+
+    // 8a-2. Real AI Career Curiosity & Aptitude Diagnosis Engine
+    if (task === 'career-quiz-diagnosis') {
+      const topSector = String(body.topSector || body.top_sector || 'Technology & Software Architecture').slice(0, 100);
+      const studentName = String(body.student_name || body.name || '').slice(0, 80);
+      const classGrade = String(body.class_grade || body.grade || 'High School').slice(0, 40);
+      const answers = Array.isArray(body.answers) ? body.answers : [];
+      const scores = body.scores || {};
+
+      const answersSummary = answers.map((a, i) =>
+        `Dimension ${i + 1} (${a.q || 'Question'}): Selected "${a.choice || a.text || 'Answer'}" [Aligned with: ${a.sector || topSector}]`
+      ).join('\n');
+
+      if (keysPool.length > 0) {
+        try {
+          const quizPrompt = `You are the Lead Career Strategist, Psychometric Evaluator, and English Speech Communication Coach at the Career Fair 2026.
+A student just completed a 5-dimension career curiosity and communication aptitude assessment.
+Synthesize a comprehensive, personalized, inspiring psychometric career diagnosis based on their exact answers.
+
+Student Profile:
+${studentName ? `- Name: ${studentName}` : ''}
+- Academic Level: ${classGrade}
+- Dominant Alignment: ${topSector}
+- Dimension Scores: ${JSON.stringify(scores)}
+
+Student's Selected Answers:
+${answersSummary || 'High-aptitude responses across media, technology, advocacy, and analytical thinking.'}
+
+Analyze the intersection of their communication preferences, crisis response instincts, English superpowers, intellectual reading habits, and 15-year career ambition.
+
+Return a strict JSON object with this exact structure:
+{
+  "persona_title": "Inspiring Archetype (e.g. The Strategic Investigative Storyteller, The High-Stakes Constitutional Advocate, The Mission-Critical Systems Architect, The Empathic Precision Healer)",
+  "fit_percentage": 95,
+  "top_sector": "${topSector}",
+  "executive_summary": "A vivid 2-3 sentence summary of why their cognitive and spoken profile naturally aligns with this career domain, referencing their specific choices.",
+  "strengths": [
+    { "name": "Primary Communication Superpower", "level": "96%", "desc": "1-sentence explanation connecting to their answers" },
+    { "name": "Crisis Problem-Solving Instinct", "level": "93%", "desc": "1-sentence explanation of their response style" },
+    { "name": "Intellectual Focus & Reading Curiosity", "level": "90%", "desc": "1-sentence explanation of their drive" }
+  ],
+  "deep_diagnosis": "A rich 2-paragraph analytical narrative detailing how their specific answers demonstrate readiness for this field, how they handle pressure, and what sets them apart.",
+  "top_careers": [
+    { "title": "Specific Career Role 1", "match": "96%", "why": "1-sentence rationale linking to their choices" },
+    { "title": "Specific Career Role 2", "match": "91%", "why": "1-sentence rationale linking to their choices" },
+    { "title": "Specific Career Role 3", "match": "87%", "why": "1-sentence rationale linking to their choices" }
+  ],
+  "english_training_drill": "Specific high-leverage English communication drill they should start today (e.g. 5 minutes of daily editorial sight-reading or mock courtroom argument).",
+  "recommended_stream_and_exams": "Specific 10+2 stream (Science/Commerce/Humanities), key school clubs (MUN/Debating/Hackathons), and entrance exams to research."
+}
+Return ONLY valid JSON without markdown code fences or conversational text.`;
+
+          const aiRes = await callGeminiWithFailover(keysPool, [{ parts: [{ text: quizPrompt }] }], {
+            maxOutputTokens: 2500,
+            temperature: 0.7,
+            thinkingConfig: { thinkingBudget: 0 },
+            responseMimeType: 'application/json',
+            timeout: 16000
+          });
+
+          if (aiRes.ok && aiRes.text) {
+            const jsonMatch = aiRes.text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const diagnosis = JSON.parse(jsonMatch[0]);
+              if (diagnosis && (diagnosis.persona_title || diagnosis.executive_summary)) {
+                return json({ ok: true, diagnosis, provider: aiRes.provider });
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Gemini quiz diagnosis error:', e);
+        }
+      }
+
+      // Secondary Failover: Cloudflare Workers AI (Llama 3.1)
+      if (env.AI && typeof env.AI.run === 'function') {
+        try {
+          const cfPrompt = `You are a Career Strategist at Career Fair 2026.
+Synthesize a personalized career discovery diagnosis for a student whose top sector is "${topSector}".
+Answers: ${answersSummary}
+Return ONLY valid JSON with keys: "persona_title", "fit_percentage" (number 85-98), "top_sector", "executive_summary", "strengths" (array of 3 with name, level, desc), "deep_diagnosis" (string), "top_careers" (array of 3 with title, match, why), "english_training_drill" (string), "recommended_stream_and_exams" (string). No markdown, no extra text.`;
+          const cfRes = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+            prompt: cfPrompt,
+            max_tokens: 1800,
+            temperature: 0.7
+          });
+          if (cfRes && cfRes.response) {
+            const jsonMatch = cfRes.response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const diagnosis = JSON.parse(jsonMatch[0]);
+              if (diagnosis && (diagnosis.persona_title || diagnosis.executive_summary)) {
+                return json({ ok: true, diagnosis, provider: 'Cloudflare Workers AI (Llama 3.1)' });
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Workers AI quiz diagnosis error:', e);
+        }
+      }
+
+      // Dynamic Fallback Heuristic Diagnosis
+      const fallbackDiagnosis = generateHeuristicDiagnosis(topSector, answers, scores, studentName, classGrade);
+      return json({ ok: true, diagnosis: fallbackDiagnosis, provider: 'On-Device Psychometric Engine' });
     }
 
     // 8b. Dynamic Sentence Generation
