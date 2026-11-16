@@ -631,7 +631,11 @@ async function checkRequestFlood(req, db, path, method) {
   if (!clientIp) return { banned: false };
 
   const now = Date.now();
-  const subnetKey = getSubnetKey(clientIp);
+  if (EXPLICIT_DDOS_BANNED_IPS.has(clientIp)) {
+    return { banned: true, ip: clientIp, reason: 'Explicit DDoS Attack IP Banned' };
+  }
+
+  const { net: netKey, sub: subnetKey } = getSubnetKeys(clientIp);
   const clientFp = getClientFingerprint(req);
   const BAN_DUR = 2 * 60 * 60 * 1000;
 
@@ -641,6 +645,13 @@ async function checkRequestFlood(req, db, path, method) {
       return { banned: true, ip: clientIp, reason: 'Subnet DDoS Attack Blocked' };
     } else {
       API_BANNED_SUBNETS.delete(subnetKey);
+    }
+  }
+  if (netKey && API_BANNED_SUBNETS.has(netKey)) {
+    if (now < API_BANNED_SUBNETS.get(netKey)) {
+      return { banned: true, ip: clientIp, reason: 'Network Range Multi-IP DDoS Blocked' };
+    } else {
+      API_BANNED_SUBNETS.delete(netKey);
     }
   }
   if (clientFp && API_BANNED_FINGERPRINTS.has(clientFp)) {
@@ -680,27 +691,35 @@ async function checkRequestFlood(req, db, path, method) {
     }
   }
 
-  // Subnet Multi-IP DDoS Burst Check (IPv6 /64 or IPv4 /24)
-  if (subnetKey) {
-    let subTracker = API_SUBNET_RATE_LIMITS.get(subnetKey);
-    if (!subTracker || now > subTracker.resetAt) {
-      subTracker = { count: 1, resetAt: now + 1000, uniqueIps: new Set([clientIp]) };
-      API_SUBNET_RATE_LIMITS.set(subnetKey, subTracker);
+  // Multi-IP Network Cluster & Subnet DDoS Tracking (IPv6 /48 & /64, IPv4 /16 & /24)
+  const trackApiCluster = async (clusterKey, isWide) => {
+    if (!clusterKey) return null;
+    let tracker = API_SUBNET_RATE_LIMITS.get(clusterKey);
+    if (!tracker || now > tracker.resetAt) {
+      tracker = { count: 1, resetAt: now + 1000, uniqueIps: new Set([clientIp]) };
+      API_SUBNET_RATE_LIMITS.set(clusterKey, tracker);
     } else {
-      subTracker.count++;
-      subTracker.uniqueIps.add(clientIp);
+      tracker.count++;
+      tracker.uniqueIps.add(clientIp);
     }
 
-    const maxSubnetBurst = API_UNDER_DDOS_MODE ? 6 : 15;
-    if ((subTracker.uniqueIps.size >= 3 && subTracker.count >= 6) || subTracker.count > maxSubnetBurst) {
-      API_BANNED_SUBNETS.set(subnetKey, now + BAN_DUR);
-      if (clientFp) API_BANNED_FINGERPRINTS.set(clientFp, now + BAN_DUR);
-      for (const sIp of subTracker.uniqueIps) {
+    const maxBurst = API_UNDER_DDOS_MODE ? (isWide ? 4 : 5) : (isWide ? 10 : 12);
+    if ((tracker.uniqueIps.size >= 2 && tracker.count >= 3) || tracker.count > maxBurst) {
+      API_BANNED_SUBNETS.set(clusterKey, now + BAN_DUR);
+      if (subnetKey) API_BANNED_SUBNETS.set(subnetKey, now + BAN_DUR);
+      if (netKey) API_BANNED_SUBNETS.set(netKey, now + BAN_DUR);
+      for (const sIp of tracker.uniqueIps) {
         if (db) try { await blockIpAcrossSite(db, sIp); } catch {}
       }
-      return { banned: true, ip: clientIp, reason: `Subnet Multi-IP DDoS Attack Blocked (${subTracker.uniqueIps.size} IPs in subnet, ${subTracker.count} req/s)` };
+      return { banned: true, ip: clientIp, reason: `Multi-IP Cluster DDoS Attack Blocked (${tracker.uniqueIps.size} IPs in network, ${tracker.count} req/s)` };
     }
-  }
+    return null;
+  };
+
+  const netDrop = await trackApiCluster(netKey, true);
+  if (netDrop) return netDrop;
+  const subDrop = await trackApiCluster(subnetKey, false);
+  if (subDrop) return subDrop;
 
   const isSensitiveOrWrite = !isRead
     || path.startsWith('/admin')
@@ -816,20 +835,50 @@ let API_GLOBAL_UNIQUE_IPS = new Set();
 let API_UNDER_DDOS_MODE = false;
 let API_UNDER_DDOS_UNTIL = 0;
 
-function getSubnetKey(ip) {
-  if (!ip) return '';
+const EXPLICIT_DDOS_BANNED_IPS = new Set([
+  '2606:4700:310c::ac42:2ca2',
+  '2606:4700:310c::ac42:2f5e',
+  '172.66.44.162',
+  '172.66.47.94'
+]);
+
+function expandIpv6(ip) {
+  if (!ip || !ip.includes(':')) return ip;
+  const parts = ip.split('::');
+  if (parts.length === 2) {
+    const head = parts[0] ? parts[0].split(':').filter(Boolean) : [];
+    const tail = parts[1] ? parts[1].split(':').filter(Boolean) : [];
+    const missing = 8 - head.length - tail.length;
+    const zeros = Array(Math.max(0, missing)).fill('0000');
+    const full = [...head, ...zeros, ...tail];
+    return full.map(p => p.padStart(4, '0')).join(':').toLowerCase();
+  }
+  return ip.split(':').map(p => p.padStart(4, '0')).join(':').toLowerCase();
+}
+
+function getSubnetKeys(ip) {
+  if (!ip) return { net: '', sub: '' };
   const s = String(ip).trim();
   if (s.includes(':')) {
-    // IPv6: first 4 segments (/64 subnet prefix)
-    const parts = s.split(':').filter(Boolean);
-    return 'v6:' + parts.slice(0, 4).join(':').toLowerCase();
+    const exp = expandIpv6(s);
+    const parts = exp.split(':');
+    return {
+      net: 'v6_48:' + parts.slice(0, 3).join(':'),
+      sub: 'v6_64:' + parts.slice(0, 4).join(':')
+    };
   }
-  // IPv4: first 3 octets (/24 subnet prefix)
   const parts = s.split('.');
   if (parts.length >= 3) {
-    return 'v4:' + parts.slice(0, 3).join('.');
+    return {
+      net: 'v4_16:' + parts.slice(0, 2).join('.'),
+      sub: 'v4_24:' + parts.slice(0, 3).join('.')
+    };
   }
-  return s;
+  return { net: s, sub: s };
+}
+
+function getSubnetKey(ip) {
+  return getSubnetKeys(ip).sub;
 }
 
 function getClientFingerprint(req) {
@@ -859,11 +908,12 @@ const API_KNOWN_VPN_ASNS = new Set([
   200019, 210558, 138915, 135377, 58466, 3214, 34927, 210320, 206264,
   43350, 35017, 51852, 57169, 61317, 199524, 47447, 198047, 147049, 206804,
   200052, 208447, 54888, 213230, 35540, 202685, 59253, 49392, 44558,
-  212531, 55286, 206499, 42831, 204655, 207083
+  212531, 55286, 206499, 42831, 204655, 207083,
+  62371, 199218, 208172, 206774, 208534, 202422
 ]);
 
 const API_RESIDENTIAL_ISP_ALLOWLIST = /\b(jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
-const API_VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton\s*(vpn|ag)|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs|realcloud|melbikomas|equinix|gcore|packethost|psychz|dedipath|ovpn|airvpn|torguard|hidemyass|astrill|ivacy|fastvpn|shinjiru|cinipac|blazing\s*seo|iproyal|stormproxies|smartproxy|webshare)\b/i;
+const API_VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs|realcloud|melbikomas|equinix|gcore|packethost|psychz|dedipath|ovpn|airvpn|torguard|hidemyass|astrill|ivacy|fastvpn|shinjiru|cinipac|blazing\s*seo|iproyal|stormproxies|smartproxy|webshare)\b/i;
 const API_DATACENTER_ORG_REGEX = /\b(labs?\s+ab|hosting|datacenter|data\s*center|colocation|colo\b|dedicated|server\s*farm|cloud\s*(host|services?|solutions?)|vps|bare\s*metal|managed\s*server|internet\s*exchange|ix\b|transit|peering|fiber\s*net|network\s*solutions?|cyber\s*hub|tech\s*solutions?|web\s*services?|server\s*solutions?|cloud\s*computing|it\s*infrastructure|noc\b|telecom\s*services?|ctrls|yotta|webwerks|netmagic|e2e\s*networks|rackbank|pi\s*datacenters)\b/i;
 
 const TIMEZONE_COUNTRY_HINTS = {
@@ -1000,6 +1050,15 @@ function detectVpnOrProxy(req, clientIp, clientSignals = null) {
 
   if (!clientIp || isPrivateOrDevIp(clientIp)) {
     return base;
+  }
+
+  if (EXPLICIT_DDOS_BANNED_IPS.has(clientIp)) {
+    return { ...base, isVpn: true, reason: 'Explicit DDoS Attack IP Banned' };
+  }
+
+  // Anycast / Datacenter Egress IP check (client browser can never have a Cloudflare/datacenter Anycast IP)
+  if (/^(172\.(6[4-9]|7[0-1])\.|104\.(1[6-9]|2[0-7])\.|162\.15[89]\.|2606:4700:)/i.test(clientIp)) {
+    return { ...base, isVpn: true, reason: `Cloudflare / Anycast Proxy Egress IP (${clientIp})` };
   }
 
   // 1. Chained proxy check (multiple IPs in X-Forwarded-For)
@@ -1329,7 +1388,11 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
     const vCountry = String(v.country || '').toUpperCase();
     let evalVpnReason = '';
 
-    if (vAsn && API_KNOWN_VPN_ASNS.has(vAsn)) {
+    if (EXPLICIT_DDOS_BANNED_IPS.has(cleanIp)) {
+      evalVpnReason = 'Explicit Multi-IP DDoS Attacker IP';
+    } else if (/^(172\.(6[4-9]|7[0-1])\.|104\.(1[6-9]|2[0-7])\.|162\.15[89]\.|2606:4700:)/i.test(cleanIp)) {
+      evalVpnReason = `Cloudflare / Anycast Proxy Egress IP (${cleanIp})`;
+    } else if (vAsn && API_KNOWN_VPN_ASNS.has(vAsn)) {
       evalVpnReason = `VPN / Proxy Network (AS${vAsn}${vIsp ? ' · ' + vIsp : ''})`;
     } else if (vIsp && API_VPN_ORG_REGEX.test(vIsp)) {
       evalVpnReason = `VPN / Anonymizer Network (${vIsp})`;
@@ -2338,9 +2401,29 @@ export async function onRequest(ctx) {
   const clientIp = getClientIp(request);
   let requestIsAdminSession = false;
   if (clientIp) {
-    const subnetKey = getSubnetKey(clientIp);
+    if (EXPLICIT_DDOS_BANNED_IPS.has(clientIp)) {
+      return new Response(null, {
+        status: 403,
+        statusText: 'Forbidden',
+        headers: { 'Connection': 'close', 'Cache-Control': 'no-store, no-cache, max-age=0' }
+      });
+    }
+
+    const { net: netKey, sub: subnetKey } = getSubnetKeys(clientIp);
     const clientFp = getClientFingerprint(request);
     const now = Date.now();
+
+    if (netKey && API_BANNED_SUBNETS.has(netKey)) {
+      if (now < API_BANNED_SUBNETS.get(netKey)) {
+        return new Response(null, {
+          status: 403,
+          statusText: 'Forbidden',
+          headers: { 'Connection': 'close', 'Cache-Control': 'no-store, no-cache, max-age=0' }
+        });
+      } else {
+        API_BANNED_SUBNETS.delete(netKey);
+      }
+    }
 
     // Fast-drop if Subnet or Client Fingerprint was banned for DDoS
     if (subnetKey && API_BANNED_SUBNETS.has(subnetKey)) {

@@ -26,20 +26,50 @@ let GLOBAL_UNIQUE_IPS = new Set();
 let UNDER_DDOS_MODE = false;
 let UNDER_DDOS_UNTIL = 0;
 
-function getSubnetKey(ip) {
-  if (!ip) return '';
+const EXPLICIT_DDOS_BANNED_IPS = new Set([
+  '2606:4700:310c::ac42:2ca2',
+  '2606:4700:310c::ac42:2f5e',
+  '172.66.44.162',
+  '172.66.47.94'
+]);
+
+function expandIpv6(ip) {
+  if (!ip || !ip.includes(':')) return ip;
+  const parts = ip.split('::');
+  if (parts.length === 2) {
+    const head = parts[0] ? parts[0].split(':').filter(Boolean) : [];
+    const tail = parts[1] ? parts[1].split(':').filter(Boolean) : [];
+    const missing = 8 - head.length - tail.length;
+    const zeros = Array(Math.max(0, missing)).fill('0000');
+    const full = [...head, ...zeros, ...tail];
+    return full.map(p => p.padStart(4, '0')).join(':').toLowerCase();
+  }
+  return ip.split(':').map(p => p.padStart(4, '0')).join(':').toLowerCase();
+}
+
+function getSubnetKeys(ip) {
+  if (!ip) return { net: '', sub: '' };
   const s = String(ip).trim();
   if (s.includes(':')) {
-    // IPv6: first 4 segments (/64 subnet prefix)
-    const parts = s.split(':').filter(Boolean);
-    return 'v6:' + parts.slice(0, 4).join(':').toLowerCase();
+    const exp = expandIpv6(s);
+    const parts = exp.split(':');
+    return {
+      net: 'v6_48:' + parts.slice(0, 3).join(':'),
+      sub: 'v6_64:' + parts.slice(0, 4).join(':')
+    };
   }
-  // IPv4: first 3 octets (/24 subnet prefix)
   const parts = s.split('.');
   if (parts.length >= 3) {
-    return 'v4:' + parts.slice(0, 3).join('.');
+    return {
+      net: 'v4_16:' + parts.slice(0, 2).join('.'),
+      sub: 'v4_24:' + parts.slice(0, 3).join('.')
+    };
   }
-  return s;
+  return { net: s, sub: s };
+}
+
+function getSubnetKey(ip) {
+  return getSubnetKeys(ip).sub;
 }
 
 function getClientFingerprint(req) {
@@ -179,12 +209,18 @@ const KNOWN_VPN_ASNS = new Set([
   206499, // Melbikomas UAB
   42831,  // UK Dedicated Servers
   204655, // HostRoyale
-  207083  // Hostinger
+  207083, // Hostinger
+  62371,  // Proton AG (core routing)
+  199218, // Proton AG (ProtonVPN-2)
+  208172, // Proton AG
+  206774, // Proton AG
+  208534, // Proton AG
+  202422  // Feral Hosting / Proton partner
 ]);
 
 const RESIDENTIAL_ISP_ALLOWLIST = /\b(jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
 
-const VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton\s*(vpn|ag)|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs|realcloud|melbikomas|equinix|gcore|packethost|psychz|dedipath|ovpn|airvpn|torguard|hidemyass|astrill|ivacy|fastvpn|shinjiru|cinipac|blazing\s*seo|iproyal|stormproxies|smartproxy|webshare)\b/i;
+const VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs|realcloud|melbikomas|equinix|gcore|packethost|psychz|dedipath|ovpn|airvpn|torguard|hidemyass|astrill|ivacy|fastvpn|shinjiru|cinipac|blazing\s*seo|iproyal|stormproxies|smartproxy|webshare)\b/i;
 
 // Catch-all datacenter/hosting org detector — matches orgs that look like hosting providers
 // even if they're not in the explicit lists above (e.g. "HERN Labs AB", "Psychz Networks", etc.)
@@ -233,6 +269,15 @@ function detectEdgeVpn(req, clientIp) {
 
   if (!clientIp || isPrivateOrDevIp(clientIp)) {
     return { isVpn: false, reason: '', asn, asOrg, country, city, region };
+  }
+
+  if (EXPLICIT_DDOS_BANNED_IPS.has(clientIp)) {
+    return { isVpn: true, reason: 'Explicit DDoS Attack IP Banned', asn, asOrg, country, city, region };
+  }
+
+  // Anycast / Datacenter Egress IP check (client browser can never have a Cloudflare/datacenter Anycast IP)
+  if (/^(172\.(6[4-9]|7[0-1])\.|104\.(1[6-9]|2[0-7])\.|162\.15[89]\.|2606:4700:)/i.test(clientIp)) {
+    return { isVpn: true, reason: `Cloudflare / Anycast Proxy Egress IP (${clientIp})`, asn, asOrg, country, city, region };
   }
 
   // 1. Chained proxy check (multiple IPs in X-Forwarded-For)
@@ -661,8 +706,24 @@ export async function onRequest(context) {
     // ─────────────────────────────────────────────────────────────
     // 1. FAST-DROP: Check Temporary DDoS Auto-Bans in Memory
     // ─────────────────────────────────────────────────────────────
-    const subnetKey = getSubnetKey(clientIp);
+    if (EXPLICIT_DDOS_BANNED_IPS.has(clientIp)) {
+      return makeEdgeForbiddenResponse(lowerPath, "Explicit DDoS Attacker IP Blocked", { ip: clientIp });
+    }
+
+    const { net: netKey, sub: subnetKey } = getSubnetKeys(clientIp);
     const clientFp = getClientFingerprint(request);
+
+    if (netKey && BANNED_SUBNETS.has(netKey)) {
+      if (now < BANNED_SUBNETS.get(netKey)) {
+        return new Response(null, {
+          status: 429,
+          statusText: "Too Many Requests - Network Banned for DDoS",
+          headers: { "Connection": "close", "Retry-After": "7200", "Cache-Control": "no-store" }
+        });
+      } else {
+        BANNED_SUBNETS.delete(netKey);
+      }
+    }
 
     if (!isAllowlisted) {
       // 1A. Check Subnet Banned (Multi-IP DDoS Attack Source)
@@ -854,36 +915,45 @@ export async function onRequest(context) {
         }
       }
 
-      // 4C. Subnet Multi-IP DDoS Tracking (IPv6 /64 and IPv4 /24)
-      if (subnetKey) {
-        let subTracker = SUBNET_RATE_LIMITS.get(subnetKey);
-        if (!subTracker || now > subTracker.resetAt) {
-          subTracker = { count: 1, resetAt: now + 1000, uniqueIps: new Set([clientIp]) };
-          SUBNET_RATE_LIMITS.set(subnetKey, subTracker);
+      // 4C. Multi-IP Network Cluster & Subnet DDoS Tracking (IPv6 /48 & /64, IPv4 /16 & /24)
+      const trackCluster = (clusterKey, isWide) => {
+        if (!clusterKey) return null;
+        let tracker = SUBNET_RATE_LIMITS.get(clusterKey);
+        if (!tracker || now > tracker.resetAt) {
+          tracker = { count: 1, resetAt: now + 1000, uniqueIps: new Set([clientIp]) };
+          SUBNET_RATE_LIMITS.set(clusterKey, tracker);
         } else {
-          subTracker.count++;
-          subTracker.uniqueIps.add(clientIp);
+          tracker.count++;
+          tracker.uniqueIps.add(clientIp);
         }
 
-        const maxSubnetBurst = UNDER_DDOS_MODE ? 6 : 15;
-        // If >=3 distinct IPs from the same subnet burst in 1 second, or subnet exceeds rate limit:
-        if ((subTracker.uniqueIps.size >= 3 && subTracker.count >= 6) || subTracker.count > maxSubnetBurst) {
-          BANNED_SUBNETS.set(subnetKey, now + BAN_DURATION_MS);
-          for (const sIp of subTracker.uniqueIps) {
+        const maxBurst = UNDER_DDOS_MODE ? (isWide ? 4 : 5) : (isWide ? 10 : 12);
+        // If >=2 distinct IPs from the same network cluster burst with >=3 requests in 1 second, or total requests > burst:
+        if ((tracker.uniqueIps.size >= 2 && tracker.count >= 3) || tracker.count > maxBurst) {
+          BANNED_SUBNETS.set(clusterKey, now + BAN_DURATION_MS);
+          if (subnetKey) BANNED_SUBNETS.set(subnetKey, now + BAN_DURATION_MS);
+          if (netKey) BANNED_SUBNETS.set(netKey, now + BAN_DURATION_MS);
+          for (const sIp of tracker.uniqueIps) {
             AUTO_BANNED_IPS.set(sIp, now + BAN_DURATION_MS);
           }
           return new Response(null, {
             status: 429,
-            statusText: "Too Many Requests - Subnet Multi-IP DDoS Attack Blocked",
+            statusText: "Too Many Requests - Multi-IP Cluster DDoS Attack Blocked",
             headers: {
               "Connection": "close",
               "Retry-After": "7200",
               "Cache-Control": "no-store",
-              "X-DDoS-Protection": "Subnet-Cluster-Banned"
+              "X-DDoS-Protection": "Cluster-Multi-IP-Banned"
             }
           });
         }
-      }
+        return null;
+      };
+
+      const netDrop = trackCluster(netKey, true);
+      if (netDrop) return netDrop;
+      const subDrop = trackCluster(subnetKey, false);
+      if (subDrop) return subDrop;
 
       // 4D. Individual Client IP Burst & Sustained Rate Limits
       const method = (request.method || 'GET').toUpperCase();
