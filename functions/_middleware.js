@@ -99,125 +99,378 @@ const CACHE_TTL_MS = 15 * 1000; // 15s memory cache for D1 security lists
 
 // ── VPN, Tor, Proxy & Hosting/Datacenter Detection Tables ──
 const KNOWN_VPN_ASNS = new Set([
-  9009,   // M247 (NordVPN, Surfshark, Proton, Mullvad, PIA, CyberGhost)
-  60068,  // Datacamp Limited / CDN77
-  212238, // Datacamp Limited
-  136787, // Tefincom S.A. (NordVPN)
-  209103, // Proton AG
-  211298, // Proton AG
-  39351,  // 31173 Services AB (Mullvad)
-  198093, // 31173 Services AB (Mullvad)
-  397723, // Mullvad
-  209854, // Surfshark
-  209446, // Surfshark / Proxy egress
-  199610, // CyberGhost / Virtual1
-  396356, // TunnelBear / McAfee VPN
-  62041,  // Privax / HideMyAss
-  397423, // Kape Technologies (PIA / CyberGhost / ExpressVPN)
-  46562,  // Total Server Solutions / PIA
-  394711, // ExpressVPN
-  33438,  // Highwinds / StackPath / IPVanish
-  39572,  // NetProtect / IPVanish
-  208323, // Windscribe
-  398493, // Windscribe
-  202425, // WorldStream
-  206238, // FlokiNET
-  44907,  // Private Layer
-  49981,  // WorldStream
-  53667,  // FranTech / BuyVM
-  60781,  // Leaseweb Netherlands
-  28753,  // Leaseweb Germany
-  14061,  // DigitalOcean
-  20473,  // The Constant Company / Choopa / Vultr
-  24940,  // Hetzner Online
-  16276,  // OVH SAS
-  63949,  // Akamai Connected Cloud / Linode
-  51167,  // Contabo
-  31898,  // Oracle Cloud
-  16509,  // Amazon AWS
-  14618,  // Amazon AES
-  8075,   // Microsoft Azure
-  45102,  // Alibaba Cloud
-  132203, // Tencent Cloud
-  396982, // Google Cloud
-  47583,  // Hostinger International
-  36352,  // ColoCrossing
-  8100,   // QuadraNet
-  36007,  // Kamatera
-  50673,  // Serverius
-  46844,  // Sharktech
-  11878,  // Tzulo
-  21859,  // Zenlayer
-  12876,  // Scaleway
-  202053, // UpCloud
-  8560,   // IONOS
-  398324, // Censys / Scanner Cloud
-  204957, // BrightData / Hola Networks
-  62240,  // Clouvider
-  205016, // HERN Labs AB (datacenter/hosting)
-  174,    // Cogent Communications (transit/datacenter)
-  1299,   // Telia Company AB (transit)
-  3257,   // GTT Communications (transit/datacenter)
-  6939,   // Hurricane Electric (tunnel broker/datacenter)
-  13335,  // Cloudflare (WARP VPN / proxy)
-  32934,  // Facebook/Meta (not residential)
-  15169,  // Google (non-consumer)
-  2906,   // Netflix (non-residential)
-  20940,  // Akamai Technologies (CDN/datacenter)
-  22822,  // Limelight Networks
-  54113,  // Fastly
-  209242, // Cloudflare Spectrum / WARP
-  34665,  // Digital Network JSC (proxy egress)
-  35913,  // DediPath (hosting)
-  40676,  // Psychz Networks (datacenter)
-  25820,  // IT7 Networks (datacenter)
-  7489,   // Hostus (datacenter)
-  26347,  // DreamHost (hosting)
-  32613,  // Iweb Technologies (datacenter)
-  36236,  // NetActuate (hosting)
-  53755,  // Enzu Inc (datacenter)
-  200019, // Cherry Servers (datacenter)
-  210558, // Pacific Internet Exchange (datacenter)
-  138915, // Kaopu Cloud HK (datacenter)
-  135377, // UCLOUD (datacenter)
-  58466,  // CHINANET Yunnan (datacenter)
-  3214,   // xTom GmbH (datacenter)
-  34927,  // iFog GmbH (datacenter)
-  210320, // Greencloud (datacenter)
-  206264, // Amarutu Technology Ltd (datacenter)
-  43350,  // NForce Entertainment (datacenter/hosting)
-  35017,  // Swisscolocation (datacenter)
-  51852,  // Private Layer Inc (VPN)
-  57169,  // HZ Hosting (datacenter)
-  61317,  // Digital Realty / Interxion
-  199524, // G-Core Labs (datacenter)
-  47447,  // 23M GmbH (datacenter)
-  9009,   // M247 Europe SRL
-  198047, // Ihor Hosting (datacenter)
-  60781,  // LeaseWeb
-  147049, // HOSTKEY (datacenter)
-  206804, // EstNOC Global / Realcloud OU (datacenter/VPN)
-  200052, // Realcloud OU
-  208447, // OVPN
-  54888,  // Equinix / PacketHost
-  213230, // Hetzner Online
-  35540,  // OVH SAS
-  202685, // Hostinger
-  59253,  // Leaseweb Asia
-  49392,  // Datagroup
-  44558,  // Serverius
-  212531, // Quickpacket
-  55286,  // ServerMania
-  206499, // Melbikomas UAB
-  42831,  // UK Dedicated Servers
-  204655, // HostRoyale
-  207083, // Hostinger
-  62371,  // Proton AG (core routing)
-  199218, // Proton AG (ProtonVPN-2)
-  208172, // Proton AG
-  206774, // Proton AG
-  208534, // Proton AG
-  202422  // Feral Hosting / Proton partner
+  611,
+  1101,
+  1610,
+  2514,
+  3223,
+  3257,
+  3352,
+  3462,
+  4224,
+  4314,
+  4766,
+  4837,
+  5545,
+  5578,
+  6461,
+  6939,
+  7015,
+  7385,
+  7684,
+  7738,
+  7979,
+  8075,
+  8100,
+  8151,
+  8342,
+  8560,
+  8595,
+  8764,
+  8772,
+  9009,
+  9123,
+  10753,
+  11721,
+  11878,
+  12389,
+  12552,
+  12695,
+  12722,
+  12816,
+  12876,
+  12880,
+  13213,
+  13335,
+  13768,
+  14061,
+  14618,
+  14956,
+  14987,
+  15317,
+  15626,
+  16125,
+  16276,
+  16509,
+  18779,
+  18978,
+  20454,
+  20473,
+  21100,
+  21334,
+  21769,
+  21859,
+  23724,
+  24669,
+  24940,
+  25046,
+  25369,
+  25490,
+  25513,
+  25549,
+  26496,
+  26548,
+  26832,
+  27176,
+  27284,
+  27947,
+  28412,
+  28513,
+  28550,
+  28753,
+  29066,
+  29182,
+  29226,
+  29802,
+  30836,
+  30893,
+  31200,
+  31898,
+  32613,
+  33837,
+  33993,
+  34224,
+  34665,
+  34787,
+  34832,
+  34989,
+  35816,
+  35916,
+  36007,
+  36183,
+  36352,
+  36680,
+  38731,
+  39043,
+  39238,
+  39392,
+  39690,
+  40065,
+  40355,
+  40663,
+  40676,
+  41079,
+  41281,
+  41535,
+  41564,
+  42237,
+  42708,
+  42730,
+  42831,
+  42926,
+  43226,
+  43289,
+  43317,
+  43350,
+  43641,
+  43647,
+  44050,
+  44559,
+  44812,
+  44925,
+  45027,
+  45090,
+  45102,
+  45701,
+  45899,
+  46261,
+  46562,
+  46664,
+  46844,
+  47066,
+  47583,
+  47702,
+  47913,
+  48030,
+  48031,
+  48090,
+  48282,
+  48287,
+  48300,
+  48347,
+  48614,
+  48693,
+  48988,
+  49063,
+  49453,
+  49492,
+  49505,
+  49791,
+  49825,
+  50053,
+  50113,
+  50214,
+  50245,
+  50304,
+  50340,
+  50613,
+  50979,
+  51167,
+  51248,
+  51290,
+  51396,
+  51747,
+  51765,
+  51783,
+  51852,
+  52053,
+  53667,
+  53831,
+  54538,
+  54990,
+  55286,
+  55990,
+  56630,
+  56655,
+  56694,
+  56803,
+  56971,
+  57169,
+  58061,
+  58065,
+  58087,
+  58461,
+  58519,
+  59253,
+  59504,
+  59592,
+  59651,
+  59729,
+  60068,
+  60389,
+  60404,
+  60729,
+  60781,
+  61125,
+  61317,
+  61400,
+  61976,
+  62082,
+  62240,
+  62282,
+  62370,
+  62567,
+  62874,
+  63023,
+  63199,
+  63473,
+  63949,
+  64200,
+  64249,
+  64267,
+  64286,
+  132153,
+  132203,
+  132817,
+  133301,
+  133944,
+  134768,
+  135340,
+  135377,
+  136195,
+  136557,
+  136787,
+  136907,
+  137280,
+  137409,
+  138915,
+  139201,
+  140389,
+  150436,
+  154177,
+  197540,
+  197695,
+  197706,
+  198093,
+  198953,
+  199058,
+  199242,
+  199950,
+  200000,
+  200019,
+  200044,
+  200130,
+  200195,
+  200197,
+  200373,
+  200590,
+  200593,
+  200651,
+  200740,
+  201229,
+  201341,
+  202018,
+  202044,
+  202053,
+  202109,
+  202306,
+  202425,
+  202496,
+  202635,
+  202656,
+  202984,
+  203020,
+  203999,
+  204490,
+  204916,
+  204957,
+  204997,
+  205007,
+  205016,
+  205090,
+  205100,
+  205125,
+  205301,
+  205467,
+  205516,
+  205659,
+  206216,
+  206264,
+  206411,
+  206986,
+  207990,
+  208226,
+  208323,
+  208677,
+  209605,
+  209709,
+  209847,
+  209854,
+  209974,
+  210558,
+  210644,
+  210731,
+  210756,
+  210906,
+  210976,
+  211027,
+  211298,
+  211590,
+  211619,
+  211680,
+  211720,
+  212136,
+  212238,
+  212286,
+  212317,
+  212477,
+  212667,
+  212913,
+  213220,
+  213230,
+  213250,
+  213520,
+  213535,
+  213802,
+  213861,
+  213873,
+  213877,
+  214159,
+  214196,
+  214209,
+  214238,
+  214503,
+  214902,
+  214940,
+  214943,
+  214996,
+  215125,
+  215540,
+  215590,
+  215659,
+  215730,
+  215859,
+  215925,
+  216071,
+  216246,
+  216253,
+  329272,
+  393406,
+  394362,
+  394711,
+  394814,
+  395092,
+  395954,
+  396319,
+  396356,
+  396507,
+  396982,
+  397336,
+  397373,
+  398101,
+  398324,
+  398705,
+  398712,
+  399486,
+  399629,
+  399646,
+  400175,
+  400536,
+  400992,
+  401115,
+  401116,
+  401120,
+  401152,
 ]);
 
 const RESIDENTIAL_ISP_ALLOWLIST = /\b(fast\s*4|fast\s*4\s*technologies|jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
