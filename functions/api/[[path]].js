@@ -593,6 +593,11 @@ async function pruneExpiredDdosBans(db) {
         ipsToUnban.push(ip);
       }
     }
+    for (const uIp of UNBANNED_IPS) {
+      if (bans[uIp] || (tracker && tracker[uIp])) {
+        if (!ipsToUnban.includes(uIp)) ipsToUnban.push(uIp);
+      }
+    }
 
     if (ipsToUnban.length > 0) {
       const removeSet = new Set(ipsToUnban);
@@ -606,6 +611,9 @@ async function pruneExpiredDdosBans(db) {
       for (const ip of ipsToUnban) {
         delete bans[ip];
         if (tracker[ip]) delete tracker[ip];
+        try {
+          await db.prepare("UPDATE live_visitors SET is_banned=0, is_vpn=0 WHERE ip=?").bind(ip).run();
+        } catch {}
       }
       GLOBAL_CACHE.banned_ips = nextBanned;
       GLOBAL_CACHE.admin_blocked_ips = nextAdminBlocked;
@@ -632,8 +640,8 @@ async function checkRequestFlood(req, db, path, method) {
   if (!clientIp) return { banned: false };
 
   const now = Date.now();
-  if (EXPLICIT_DDOS_BANNED_IPS.has(clientIp)) {
-    return { banned: true, ip: clientIp, reason: 'Explicit DDoS Attack IP Banned' };
+  if (UNBANNED_IPS.has(clientIp)) {
+    return { banned: false };
   }
 
   if (ADMIN_OWN_IPS.includes(clientIp)) {
@@ -755,7 +763,7 @@ let API_GLOBAL_UNIQUE_IPS = new Set();
 let API_UNDER_DDOS_MODE = false;
 let API_UNDER_DDOS_UNTIL = 0;
 
-const EXPLICIT_DDOS_BANNED_IPS = new Set([
+const UNBANNED_IPS = new Set([
   '2606:4700:310c::ac42:2ca2',
   '2606:4700:310c::ac42:2f5e',
   '172.66.44.162',
@@ -968,12 +976,8 @@ function detectVpnOrProxy(req, clientIp, clientSignals = null) {
   const threatScore = Number(cf.threatScore || cf.threat_score || (req && req.headers ? req.headers.get('cf-threat-score') : 0) || 0);
   const base = { isVpn: false, reason: '', asn, asOrg, country, city, region };
 
-  if (!clientIp || isPrivateOrDevIp(clientIp) || ADMIN_OWN_IPS.includes(clientIp)) {
+  if (!clientIp || isPrivateOrDevIp(clientIp) || ADMIN_OWN_IPS.includes(clientIp) || UNBANNED_IPS.has(clientIp)) {
     return base;
-  }
-
-  if (EXPLICIT_DDOS_BANNED_IPS.has(clientIp)) {
-    return { ...base, isVpn: true, reason: 'Explicit DDoS Attack IP Banned' };
   }
 
 
@@ -1280,13 +1284,11 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
     const vCountry = String(v.country || '').toUpperCase();
     let evalVpnReason = '';
 
-    if (ADMIN_OWN_IPS.includes(cleanIp)) {
+    if (ADMIN_OWN_IPS.includes(cleanIp) || UNBANNED_IPS.has(cleanIp)) {
       isBanned = false;
       isVpn = false;
       vpnReason = '';
       blockedSet.delete(cleanIp);
-    } else if (EXPLICIT_DDOS_BANNED_IPS.has(cleanIp)) {
-      evalVpnReason = 'Explicit Multi-IP DDoS Attacker IP';
     } else if (vAsn && API_KNOWN_VPN_ASNS.has(vAsn)) {
       evalVpnReason = `VPN / Proxy Network (AS${vAsn}${vIsp ? ' · ' + vIsp : ''})`;
     } else if (vIsp && API_VPN_ORG_REGEX.test(vIsp)) {
@@ -2294,14 +2296,6 @@ export async function onRequest(ctx) {
   const clientIp = getClientIp(request);
   let requestIsAdminSession = clientIp ? ADMIN_OWN_IPS.includes(clientIp) : false;
   if (clientIp) {
-    if (EXPLICIT_DDOS_BANNED_IPS.has(clientIp)) {
-      return new Response(null, {
-        status: 403,
-        statusText: 'Forbidden',
-        headers: { 'Connection': 'close', 'Cache-Control': 'no-store, no-cache, max-age=0' }
-      });
-    }
-
     if (ADMIN_OWN_IPS.includes(clientIp)) {
       requestIsAdminSession = true;
     }
@@ -6274,7 +6268,7 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     } catch (secErr) {
       console.error('D1 Security records export error:', secErr);
     }
-    const combinedBannedIps = Array.from(new Set([...bannedIps, ...adminBlockedIps, ...EXPLICIT_DDOS_BANNED_IPS])).filter(Boolean);
+    const combinedBannedIps = Array.from(new Set([...bannedIps, ...adminBlockedIps])).filter(ip => !UNBANNED_IPS.has(ip));
 
     if (format === 'csv') {
       const headers = [
