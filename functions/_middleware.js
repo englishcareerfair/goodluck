@@ -1,4 +1,11 @@
 const ADMIN_OWN_IPS = [];
+const UNBANNED_IPS = new Set([
+  '2606:4700:310c::ac42:2ca2',
+  '2606:4700:310c::ac42:2f5e',
+  '172.66.44.162',
+  '172.66.47.94'
+]);
+
 /**
  * Cloudflare Pages Edge Middleware
  * High-Performance Anti-DDoS, Edge Rate Limiter & Zero-Usage Shield
@@ -27,13 +34,6 @@ let UNDER_DDOS_UNTIL = 0;
 AUTO_BANNED_IPS.clear();
 VPN_BANNED_IPS.clear();
 IP_RATE_LIMITS.clear();
-
-const UNBANNED_IPS = new Set([
-  '2606:4700:310c::ac42:2ca2',
-  '2606:4700:310c::ac42:2f5e',
-  '172.66.44.162',
-  '172.66.47.94'
-]);
 
 function expandIpv6(ip) {
   if (!ip || !ip.includes(':')) return ip;
@@ -352,6 +352,7 @@ function makeEdgeForbiddenResponse(lowerPath, message, extra = {}) {
 // ── DDoS Defense Thresholds: Multi-Tiered Intelligent Protection ──
 const BURST_WINDOW_MS = 1000;          // 1-second burst inspection window
 const BURST_MAX_REQS = 30;              // Maximum 30 non-API dynamic requests in 1 second
+const API_BURST_MAX_REQS = 50;          // Maximum 50 API requests in 1 second
 const RATE_WINDOW_MS = 60 * 1000;      // 60-second sliding inspection window
 const MAX_REQUESTS_PER_WINDOW = 300;   // Max 300 requests in 60s
 const BAN_DURATION_MS = 2 * 60 * 60 * 1000; // 2 hours temporary ban on violation
@@ -641,6 +642,7 @@ async function persistEdgeVpnBan(db, clientIp, vpnInfo, request, pathname) {
 }
 
 export async function onRequest(context) {
+  try {
   const { request, env, next } = context;
 
   // Never block CORS preflight
@@ -880,5 +882,9 @@ export async function onRequest(context) {
     }
   }
 
-  return next();
+    return await next();
+  } catch (err) {
+    console.error('Middleware execution error caught safely:', err);
+    return context.next();
+  }
 }

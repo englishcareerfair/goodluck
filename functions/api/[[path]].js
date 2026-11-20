@@ -1,4 +1,11 @@
 const ADMIN_OWN_IPS = [];
+const UNBANNED_IPS = new Set([
+  '2606:4700:310c::ac42:2ca2',
+  '2606:4700:310c::ac42:2f5e',
+  '172.66.44.162',
+  '172.66.47.94'
+]);
+
 /**
  * Career Fair: Every Career Speaks English — Cloudflare Pages Functions
  * Unified Single-File Backend Router for all /api/* routes
@@ -762,13 +769,6 @@ let API_GLOBAL_DYNAMIC_RESET_AT = 0;
 let API_GLOBAL_UNIQUE_IPS = new Set();
 let API_UNDER_DDOS_MODE = false;
 let API_UNDER_DDOS_UNTIL = 0;
-
-const UNBANNED_IPS = new Set([
-  '2606:4700:310c::ac42:2ca2',
-  '2606:4700:310c::ac42:2f5e',
-  '172.66.44.162',
-  '172.66.47.94'
-]);
 
 function expandIpv6(ip) {
   if (!ip || !ip.includes(':')) return ip;
@@ -2258,6 +2258,7 @@ function resolveD1Database(env) {
 // ─── Main Router ─────────────────────────────────────────────────────────────
 
 export async function onRequest(ctx) {
+  try {
   const { request, env } = ctx;
   const url = new URL(request.url);
   const path = url.pathname.replace(/^\/api/, '').replace(/\/$/, '') || '/';
@@ -6550,5 +6551,12 @@ Instructions: ${prompt || 'Provide constructive, inspiring, and concise guidance
     }
   }
 
-  return err('Route not found', 404);
+    return err('Route not found', 404);
+  } catch (err) {
+    console.error('API Router uncaught error:', err);
+    return new Response(JSON.stringify({ error: 'Internal Server Error', message: String(err?.message || err) }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+    });
+  }
 }
