@@ -16087,11 +16087,14 @@ function initAdminWorkspace() {
       const _adminTok = (typeof getActiveAdminToken === 'function') ? getActiveAdminToken() : '';
       if (_adminTok) vHeaders['Authorization'] = 'Bearer ' + _adminTok;
 
+      const keysToSend = combinedKeys.length ? combinedKeys : (effectiveKey && effectiveKey !== 'configured' ? [effectiveKey] : []);
+      const reqBody = keysToSend.length ? { keysPool: keysToSend } : {};
+
       // Query voice list securely through backend proxy without exposing raw xi-api-key header in client inspector
       const res = await fetch(getApiUrl('api/tts/voices'), {
         method: 'POST',
         headers: vHeaders,
-        body: JSON.stringify({})
+        body: JSON.stringify(reqBody)
       });
 
       const data = await safeJsonResponse(res);

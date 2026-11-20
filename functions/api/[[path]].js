@@ -571,6 +571,9 @@ const DDOS_BURST_MIGRATION_KEY = 'ddos_burst_bugfix_v2';
 async function pruneExpiredDdosBans(db) {
   if (!db) return;
   try {
+    try {
+      await db.prepare("UPDATE live_visitors SET is_banned=0, is_vpn=0, vpn_reason='' WHERE asn IN (13335, 209242) OR LOWER(isp) LIKE '%cloudflare%' OR LOWER(vpn_reason) LIKE '%13335%' OR LOWER(vpn_reason) LIKE '%cloudflare%'").run();
+    } catch {}
     const [rawBans, migrationDone] = await Promise.all([
       kvGet(db, 'brute_force_bans', ''),
       GLOBAL_CACHE.ddos_burst_bugfix_v2 ? Promise.resolve('1') : kvGet(db, DDOS_BURST_MIGRATION_KEY, '')
@@ -831,8 +834,8 @@ const API_KNOWN_VPN_ASNS = new Set([
   28753, 14061, 20473, 24940, 16276, 63949, 51167, 31898, 16509, 14618,
   8075, 45102, 132203, 396982, 47583, 36352, 8100, 36007, 50673, 46844,
   11878, 21859, 12876, 202053, 8560, 398324, 204957, 62240, 205016,
-  174, 1299, 3257, 6939, 13335, 32934, 15169, 2906, 20940, 22822, 54113,
-  209242, 34665, 35913, 40676, 25820, 7489, 26347, 32613, 36236, 53755,
+  174, 1299, 3257, 6939, 32934, 15169, 2906, 20940, 22822, 54113,
+  34665, 35913, 40676, 25820, 7489, 26347, 32613, 36236, 53755,
   200019, 210558, 138915, 135377, 58466, 3214, 34927, 210320, 206264,
   43350, 35017, 51852, 57169, 61317, 199524, 47447, 198047, 147049, 206804,
   200052, 208447, 54888, 213230, 35540, 202685, 59253, 49392, 44558,
@@ -841,7 +844,7 @@ const API_KNOWN_VPN_ASNS = new Set([
 ]);
 
 const API_RESIDENTIAL_ISP_ALLOWLIST = /\b(fast\s*4|fast\s*4\s*technologies|jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
-const API_VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs|realcloud|melbikomas|equinix|gcore|packethost|psychz|dedipath|ovpn|airvpn|torguard|hidemyass|astrill|ivacy|fastvpn|shinjiru|cinipac|blazing\s*seo|iproyal|stormproxies|smartproxy|webshare)\b/i;
+const API_VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs|realcloud|melbikomas|equinix|gcore|packethost|psychz|dedipath|ovpn|airvpn|torguard|hidemyass|astrill|ivacy|fastvpn|shinjiru|cinipac|blazing\s*seo|iproyal|stormproxies|smartproxy|webshare)\b/i;
 const API_DATACENTER_ORG_REGEX = /\b(labs?\s+ab|colocation|dedicated\s*servers?|server\s*farm|bare\s*metal|managed\s*server|cloud\s*(host|solutions?)|vps|ctrls|yotta|webwerks|netmagic|e2e\s*networks|rackbank|pi\s*datacenters)\b/i;
 
 const TIMEZONE_COUNTRY_HINTS = {
@@ -976,7 +979,8 @@ function detectVpnOrProxy(req, clientIp, clientSignals = null) {
   const threatScore = Number(cf.threatScore || cf.threat_score || (req && req.headers ? req.headers.get('cf-threat-score') : 0) || 0);
   const base = { isVpn: false, reason: '', asn, asOrg, country, city, region };
 
-  if (!clientIp || isPrivateOrDevIp(clientIp) || ADMIN_OWN_IPS.includes(clientIp) || UNBANNED_IPS.has(clientIp)) {
+  const isCloudflare = (asn === 13335 || asn === 209242 || /\bcloudflare\b/i.test(asOrg));
+  if (isCloudflare || !clientIp || isPrivateOrDevIp(clientIp) || ADMIN_OWN_IPS.includes(clientIp) || UNBANNED_IPS.has(clientIp)) {
     return base;
   }
 
@@ -1054,7 +1058,7 @@ function detectVpnOrProxy(req, clientIp, clientSignals = null) {
       }
     }
 
-    if (countryMismatch && !isResidential && (asn === 13335 || /\b(cloud|host|vps|server|colo|transit|cdn|datacenter|virtual|proxy|vpn|warp)\b/i.test(asOrg))) {
+    if (countryMismatch && !isResidential && !isCloudflare && /\b(cloud|host|vps|server|colo|transit|cdn|datacenter|virtual|proxy|vpn|warp)\b/i.test(asOrg)) {
       return {
         ...base,
         isVpn: true,
@@ -1284,7 +1288,8 @@ async function getVisitorsForAdminDashboard(db, callerIp) {
     const vCountry = String(v.country || '').toUpperCase();
     let evalVpnReason = '';
 
-    if (ADMIN_OWN_IPS.includes(cleanIp) || UNBANNED_IPS.has(cleanIp)) {
+    const isCloudflare = (vAsn === 13335 || vAsn === 209242 || /\bcloudflare\b/i.test(vIsp));
+    if (isCloudflare || ADMIN_OWN_IPS.includes(cleanIp) || UNBANNED_IPS.has(cleanIp)) {
       isBanned = false;
       isVpn = false;
       vpnReason = '';

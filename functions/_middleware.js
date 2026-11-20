@@ -159,14 +159,12 @@ const KNOWN_VPN_ASNS = new Set([
   1299,   // Telia Company AB (transit)
   3257,   // GTT Communications (transit/datacenter)
   6939,   // Hurricane Electric (tunnel broker/datacenter)
-  13335,  // Cloudflare (WARP VPN / proxy)
   32934,  // Facebook/Meta (not residential)
   15169,  // Google (non-consumer)
   2906,   // Netflix (non-residential)
   20940,  // Akamai Technologies (CDN/datacenter)
   22822,  // Limelight Networks
   54113,  // Fastly
-  209242, // Cloudflare Spectrum / WARP
   34665,  // Digital Network JSC (proxy egress)
   35913,  // DediPath (hosting)
   40676,  // Psychz Networks (datacenter)
@@ -222,7 +220,7 @@ const KNOWN_VPN_ASNS = new Set([
 
 const RESIDENTIAL_ISP_ALLOWLIST = /\b(fast\s*4|fast\s*4\s*technologies|jio|reliance\s*jio|bharti\s*airtel|airtel|vodafone|vi\s+india|idea\s+cellular|bsnl|mtnl|act\s*corp|atria\s*convergence|hathway|tikona|excitel|you\s*broadband|alliance\s*broadband|gtpl|tata\s*(communications|teleservices|play|sky|fiber)|comcast|xfinity|verizon|at&t|t-mobile|charter|spectrum|cox\s*comm|bt\s*group|british\s*telecom|virgin\s*media|sky\s*uk|rogers|bell\s*canada|telus|deutsche\s*telekom|orange|telefonica|ntt|softbank|kddi|optus|telstra|singtel|starhub)\b/i;
 
-const VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|cloudflare\s*warp|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs|realcloud|melbikomas|equinix|gcore|packethost|psychz|dedipath|ovpn|airvpn|torguard|hidemyass|astrill|ivacy|fastvpn|shinjiru|cinipac|blazing\s*seo|iproyal|stormproxies|smartproxy|webshare)\b/i;
+const VPN_ORG_REGEX = /\b(vpn|tor\s*exit|proxy|webproxy|socks|anonymiz|proton|mullvad|nordvpn|tefincom|surfshark|expressvpn|cyberghost|windscribe|tunnelbear|private\s*internet|hotspot\s*shield|psiphon|ultrasurf|betternet|hola\s*vpn|urban\s*vpn|adguard\s*vpn|m247|datacamp|cdn77|choopa|vultr|digitalocean|hetzner|ovh|linode|contabo|leaseweb|colocrossing|quadranet|frantech|buyvm|hostinger|kamatera|serverius|zenlayer|sharktech|tzulo|scaleway|upcloud|ionos|privax|vyprvpn|strongvpn|purevpn|ipvanish|clouvider|bright\s*data|oxylabs|estnoc|hern\s*labs|realcloud|melbikomas|equinix|gcore|packethost|psychz|dedipath|ovpn|airvpn|torguard|hidemyass|astrill|ivacy|fastvpn|shinjiru|cinipac|blazing\s*seo|iproyal|stormproxies|smartproxy|webshare)\b/i;
 
 // Catch-all datacenter/hosting org detector — matches orgs that look like hosting providers
 // even if they're not in the explicit lists above (e.g. "HERN Labs AB", "Psychz Networks", etc.)
@@ -269,7 +267,8 @@ function detectEdgeVpn(req, clientIp) {
   const region = String(cf.region || req.headers.get('cf-region') || '').trim();
   const threatScore = Number(cf.threatScore || cf.threat_score || req.headers.get('cf-threat-score') || 0);
 
-  if (!clientIp || isPrivateOrDevIp(clientIp) || ADMIN_OWN_IPS.includes(clientIp) || UNBANNED_IPS.has(clientIp)) {
+  const isCloudflare = (asn === 13335 || asn === 209242 || /\bcloudflare\b/i.test(asOrg));
+  if (isCloudflare || !clientIp || isPrivateOrDevIp(clientIp) || ADMIN_OWN_IPS.includes(clientIp) || UNBANNED_IPS.has(clientIp)) {
     return { isVpn: false, reason: '', asn, asOrg, country, city, region };
   }
 
@@ -484,10 +483,11 @@ async function getEdgeSecurityCache(db, force = false) {
           .bind(JSON.stringify(cleanedBanned)).run();
         await db.prepare("INSERT INTO kv (k,v) VALUES ('brute_force_bans',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v")
           .bind(JSON.stringify(bfObj)).run();
-        // Also clear live_visitors banned flag for unbanned IPs
+        // Also clear live_visitors banned flag for unbanned IPs and Cloudflare IPs
         for (const ip of unbanList) {
           await db.prepare("UPDATE live_visitors SET is_banned=0, is_vpn=0 WHERE ip=?").bind(ip).run();
         }
+        await db.prepare("UPDATE live_visitors SET is_banned=0, is_vpn=0, vpn_reason='' WHERE asn IN (13335, 209242) OR LOWER(isp) LIKE '%cloudflare%' OR LOWER(vpn_reason) LIKE '%13335%' OR LOWER(vpn_reason) LIKE '%cloudflare%'").run();
       } catch {}
     }
 
